@@ -8,6 +8,11 @@ STRICT RULES:
 1. Language Filter: If a job mandates fluent/native Japanese or JLPT N1/N2, rank it at the absolute bottom (F-Tier).
 2. Relevance: Match the core skills of the candidate against the tech stack in the job description.
 3. Summary: Provide a very concise, 1-sentence summary of the actual work.
+4. Experience Match (HARD RULE — must be enforced): Compare the numeric experience requirement extracted from the job against the candidate's `experience_years` value in the profile.
+   - If the job's minimum required years > candidate's `experience_years`: the candidate does NOT meet the requirement. This job MUST be ranked C-Tier or below. Never rank such jobs at A-Tier or S-Tier.
+   - If the job's required years <= candidate's `experience_years`: this is a good or acceptable match. Do not penalize.
+   - If no experience requirement is found, treat as neutral.
+   - Example: If candidate has `experience_years: 3` and a job requires "8+ years", that job MUST be C-Tier or lower — never A-Tier or S-Tier.
 
 OUTPUT FORMAT:
 Output a valid Markdown table with the following columns EXACTLY:

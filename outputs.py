@@ -2,7 +2,7 @@ import csv
 import re
 import requests
 from datetime import datetime
-from config import DISCORD_WEBHOOK_URL
+from config import DISCORD_WEBHOOK_URL, DISCORD_TOP_N_JOBS
 
 class ExportHandler:
     @staticmethod
@@ -46,7 +46,7 @@ class ExportHandler:
         color_map = {"S": 3066993, "A": 3447003, "B": 15844367, "C": 15105570, "F": 15158332}
         embeds_batch = []
 
-        for line in lines[2:]:
+        for line in lines[2:2 + DISCORD_TOP_N_JOBS]:
             cells = [cell.strip() for cell in line.split('|')[1:-1]]
             if len(cells) < 8:
                 continue

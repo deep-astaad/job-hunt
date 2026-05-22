@@ -2,7 +2,7 @@
     {
         "id": "backend_dev",
         "title": "Backend Software Engineer",
-        "experience": "3 years",
+        "experience": "2 years",
         "core_skills": [
             "Python",
             "Django",
@@ -20,7 +20,7 @@
     {
         "id": "cloud_infra",
         "title": "CloudOps Engineer / Solutions Architect",
-        "experience": "2 years",
+        "experience": "1 year",
         "core_skills": [
             "AWS",
             "CloudOps",
