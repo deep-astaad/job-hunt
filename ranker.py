@@ -26,7 +26,7 @@ class JobRankerAI:
         user_content = f"CANDIDATE PROFILE:\n{json.dumps(selected_profile, indent=2)}\n\nJOB DATA:\n{json.dumps(minimized_jobs, indent=2)}"
 
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano-2025-04-14",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
