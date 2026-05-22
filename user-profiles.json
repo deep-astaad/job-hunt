@@ -1,0 +1,31 @@
+[
+    {
+        "id": "backend_dev",
+        "title": "Backend Software Engineer",
+        "experience": "3 years",
+        "core_skills": [
+            "Python",
+            "Django",
+            "Go",
+            "PostgreSQL",
+            "Docker",
+            "AWS"
+        ],
+        "language_requirements": "English only. No mandatory Japanese.",
+        "preferences": "Looking for heavy backend architecture roles, microservices, API development."
+    },
+    {
+        "id": "cloud_infra",
+        "title": "Cloud / DevOps Engineer",
+        "experience": "2 years",
+        "core_skills": [
+            "AWS",
+            "Terraform",
+            "CI/CD",
+            "Linux",
+            "Python scripts"
+        ],
+        "language_requirements": "English business level. Basic Japanese is okay but not required.",
+        "preferences": "Infrastructure as code, platform engineering, container orchestration."
+    }
+]

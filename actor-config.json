@@ -1,0 +1,13 @@
+[
+    {
+        "actor_id": "misceres/indeed-scraper",
+        "input": {
+            "country": "JP",
+            "location": "Tokyo",
+            "maxItemsPerSearch": 15,
+            "parseCompanyDetails": false,
+            "position": "(\"Software Engineer\" OR \"Backend\" OR \"Cloud\") AND (\"English\" OR \"Visa\")",
+            "saveOnlyUniqueItems": true
+        }
+    }
+]
