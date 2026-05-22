@@ -4,7 +4,7 @@ from crawlee.crawlers import PlaywrightCrawler
 from crawlee import Request
 
 # FIX: Removed the '.' before routes
-from routes import router
+from my_actor.routes import router
 
 async def main() -> None:
     crawler = PlaywrightCrawler(
@@ -12,6 +12,9 @@ async def main() -> None:
         # max_concurrency=5,
         # max_requests_per_crawl=50, 
         headless=True,
+        browser_launch_options={
+            "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+        }
     )
 
     await crawler.add_requests([
