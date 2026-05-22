@@ -1,0 +1,8 @@
+{
+    "actorSpecification": 1,
+    "name": "japan-tech-job-scraper",
+    "title": "Japan-Dev & TokyoDev English Job Scraper",
+    "version": "1.0",
+    "dockerfile": "./Dockerfile",
+    "readme": "./README.md"
+}

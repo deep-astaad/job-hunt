@@ -16,7 +16,7 @@ async def main() -> None:
 
     await crawler.add_requests([
         Request.from_url('https://japan-dev.com/jobs-in-japan-for-english-speakers', label='JAPAN_DEV_LIST'),
-        # Request.from_url('https://www.tokyodev.com/jobs?query%5B%5D=&japanese_requirement%5B%5D=none&salary=', label='TOKYO_DEV_LIST')
+        Request.from_url('https://www.tokyodev.com/jobs?query%5B%5D=&japanese_requirement%5B%5D=none&salary=', label='TOKYO_DEV_LIST')
     ])
 
     print('Starting the crawl...')
