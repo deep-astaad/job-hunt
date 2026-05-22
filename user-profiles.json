@@ -6,26 +6,31 @@
         "core_skills": [
             "Python",
             "Django",
-            "Go",
+            "Celery",
+            "Kafka",
+            "Web Scraping",
+            "AI Integration",
             "PostgreSQL",
             "Docker",
             "AWS"
         ],
         "language_requirements": "English only. No mandatory Japanese.",
-        "preferences": "Looking for heavy backend architecture roles, microservices, API development."
+        "preferences": "Strictly heavy backend architecture, asynchronous task processing, data pipelines, and AI integration. No front-end development."
     },
     {
         "id": "cloud_infra",
-        "title": "Cloud / DevOps Engineer",
+        "title": "CloudOps Engineer / Solutions Architect",
         "experience": "2 years",
         "core_skills": [
             "AWS",
+            "CloudOps",
+            "Solutions Architecture",
             "Terraform",
             "CI/CD",
             "Linux",
             "Python scripts"
         ],
         "language_requirements": "English business level. Basic Japanese is okay but not required.",
-        "preferences": "Infrastructure as code, platform engineering, container orchestration."
+        "preferences": "AWS infrastructure design, platform engineering, and container orchestration."
     }
 ]

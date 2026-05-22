@@ -1,0 +1,36 @@
+import json
+from openai import OpenAI
+from config import OPENAI_API_KEY
+
+class JobRankerAI:
+    def __init__(self):
+        self.client = OpenAI(api_key=OPENAI_API_KEY)
+
+    def _read_file(self, filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+
+    def _load_json(self, filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def generate_rankings(self, minimized_jobs, profile_id="backend_dev"):
+        """Matches data vectors against a target profile via gpt-4o-mini."""
+        system_prompt = self._read_file("system-prompt.txt")
+        profiles = self._load_json("user-profiles.json")
+        
+        # Pull matching profile dictionary block
+        selected_profile = next((p for p in profiles if p["id"] == profile_id), profiles[0])
+        print(f"🧠 Phase 3: Commencing AI analysis against target profile layout: {selected_profile['title']}")
+
+        user_content = f"CANDIDATE PROFILE:\n{json.dumps(selected_profile, indent=2)}\n\nJOB DATA:\n{json.dumps(minimized_jobs, indent=2)}"
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=0.2
+        )
+        return response.choices[0].message.content, selected_profile["title"]
