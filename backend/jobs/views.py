@@ -1,15 +1,34 @@
 import hashlib
+from datetime import date
 
+import django_filters
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Count
+from django.db.models import Count, Case, When, Value, IntegerField
 from .models import Job, JobRanking
 from .serializers import (
     JobSerializer,
     JobListSerializer,
     JobRankingSerializer,
+    TodayRankedJobSerializer,
 )
+
+
+class TodayRankedJobFilter(django_filters.FilterSet):
+    profile_id = django_filters.CharFilter(field_name="rankings__profile_id")
+    tiers = django_filters.CharFilter(method="filter_tiers")
+
+    class Meta:
+        model = Job
+        fields = ["profile_id", "tiers"]
+
+    def filter_tiers(self, queryset, name, value):
+        tiers = [t.strip().upper() for t in value.split(",") if t.strip()]
+        if tiers:
+            return queryset.filter(rankings__match_tier__in=tiers)
+        return queryset
 
 
 class JobViewSet(viewsets.ModelViewSet):
@@ -91,6 +110,57 @@ class JobViewSet(viewsets.ModelViewSet):
             "active_jobs": active,
             "by_source": by_source,
             "by_tier": by_tier,
+        })
+
+    @action(detail=False, methods=["get"], url_path="today-ranked")
+    def today_ranked(self, request):
+        today = date.today()
+
+        tiers_param = request.query_params.get("tiers", "S,A")
+        tiers = [t.strip().upper() for t in tiers_param.split(",") if t.strip()] or ["S", "A"]
+
+        # Apply FilterSet for profile_id and tiers filtering
+        base_qs = Job.objects.filter(is_active=True, scraped_at__date=today).distinct()
+        filterset = TodayRankedJobFilter(request.query_params, queryset=base_qs)
+        jobs = filterset.qs.prefetch_related("rankings")
+
+        # Sort: requested tiers in order (S first, A second, etc.), then by rank
+        tier_sort_map = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
+        tier_order = Case(
+            *[When(rankings__match_tier=t, then=Value(tier_sort_map.get(t, 99))) for t in tiers],
+            default=Value(99),
+            output_field=IntegerField(),
+        )
+        jobs = jobs.annotate(_tier_order=tier_order).order_by("_tier_order", "rankings__rank")
+
+        # Attach ranking metadata for serializer
+        rankings_filter = Q(match_tier__in=tiers)
+        profile_id = request.query_params.get("profile_id")
+        if profile_id:
+            rankings_filter &= Q(profile_id=profile_id)
+
+        results = []
+        for job in jobs:
+            matching_rankings = job.rankings.filter(rankings_filter)
+            primary = matching_rankings.order_by(
+                Case(
+                    *[When(match_tier=t, then=Value(tier_sort_map.get(t, 99))) for t in tiers],
+                    default=Value(99),
+                    output_field=IntegerField(),
+                ),
+                "rank"
+            ).first()
+            if not primary:
+                continue
+            job._primary_ranking = primary
+            job._matched_rankings = list(matching_rankings)
+            results.append(job)
+
+        serializer = TodayRankedJobSerializer(results, many=True)
+        return Response({
+            "count": len(results),
+            "date": today.isoformat(),
+            "results": serializer.data,
         })
 
 

@@ -69,5 +69,10 @@ def main():
 
     print(f"\n🏁 Process Finished. Historical run recorded under: {target_directory}/")
 
+    # 6. Send S/A ranked jobs to Discord
+    print("\n📡 Sending S/A ranked jobs to Discord...")
+    for profile_id in PROFILE_IDS:
+        ExportHandler.post_tiered_jobs_from_api(profile_id=profile_id)
+
 if __name__ == "__main__":
     main()
