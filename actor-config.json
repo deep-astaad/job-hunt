@@ -14,7 +14,7 @@
   {
     "actor_id": "jungle_synthesizer/japan-dev-scraper",
     "input": {
-      "maxItems": 100,
+      "maxItems": 300,
       "searchQuery": "Python"
     }
   },
@@ -32,49 +32,18 @@
   {
     "actor_id": "curious_coder/linkedin-jobs-scraper",
     "input": {
-      "count": 100,
+      "count": 200,
       "scrapeCompany": false,
-      "splitByLocation": true,
+      "splitByLocation": false,
       "splitCountry": "JP",
       "urls": [
-        "https://www.linkedin.com/jobs/search/?keywords=Python+English&location=Tokyo%2C+Japan&f_TPR=r86400",
-        "https://www.linkedin.com/jobs/search/?keywords=AWS+DevOps+English&location=Tokyo%2C+Japan&f_TPR=r86400",
-        "https://www.linkedin.com/jobs/search/?keywords=Django+Backend+English&location=Tokyo%2C+Japan&f_TPR=r86400",
-        "https://www.linkedin.com/jobs/search/?keywords=Cloud+Solutions+Architect+English&location=Tokyo%2C+Japan&f_TPR=r86400"
+          "https://www.linkedin.com/jobs/search?keywords=Python%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
+          "https://www.linkedin.com/jobs/search?keywords=Backend%20Engineer%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
+          "https://www.linkedin.com/jobs/search?keywords=AWS%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
+          "https://www.linkedin.com/jobs/search?keywords=Cloud%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
+        "https://www.linkedin.com/jobs/search?keywords=Software%20Engineer%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0"
       ],
       "saveOnlyUniqueItems": true
-    }
-  },
-  {
-    "actor_id": "unfenced-group/daijob-scraper",
-    "input": {
-      "daysOld": 1,
-      "language": "english",
-      "maxItems": 100,
-      "skipReposts": true,
-      "startUrls": [
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=Backend&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        },
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=Python&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        },
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=Software+Developer&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        },
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=Software+Engineer&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        },
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=AWS&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        },
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=Cloud&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        },
-        {
-          "url": "https://www.daijob.com/en/jobs/search_result?keywords=DevOps&keyword_flags[]=1&keyword_flags[]=2&working_a_locations[]=230&working_a_locations[]=102&working_a_locations[]=118&job_search_form_hidden=1"
-        }
-      ]
     }
   }
 ]
