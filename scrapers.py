@@ -35,12 +35,42 @@ class JobScraperPipeline:
         """Standardizes dynamic keys across multiple distinct community scrapers."""
         minimized_jobs = []
         for job in raw_jobs:
+            title = (
+                job.get("title")
+                or job.get("position")
+                or job.get("standardizedTitle")
+                or "Unknown"
+            )
+            company = (
+                job.get("company")
+                or job.get("companyName")
+                or job.get("company_name")
+                or "Unknown"
+            )
+            url = (
+                job.get("url")
+                or job.get("jobUrl")
+                or job.get("link")
+                or job.get("applyUrl")
+                or ""
+            )
+            salary = (
+                job.get("salary")
+                or job.get("salaryInsights", {}).get("salaryString", "")
+                or "Not listed"
+            )
+            description = (
+                job.get("description")
+                or job.get("descriptionText")
+                or str(job.get("descriptionHtml", ""))[:1500]
+                or ""
+            )
             minimized_jobs.append({
-                "title": job.get("title", job.get("position", "Unknown")),
-                "company": job.get("company", "Unknown"),
-                "url": job.get("url", job.get("jobUrl", "Unknown")),
-                "salary": job.get("salary", "Not listed"),
-                "description": str(job.get("description", ""))[:1500]  # Cap length for token budgeting
+                "title": title,
+                "company": company,
+                "url": url,
+                "salary": salary if salary else "Not listed",
+                "description": str(description)[:1500],  # Cap length for token budgeting
             })
         print(f"🧹 Phase 2: Flattened and cleaned {len(minimized_jobs)} job objects.")
         return minimized_jobs
