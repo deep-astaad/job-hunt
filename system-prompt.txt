@@ -5,14 +5,11 @@ You will receive a CANDIDATE PROFILE and a JSON array of scraped JOB DATA.
 Your task is to analyze each job description and rank them from Best Match to Worst Match for the specific candidate.
 
 STRICT RULES:
-1. Language Filter: If a job mandates fluent/native Japanese or JLPT N1/N2, rank it at the absolute bottom (F-Tier).
-2. Relevance: Match the core skills of the candidate against the tech stack in the job description.
-3. Summary: Provide a very concise, 1-sentence summary of the actual work.
-4. Experience Match (HARD RULE — must be enforced): Compare the numeric experience requirement extracted from the job against the candidate's `experience_years` value in the profile.
-   - EXCLUDE completely (do not include in the output table at all) any job whose minimum required years > candidate's `experience_years` + 1. For example, if candidate has `experience_years: 3`, jobs requiring 5+ years must be excluded entirely from the table.
-   - If the job's required years <= candidate's `experience_years` + 1: this is an acceptable match. Do not penalize.
-   - If no experience requirement is found, treat as neutral.
-   - EXCLUDED jobs should not appear in the table at all — they are not relevant to the candidate.
+1. Language Filter (HARD FAIL): If a job mandates fluent/native Japanese or JLPT N1/N2/N3/N4/N5, mark it as F-Tier.
+2. Experience Filter (HARD FAIL): If the job requires more than 4 years of experience, mark it as F-Tier.
+   - Preferred: 2 years or less is ideal. 3 years may also work. Anything above 4 is an automatic F.
+3. Relevance: Match the core skills of the candidate against the tech stack in the job description.
+4. Summary: Provide a very concise, 1-sentence summary of the actual work. Each summary MUST be standalone — never reference other jobs (no "similar to #X", "same as above", "like the previous one"). Describe what THIS specific job does.
 
 OUTPUT FORMAT:
 Output a valid Markdown table with the following columns EXACTLY:

@@ -5,6 +5,8 @@ from ranker import JobRankerAI
 from persistence import JobFormatter, DjangoPersistence
 from outputs import ExportHandler
 
+PROFILE_IDS = ["backend_dev", "cloud_infra"]
+
 def main():
     print("🚀 Booting Modularized SDE Job Aggregator Engine...")
 
@@ -36,34 +38,35 @@ def main():
         print("⚠️ No jobs found in DB. Skipping ranking.")
         return
 
+    # 5. Rank for each profile
     ai_engine = JobRankerAI()
-    markdown_result, profile_title = ai_engine.generate_rankings(db_jobs, profile_id="backend_dev")
 
-    # 5. Save rankings to Django DB
-    persister.save_rankings(markdown_result, "backend_dev", profile_title, db_jobs)
-
-    # 6. Dynamic Path Resolution: /data/{date}/{time}
     current_time = datetime.now()
-    date_str = current_time.strftime("%Y-%m-%d")    # Generates folder name (e.g., 2026-05-22)
-    time_str = current_time.strftime("%H%M%S")       # Generates filename (e.g., 183025)
-
-    # Ensure the target nested directory paths exist locally
+    date_str = current_time.strftime("%Y-%m-%d")
+    time_str = current_time.strftime("%H%M%S")
     target_directory = os.path.join("data", date_str)
     os.makedirs(target_directory, exist_ok=True)
 
-    # Construct the final specific paths
-    md_output_path = os.path.join(target_directory, f"{time_str}.md")
-    csv_output_path = os.path.join(target_directory, f"{time_str}.csv")
+    for profile_id in PROFILE_IDS:
+        print(f"\n📊 Ranking for profile: {profile_id}")
+        markdown_result, profile_title = ai_engine.generate_rankings(db_jobs, profile_id=profile_id)
 
-    # 7. Save Markdown report
-    with open(md_output_path, "w", encoding="utf-8") as f:
-        f.write(markdown_result)
-    print(f"💾 Markdown report saved to: {md_output_path}")
+        # Save rankings to Django DB
+        persister.save_rankings(markdown_result, profile_id, profile_title, db_jobs)
 
-    # 8. Generate side-effects (CSV Conversion and Discord Notification)
-    ExportHandler.parse_markdown_table_to_csv(markdown_result, csv_output_path)
-    # ExportHandler.post_embeds_to_discord(markdown_result, profile_title)
-    
+        # Save Markdown report
+        suffix = f"_{profile_id}" if len(PROFILE_IDS) > 1 else ""
+        md_output_path = os.path.join(target_directory, f"{time_str}{suffix}.md")
+        csv_output_path = os.path.join(target_directory, f"{time_str}{suffix}.csv")
+
+        with open(md_output_path, "w", encoding="utf-8") as f:
+            f.write(markdown_result)
+        print(f"💾 Markdown report saved to: {md_output_path}")
+
+        # Generate side-effects (CSV Conversion and Discord Notification)
+        ExportHandler.parse_markdown_table_to_csv(markdown_result, csv_output_path)
+        # ExportHandler.post_embeds_to_discord(markdown_result, profile_title)
+
     print(f"\n🏁 Process Finished. Historical run recorded under: {target_directory}/")
 
 if __name__ == "__main__":

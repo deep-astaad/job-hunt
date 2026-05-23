@@ -23,6 +23,46 @@ class JobRankerAI:
         match = re.search(r'(\d+)', experience_str)
         return int(match.group(1)) if match else None
 
+    @staticmethod
+    def _apply_hard_rules(rows):
+        """Override tier to F for jobs requiring Japanese or >4 years experience."""
+        filtered = []
+        for row in rows:
+            # Index 4 = Exp. Req, Index 5 = Language (EN/JP)
+            exp_text = row[4].lower() if len(row) > 4 else ""
+            lang_text = row[5].lower() if len(row) > 5 else ""
+
+            is_jp_required = any(kw in lang_text for kw in ["jp", "japanese", "jlpt"])
+            exp_years = JobRankerAI._parse_experience_years(exp_text)
+            is_experienced = exp_years is not None and exp_years > 4
+
+            if is_jp_required or is_experienced:
+                row[1] = "F"
+
+            filtered.append(row)
+        return filtered
+
+    _COMPARATIVE_RE = re.compile(
+        r'similar to|#\d|same as (?:above|the|this)|like the (?:previous|above|same)',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _fix_summaries(rows, jobs_by_url):
+        """Replace comparative/lazy summaries with the job's actual description."""
+        for row in rows:
+            url_cell = row[7] if len(row) > 7 else ""
+            url_match = re.search(r'\((https?://[^\)]+)\)', url_cell)
+            if not url_match:
+                continue
+            url = url_match.group(1)
+            summary = row[6] if len(row) > 6 else ""
+            if JobRankerAI._COMPARATIVE_RE.search(summary):
+                job_desc = jobs_by_url.get(url, {}).get("description", "")
+                if job_desc:
+                    row[6] = job_desc[:200]
+        return rows
+
     def _parse_ranking_table(self, markdown_text):
         """Extract structured rows from a ranking markdown table."""
         lines = [l.strip() for l in markdown_text.strip().split('\n') if l.strip().startswith('|')]
@@ -99,6 +139,7 @@ class JobRankerAI:
             try:
                 table = self._rank_batch(batch, selected_profile, system_prompt)
                 rows = self._parse_ranking_table(table)
+                rows = self._apply_hard_rules(rows)
                 all_rows.extend(rows)
                 print(f"   ✅ Batch {i + 1}: {len(rows)} jobs ranked")
             except Exception as e:
@@ -120,13 +161,24 @@ class JobRankerAI:
                     merged = merged.split("```")[1] if merged.count("```") >= 2 else merged
                     if merged.strip().startswith("markdown"):
                         merged = merged.strip().split("\n", 1)[1] if "\n" in merged else merged
+                # Re-parse merged table to fix comparative summaries
+                merged_rows = self._parse_ranking_table(merged)
+                jobs_by_url = {j["url"]: j for j in minimized_jobs if j.get("url")}
+                merged_rows = self._fix_summaries(merged_rows, jobs_by_url)
+                header = "| Rank | Match Tier (S/A/B/C/F) | Job Title & Company | Salary Range | Exp. Req | Language (EN/JP) | JD Summary | URL |"
+                separator = "|------|------------------------|---------------------|--------------|----------|-------------------|------------|-----|"
+                rows_str = "\n".join([f"| {'|'.join(r)} |" for r in merged_rows])
                 print("   ✅ Merge complete.")
-                return merged.strip(), selected_profile["title"]
+                return "\n".join([header, separator, rows_str]), selected_profile["title"]
             except Exception as e:
                 print(f"   ⚠️ Merge failed: {e}. Falling back to raw concatenated tables.")
 
         # Single batch or merge failed -- just concatenate
         header = "| Rank | Match Tier (S/A/B/C/F) | Job Title & Company | Salary Range | Exp. Req | Language (EN/JP) | JD Summary | URL |"
         separator = "|------|------------------------|---------------------|--------------|----------|-------------------|------------|-----|"
+
+        # Fix comparative summaries with actual job descriptions
+        jobs_by_url = {j["url"]: j for j in minimized_jobs if j.get("url")}
+        all_rows = self._fix_summaries(all_rows, jobs_by_url)
         rows_str = "\n".join([f"| {'|'.join(r)} |" for r in all_rows])
         return "\n".join([header, separator, rows_str]), selected_profile["title"]
