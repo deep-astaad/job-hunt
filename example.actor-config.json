@@ -1,6 +1,7 @@
 [
   {
     "actor_id": "misceres/indeed-scraper",
+    "source": "indeed",
     "input": {
       "country": "JP",
       "followApplyRedirects": false,
@@ -13,6 +14,7 @@
   },
   {
     "actor_id": "jungle_synthesizer/japan-dev-scraper",
+    "source": "japan_dev",
     "input": {
       "maxItems": 100,
       "searchQuery": "Python"
@@ -20,6 +22,7 @@
   },
   {
     "actor_id": "jungle_synthesizer/tokyo-dev-scraper",
+    "source": "tokyo_dev",
     "input": {
       "japaneseRequired": "no-japanese-required",
       "maxItems": 100,
@@ -31,6 +34,7 @@
   },
   {
     "actor_id": "curious_coder/linkedin-jobs-scraper",
+    "source": "linkedin",
     "input": {
       "count": 200,
       "scrapeCompany": false,
@@ -48,6 +52,7 @@
   },
   {
     "actor_id": "unfenced-group/daijob-scraper",
+    "source": "daijob",
     "input": {
       "daysOld": 1,
       "language": "english",
@@ -80,6 +85,7 @@
   },
   {
     "actor_id": "astaad/japan-tech-scraper",
+    "source": "custom",
     "input": {
         "start_urls": [
             {

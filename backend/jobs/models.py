@@ -28,11 +28,13 @@ class Job(models.Model):
     description = models.TextField(blank=True, default="")
     full_description = models.TextField(blank=True, default="")
     tech_stack = models.JSONField(null=True, blank=True)
+    raw_data = models.JSONField(null=True, blank=True)
 
     language = models.CharField(max_length=5, choices=LANGUAGE_CHOICES, null=True, blank=True)
     experience_required = models.CharField(max_length=100, blank=True, default="")
 
     is_active = models.BooleanField(default=True)
+    is_formatted = models.BooleanField(default=False, db_index=True)
 
     scraped_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -43,6 +45,7 @@ class Job(models.Model):
             models.Index(fields=["source"]),
             models.Index(fields=["company"]),
             models.Index(fields=["is_active"]),
+            models.Index(fields=["is_formatted"]),
         ]
 
     def __str__(self):

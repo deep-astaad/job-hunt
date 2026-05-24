@@ -70,6 +70,8 @@ class JobViewSet(viewsets.ModelViewSet):
                         "tech_stack": job_data.get("tech_stack"),
                         "language": job_data.get("language"),
                         "experience_required": job_data.get("experience_required", ""),
+                        "is_formatted": job_data.get("is_formatted", False),
+                        "raw_data": job_data.get("raw_data"),
                     },
                 )
                 if was_created:

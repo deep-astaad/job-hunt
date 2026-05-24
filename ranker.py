@@ -80,7 +80,7 @@ class JobRankerAI:
         user_content = f"CANDIDATE PROFILE:\n{json.dumps(profile, indent=2)}\n\nJOB DATA:\n{json.dumps(batch, indent=2)}"
 
         response = self.client.chat.completions.create(
-            model="gpt-4.1-nano-2025-04-14",
+            model="gpt-5.4-nano-2026-03-17",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
@@ -109,7 +109,7 @@ class JobRankerAI:
         )
 
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5.4-nano-2026-03-17",
             messages=[
                 {"role": "system", "content": merge_prompt},
                 {"role": "user", "content": combined_table},

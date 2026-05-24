@@ -18,12 +18,15 @@ app.config_from_object({
     'task_track_started': True,
     'task_acks_late': True,
     'worker_prefetch_multiplier': 1,
-    'task_soft_time_limit': 300,
-    'task_time_limit': 360,
+    'task_soft_time_limit': 900,
+    'task_time_limit': 960,
 })
 
-# Explicitly import task modules to register them
+# Explicitly import task modules to register tasks with the worker.
+# autodiscover_tasks(['tasks']) looks for a `tasks.tasks` submodule by default,
+# which doesn't exist here — our tasks live in pipeline/scraping/formatting/ranking.
+# These imports come after `app` is defined, so no circular import issue.
+import tasks.pipeline  # noqa: F401
 import tasks.scraping  # noqa: F401
 import tasks.formatting  # noqa: F401
 import tasks.ranking  # noqa: F401
-import tasks.pipeline  # noqa: F401

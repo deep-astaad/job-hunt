@@ -1,5 +1,6 @@
 .env
 /venv
+/.venv
 /__pycache__
 /data
 /custom
@@ -7,3 +8,4 @@ backend/db.sqlite3
 backend/staticfiles/
 backend/__pycache__/
 backend/**/__pycache__/
+*.pyc

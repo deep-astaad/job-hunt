@@ -15,9 +15,9 @@ def normalize_url(url):
 class JobFormatter:
     """Processes each raw Apify job through gpt-4o-mini to format it as a Job model entry."""
 
-    SYSTEM_PROMPT = """You are a job data formatter. You receive raw job data scraped from a job board.
+    SYSTEM_PROMPT = """You are a job data formatter. You receive the full raw JSON object scraped from a job board.
 
-Transform the raw data into a structured job object with these fields:
+The raw JSON may come from different sources (LinkedIn, Indeed, Japan Dev, Tokyo Dev, etc.) and will have different field names. Extract and standardize into these fields:
 - title: Job title string
 - company: Company name string
 - url: The job listing URL
@@ -28,14 +28,14 @@ Transform the raw data into a structured job object with these fields:
   * tokyodev.com -> "tokyo_dev"
   * daijob.com -> "daijob"
   * Anything else -> "custom"
-- salary: Salary string from the data, or empty string ""
+- salary: Build a human-readable salary string from ANY salary fields in the raw data (e.g. salaryMin/salaryMax/salaryCurrency, salaryInsights, salaryString, compensation, etc.). If no salary info exists, return "".
 - description: A concise 1-2 sentence summary of the role (max 500 chars)
-- full_description: The complete job description text
+- full_description: The complete job description text from the raw data
 - tech_stack: JSON array of technology names found in the description (max 10). Empty array [] if none.
 - language: "EN" or "JP". Use "JP" if the description contains Japanese characters (hiragana, katakana, kanji). Otherwise "EN".
 - experience_required: Minimum years of experience as a string (e.g. "3 years"). Empty string "" if not mentioned.
 
-Return ONLY a valid JSON object with these exact keys. No markdown fences, no commentary."""
+IMPORTANT: Look at ALL fields in the raw JSON for salary, description, and company info — field names vary by source. Return ONLY a valid JSON object with these exact keys. No markdown fences, no commentary."""
 
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
@@ -43,7 +43,7 @@ Return ONLY a valid JSON object with these exact keys. No markdown fences, no co
     def format_job(self, raw_job):
         """Send one raw job to gpt-4o-mini and return the formatted Job model object."""
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5.4-nano-2026-03-17",
             messages=[
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(raw_job, indent=2, default=str)},
@@ -108,6 +108,27 @@ class DjangoPersistence:
     JOBS_URL = f"{DJANGO_API_URL}/api/jobs/bulk_create/"
     RANKINGS_URL = f"{DJANGO_API_URL}/api/rankings/bulk_create/"
     JOBS_SEARCH_URL = f"{DJANGO_API_URL}/api/jobs/"
+
+    def fetch_unformatted_jobs(self):
+        """Fetch today's jobs that haven't been formatted yet."""
+        from datetime import date
+        today = date.today().isoformat()
+        all_jobs = []
+        url = f"{self.JOBS_SEARCH_URL}?is_formatted=false&updated_at__date={today}&page_size=100"
+        while url:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            all_jobs.extend(data.get("results", []))
+            url = data.get("next")
+        return all_jobs
+
+    def update_job(self, job_id, formatted_data):
+        """Update an existing job record with formatted data."""
+        url = f"{DJANGO_API_URL}/api/jobs/{job_id}/"
+        response = requests.patch(url, json=formatted_data, timeout=30)
+        response.raise_for_status()
+        return response.json()
 
     def save_jobs(self, jobs):
         """POST formatted jobs to the Django bulk_create endpoint."""

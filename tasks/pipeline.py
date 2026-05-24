@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime
 from celery import group, chord
@@ -9,43 +10,42 @@ from tasks.scraping import scrape_actor
 from tasks.formatting import format_and_persist_job
 from tasks.ranking import rank_batch
 
+logger = logging.getLogger(__name__)
+
 
 @app.task(name='tasks.pipeline.run_pipeline')
 def run_pipeline(actor_configs, profile_ids):
     """Entry point: dispatch parallel scraping via CHORD 1."""
     scrape_group = group(
-        scrape_actor.s(config["actor_id"], config["input"])
+        scrape_actor.s(config["actor_id"], config["input"], source=config.get("source", "custom"))
         for config in actor_configs
     )
     chord(scrape_group)(scrape_all_actors.s(profile_ids=profile_ids))
 
 
 @app.task(name='tasks.pipeline.scrape_all_actors')
-def scrape_all_actors(raw_jobs_lists, profile_ids):
-    """CHORD 1 callback: flatten and deduplicate scraped jobs, dispatch formatting."""
-    all_raw_jobs = []
-    for actor_result in raw_jobs_lists:
-        if actor_result:
-            all_raw_jobs.extend(actor_result)
+def scrape_all_actors(scrape_results, profile_ids):
+    """CHORD 1 callback: scrape results are metadata dicts (no job data in memory).
+    Fetch unformatted jobs from DB and dispatch formatting."""
+    total = sum(r.get("total_jobs", 0) for r in scrape_results if r)
+    actors_finished = sum(1 for r in scrape_results if r)
+    logger.info("scrape_phase_complete", extra={
+        "total_jobs": total, "actors": actors_finished,
+    })
 
-    # Deduplicate by normalized URL
-    seen = set()
-    deduped = []
-    for job in all_raw_jobs:
-        url = job.get("url", "")
-        norm = normalize_url(url)
-        if norm and norm not in seen:
-            seen.add(norm)
-            deduped.append(job)
+    if total == 0:
+        return
 
-    print(f"  {len(deduped)} unique jobs after dedup (from {len(all_raw_jobs)} raw)")
+    # Fetch unformatted jobs persisted by the scraping phase
+    persister = DjangoPersistence()
+    unformatted = persister.fetch_unformatted_jobs()
 
-    if not deduped:
+    if not unformatted:
         return
 
     format_group = group(
-        format_and_persist_job.s(raw_job)
-        for raw_job in deduped
+        format_and_persist_job.s(job)
+        for job in unformatted
     )
     chord(format_group)(trigger_ranking.s(profile_ids=profile_ids))
 
