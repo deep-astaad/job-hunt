@@ -1,0 +1,12 @@
+.venv/
+.git/
+__pycache__/
+data/
+custom/
+japan-tech-scraper/
+jobs-finder/
+*.pyc
+.env
+.env.example
+.python-version
+README.md

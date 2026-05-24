@@ -5,7 +5,7 @@
       "country": "JP",
       "followApplyRedirects": false,
       "location": "Tokyo",
-      "maxItemsPerSearch": 100,
+      "maxItemsPerSearch": 200,
       "parseCompanyDetails": false,
       "position": "(\"Software Engineer\" OR \"Software Developer\" OR \"Backend Engineer\" OR \"Cloud Engineer\" OR \"Python\") AND (\"English\")",
       "saveOnlyUniqueItems": true
@@ -22,7 +22,7 @@
     "actor_id": "jungle_synthesizer/tokyo-dev-scraper",
     "input": {
       "japaneseRequired": "no-japanese-required",
-      "maxItems": 100,
+      "maxItems": 200,
       "proxyConfiguration": {
         "useApifyProxy": false
       },
@@ -32,7 +32,7 @@
   {
     "actor_id": "curious_coder/linkedin-jobs-scraper",
     "input": {
-      "count": 200,
+      "count": 300,
       "scrapeCompany": false,
       "splitByLocation": false,
       "splitCountry": "JP",
