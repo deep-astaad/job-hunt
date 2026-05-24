@@ -15,9 +15,14 @@ case "$APP_MODE" in
     cd /app
     exec python main.py
     ;;
+  celery-worker)
+    echo "Starting Celery worker..."
+    cd /app
+    exec celery -A celery_app worker --loglevel=info --concurrency=4
+    ;;
   *)
     echo "Unknown APP_MODE: $APP_MODE"
-    echo "Valid modes: web, job-finder"
+    echo "Valid modes: web, job-finder, celery-worker"
     exit 1
     ;;
 esac
