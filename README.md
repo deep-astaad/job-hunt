@@ -41,7 +41,9 @@ graph TD
     poll_actor_dataset -.->|Periodically Fetches Batch| ApifyAPI
     poll_actor_dataset -.->|Updates Pending Jobs Count| Redis
     
-    poll_actor_dataset -->|For Each Valid Job| FormatChain
+    poll_actor_dataset -->|Check DB| SkipCheck{Already Processed?}
+    SkipCheck -->|Yes: is_formatted=True| Skip[Skip Job]
+    SkipCheck -->|No| FormatChain
     
     subgraph Job Processing Pipeline
         FormatChain[format_and_persist_job] -->|OpenAI Parsing| Persist[(Save Job to MySQL)]
@@ -52,7 +54,7 @@ graph TD
     end
     
     poll_actor_dataset -.->|When Actor Finished & Pending=0| send_discord_summary
-    Redis -.->|Monitors Completion| send_discord_summary
+    Redis -.->|Monitors Completion via Idempotency Lock| send_discord_summary
     
     send_discord_summary -->|Fetches S/A Tiers with alert_sent=False| MySQL[(Django DB)]
     MySQL -->|Returns Top Jobs| DiscordWebhook
@@ -65,10 +67,11 @@ graph TD
 2. **Scheduling:** The task reads `actor-config.json` to determine which scrapers are due to run today based on their `schedule_frequency`.
 3. **Booting Actors:** It triggers the respective Apify actors and initializes tracking state in Redis (e.g., active actors and pending jobs).
 4. **Async Polling:** Instead of blocking, the `poll_actor_dataset` task runs on a retry loop. It grabs batches of newly scraped jobs as they are collected by Apify.
-5. **Processing Pipeline:** For each job, the system spins off an independent processing chain:
-   - **Formatting:** Uses OpenAI to clean and structure the raw job data, persisting it to MySQL.
+5. **Deduplication:** Before dispatching tasks, the system queries the Django API. If the job already has `is_formatted=True`, it silently skips it to save OpenAI credits.
+6. **Processing Pipeline:** For each **new** job, the system spins off an independent processing chain:
+   - **Formatting:** Uses OpenAI to extract and structure the raw job data, persisting it to MySQL.
    - **Ranking:** Evaluates the formatted job against your predefined user profiles using OpenAI, assigning an `S`, `A`, `B`, `C`, or `F` tier and a justification summary.
-6. **Completion Tracking:** As each ranking finishes, Redis is updated. When the Apify actor finishes and the pending job count hits `0`, the polling loop triggers the final notification step.
+7. **Completion Tracking:** As each ranking finishes, Redis is updated. When the Apify actor finishes and the pending job count hits `0`, an atomic Redis lock (`SETNX`) safely triggers the final notification step exactly once.
 
 ---
 

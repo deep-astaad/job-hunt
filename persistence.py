@@ -32,7 +32,7 @@ class JobFormatter:
                 {"role": "user", "content": json.dumps(raw_job, indent=2, default=str)},
             ],
             temperature=0.1,
-            timeout=60,
+            timeout=120,
         )
         text = response.choices[0].message.content.strip()
         if text.startswith("```"):
@@ -201,7 +201,8 @@ class DjangoPersistence:
               f"{result.get('updated', 0)} updated")
         return result
 
-    def _fetch_job_id_by_url(self, url):
+    def _fetch_job_by_url(self, url):
+        """Fetch the full job object from the API by URL."""
         response = requests.get(
             self.JOBS_SEARCH_URL,
             params={"url": url, "page_size": 1},
@@ -211,7 +212,11 @@ class DjangoPersistence:
         results = response.json()
         if isinstance(results, dict) and "results" in results:
             results = results["results"]
-        return results[0]["id"] if results else None
+        return results[0] if results else None
+
+    def _fetch_job_id_by_url(self, url):
+        job = self._fetch_job_by_url(url)
+        return job["id"] if job else None
 
     def save_rankings(self, markdown_result, profile_id, profile_title, db_jobs):
         """Parse ranking markdown and POST to backend."""

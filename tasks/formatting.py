@@ -33,7 +33,7 @@ def _fallback_from_raw(job_data):
     name='tasks.formatting.format_and_persist_job',
     max_retries=3,
     default_retry_delay=30,
-    soft_time_limit=120,
+    soft_time_limit=300,
 )
 def format_and_persist_job(self, job_data):
     """Format a DB job via GPT and update the record.

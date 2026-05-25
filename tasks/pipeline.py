@@ -93,12 +93,17 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
         for item in items:
             try:
                 job_dict, save_result = clean_and_save_item(item, persister, source=source)
-                job_id = persister._fetch_job_id_by_url(job_dict.get("url", ""))
-                if not job_id:
+                db_job = persister._fetch_job_by_url(job_dict.get("url", ""))
+                if not db_job:
+                    continue
+                
+                # Skip if already formatted and processed
+                if db_job.get("is_formatted"):
+                    logger.info("job_already_processed_skipping", extra={"url": job_dict.get("url", "")})
                     continue
                 
                 job_data = {
-                    "id": job_id,
+                    "id": db_job["id"],
                     "title": job_dict.get("title", "Unknown"),
                     "company": job_dict.get("company", "Unknown"),
                     "url": job_dict.get("url", ""),
@@ -144,7 +149,8 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
         pending = int(r.get(f"pipeline:{pipeline_run_id}:pending_jobs") or 0)
         
         if active <= 0 and pending <= 0:
-            send_discord_summary.delay(pipeline_run_id)
+            if r.set(f"pipeline:{pipeline_run_id}:summary_sent", "1", nx=True, ex=86400):
+                send_discord_summary.delay(pipeline_run_id)
             # Cleanup redis keys safely
             r.delete(f"pipeline:{pipeline_run_id}:active_actors")
             r.delete(f"pipeline:{pipeline_run_id}:pending_jobs")
@@ -178,7 +184,8 @@ def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id)
         active = r.decr(f"pipeline:{pipeline_run_id}:active_actors")
         pending = int(r.get(f"pipeline:{pipeline_run_id}:pending_jobs") or 0)
         if active <= 0 and pending <= 0:
-            send_discord_summary.delay(pipeline_run_id)
+            if r.set(f"pipeline:{pipeline_run_id}:summary_sent", "1", nx=True, ex=86400):
+                send_discord_summary.delay(pipeline_run_id)
             r.delete(f"pipeline:{pipeline_run_id}:active_actors")
             r.delete(f"pipeline:{pipeline_run_id}:pending_jobs")
 
@@ -197,8 +204,7 @@ def send_discord_summary(pipeline_run_id):
                 f"✅ **Pipeline Complete**\n"
                 f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
                 f"{'-'*40}\n"
-                f"Jobs scraped, formatted & ranked: **{total_jobs}**\n\n"
-                f"_Triggering Phase 2 Batch Ranking..._"
+                f"Jobs scraped, formatted & ranked: **{total_jobs}**\n"
             )
             req.post(DISCORD_WEBHOOK_URL, json={"content": content})
             print("   -> Discord summary sent.")
@@ -212,13 +218,6 @@ def send_discord_summary(pipeline_run_id):
         ExportHandler.post_tiered_jobs_from_api()
     except Exception as e:
         print(f"   -> S/A Discord post failed: {e}")
-
-    try:
-        from tasks.ranking import rank_jobs_by_profile
-        rank_jobs_by_profile.apply_async(countdown=120)
-        print("   -> Phase 2 batch ranking dispatched (120s delay).")
-    except Exception as e:
-        print(f"   -> Phase 2 dispatch failed: {e}")
         
     r.delete(f"pipeline:{pipeline_run_id}:total_jobs")
     return {"status": "done", "total_jobs": total_jobs}
