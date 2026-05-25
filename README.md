@@ -32,34 +32,43 @@ graph TD
     
     schedule_daily_scrapers -->|Reads actor-config.json| run_pipeline
     
+    run_pipeline -->|Initializes State| Redis[(Redis State Tracker)]
     run_pipeline -->|Spawns 1 per actor| start_actor
     
     start_actor -->|POST Request| ApifyAPI
-    start_actor -->|Triggers Polling| poll_actor_dataset
+    start_actor -->|Triggers Async Polling| poll_actor_dataset
     
-    poll_actor_dataset -.->|Checks Status & Fetches Batch| ApifyAPI
+    poll_actor_dataset -.->|Periodically Fetches Batch| ApifyAPI
+    poll_actor_dataset -.->|Updates Pending Jobs Count| Redis
     
-    poll_actor_dataset -->|For Each Job Batch| ProcessingChain
+    poll_actor_dataset -->|For Each Valid Job| FormatChain
     
-    subgraph ProcessingChain [Job Formatting & Ranking]
-        format_job[Format & Clean Data] --> persist_job[(Save to MySQL)]
-        persist_job --> rank_job[Rank Job vs Profiles]
+    subgraph Job Processing Pipeline
+        FormatChain[format_and_persist_job] -->|OpenAI Parsing| Persist[(Save Job to MySQL)]
+        Persist --> RankChain[rank_job_multi_profile]
+        RankChain -->|Evaluates vs Profiles| GenerateTiers[Generate S/A/B/C/F Tiers]
+        GenerateTiers --> SaveRanks[(Save Rankings to MySQL)]
+        SaveRanks -->|Decrements Pending Count| Redis
     end
     
-    poll_actor_dataset -.->|When Actor Finished & Polling Empty| send_discord_summary
+    poll_actor_dataset -.->|When Actor Finished & Pending=0| send_discord_summary
+    Redis -.->|Monitors Completion| send_discord_summary
     
-    send_discord_summary -->|Fetches Top Tiers| FetchRanked[(Query S/A Tier)]
-    FetchRanked -->|Batches of 10| DiscordWebhook
+    send_discord_summary -->|Fetches S/A Tiers with alert_sent=False| MySQL[(Django DB)]
+    MySQL -->|Returns Top Jobs| DiscordWebhook
+    DiscordWebhook -->|Posts Embeds| DiscordChannel[Discord Channel]
     DiscordWebhook -->|Updates DB| MarkAlertSent[(Mark alert_sent=True)]
 ```
 
-### Flow Breakdown
+### Detailed Flow Breakdown
 1. **Trigger:** Celery Beat reads your schedule from the Django database and triggers `tasks.pipeline.schedule_daily_scrapers`.
 2. **Scheduling:** The task reads `actor-config.json` to determine which scrapers are due to run today based on their `schedule_frequency`.
-3. **Booting Actors:** It triggers the respective Apify actors.
-4. **Async Polling:** Instead of waiting, the `poll_actor_dataset` task runs on a retry loop. It grabs batches of newly scraped jobs as they come in.
-5. **Processing:** For each job, the system spins off a processing chain that cleans the data, persists it to the Django backend, and evaluates it using OpenAI against your configured user profiles.
-6. **Completion:** When an actor finishes and no more items are left in the dataset, the polling stops. When *all* actors finish, the system moves to the notification phase.
+3. **Booting Actors:** It triggers the respective Apify actors and initializes tracking state in Redis (e.g., active actors and pending jobs).
+4. **Async Polling:** Instead of blocking, the `poll_actor_dataset` task runs on a retry loop. It grabs batches of newly scraped jobs as they are collected by Apify.
+5. **Processing Pipeline:** For each job, the system spins off an independent processing chain:
+   - **Formatting:** Uses OpenAI to clean and structure the raw job data, persisting it to MySQL.
+   - **Ranking:** Evaluates the formatted job against your predefined user profiles using OpenAI, assigning an `S`, `A`, `B`, `C`, or `F` tier and a justification summary.
+6. **Completion Tracking:** As each ranking finishes, Redis is updated. When the Apify actor finishes and the pending job count hits `0`, the polling loop triggers the final notification step.
 
 ---
 
