@@ -1,0 +1,566 @@
+openapi: 3.0.3
+info:
+  title: Job Hunt API
+  version: 1.0.0
+  description: API documentation for the Job Hunt backend scraping and ranking system.
+servers:
+  - url: /api
+    description: Base API URL
+paths:
+  /jobs/:
+    get:
+      summary: List jobs
+      description: Returns a paginated list of jobs.
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+        - name: language
+          in: query
+          schema:
+            type: string
+        - name: company
+          in: query
+          schema:
+            type: string
+        - name: is_formatted
+          in: query
+          schema:
+            type: boolean
+        - name: url
+          in: query
+          schema:
+            type: string
+        - name: alert_sent
+          in: query
+          schema:
+            type: boolean
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter jobs updated from this date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter jobs updated up to this date
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: ordering
+          in: query
+          schema:
+            type: string
+          description: Ordering field (e.g. scraped_at, company, title, best_tier)
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A paginated list of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JobList'
+    post:
+      summary: Create a job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Job'
+      responses:
+        '201':
+          description: Created job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+  /jobs/bulk_create/:
+    post:
+      summary: Bulk create or update jobs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobs:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: OK or Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: integer
+                  updated:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: object
+
+  /jobs/{id}/:
+    get:
+      summary: Retrieve a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Job details with rankings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+  /jobs/{id}/rankings/:
+    get:
+      summary: Retrieve rankings for a specific job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of rankings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobRanking'
+
+  /jobs/stats/:
+    get:
+      summary: Job statistics
+      responses:
+        '200':
+          description: Statistics summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_jobs:
+                    type: integer
+                  active_jobs:
+                    type: integer
+                  by_source:
+                    type: array
+                    items:
+                      type: object
+                  by_tier:
+                    type: array
+                    items:
+                      type: object
+
+  /jobs/mark_alerts_sent/:
+    post:
+      summary: Mark alerts as sent for specific jobs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          description: Successfully updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: integer
+
+  /jobs/today-ranked/:
+    get:
+      summary: Get today's ranked jobs
+      parameters:
+        - name: tiers
+          in: query
+          schema:
+            type: string
+            default: S,A
+          description: Comma separated list of tiers
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+        - name: alert_sent
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Today's ranked jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  date:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TodayRankedJob'
+
+  /jobs/today-all-rankings/:
+    get:
+      summary: Get today's jobs with all per-profile rankings
+      responses:
+        '200':
+          description: Today's jobs with ALL rankings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  date:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        title:
+                          type: string
+                        company:
+                          type: string
+                        rankings:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              profile_id:
+                                type: string
+                              match_tier:
+                                type: string
+                              rank:
+                                type: integer
+                              jd_summary:
+                                type: string
+
+  /rankings/:
+    get:
+      summary: List job rankings
+      parameters:
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+        - name: match_tier
+          in: query
+          schema:
+            type: string
+        - name: ordering
+          in: query
+          schema:
+            type: string
+          description: Ordering field (e.g. rank, created_at)
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A paginated list of rankings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JobRanking'
+
+  /rankings/bulk_create/:
+    post:
+      summary: Bulk create or update job rankings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rankings:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: OK or Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: integer
+                  updated:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: object
+
+  /rankings/update_ranks/:
+    post:
+      summary: Bulk update the rank field on existing JobRanking rows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      job_id:
+                        type: integer
+                      profile_id:
+                        type: string
+                      rank:
+                        type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: object
+
+  /rankings/{id}/:
+    get:
+      summary: Retrieve a job ranking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Job ranking details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRanking'
+
+components:
+  schemas:
+    JobList:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        company:
+          type: string
+        url:
+          type: string
+        source:
+          type: string
+        salary:
+          type: string
+        language:
+          type: string
+        experience_required:
+          type: string
+        is_active:
+          type: boolean
+        scraped_at:
+          type: string
+          format: date-time
+
+    JobRanking:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        job:
+          type: integer
+        profile_id:
+          type: string
+        profile_title:
+          type: string
+        match_tier:
+          type: string
+        rank:
+          type: integer
+        jd_summary:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        url_hash:
+          type: string
+          readOnly: true
+        title:
+          type: string
+        company:
+          type: string
+        url:
+          type: string
+        source:
+          type: string
+        salary:
+          type: string
+        description:
+          type: string
+        full_description:
+          type: string
+        tech_stack:
+          type: object
+        raw_data:
+          type: object
+        language:
+          type: string
+        experience_required:
+          type: string
+        is_active:
+          type: boolean
+        is_formatted:
+          type: boolean
+        alert_sent:
+          type: boolean
+        scraped_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        rankings:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRanking'
+          readOnly: true
+
+    TodayRankedJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        company:
+          type: string
+        url:
+          type: string
+        source:
+          type: string
+        salary:
+          type: string
+        description:
+          type: string
+        language:
+          type: string
+        experience_required:
+          type: string
+        scraped_at:
+          type: string
+          format: date-time
+        ranking:
+          type: object
+          properties:
+            match_tier:
+              type: string
+            rank:
+              type: integer
+            jd_summary:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+        matched_profiles:
+          type: array
+          items:
+            type: object
+            properties:
+              profile_id:
+                type: string
+              profile_title:
+                type: string
