@@ -36,7 +36,7 @@ class JobFilter(django_filters.FilterSet):
 
     class Meta:
         model = Job
-        fields = ["source", "is_active", "language", "company", "is_formatted"]
+        fields = ["source", "is_active", "language", "company", "is_formatted", "url"]
 
     def __init__(self, data=None, *args, **kwargs):
         # Alias ?from=... and ?to=... to updated_at date lookups
@@ -58,7 +58,7 @@ TIER_SORT_MAP = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
 class JobViewSet(viewsets.ModelViewSet):
     queryset = Job.objects.all()
     filterset_class = JobFilter
-    search_fields = ["title", "company", "description"]
+    search_fields = ["title", "company", "description", "url"]
     ordering_fields = ["scraped_at", "company", "title", "best_tier"]
 
     def get_queryset(self):
@@ -204,6 +204,40 @@ class JobViewSet(viewsets.ModelViewSet):
             "results": serializer.data,
         })
 
+    @action(detail=False, methods=["get"], url_path="today-all-rankings")
+    def today_all_rankings(self, request):
+        """Return today's jobs with ALL per-profile rankings (not just primary)."""
+        today = date.today()
+        jobs = Job.objects.filter(
+            is_active=True, scraped_at__date=today
+        ).prefetch_related("rankings").distinct()
+
+        results = []
+        for job in jobs:
+            all_rankings = [
+                {
+                    "profile_id": r.profile_id,
+                    "match_tier": r.match_tier,
+                    "rank": r.rank,
+                    "jd_summary": r.jd_summary,
+                }
+                for r in job.rankings.all()
+            ]
+            if not all_rankings:
+                continue
+            results.append({
+                "id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "rankings": all_rankings,
+            })
+
+        return Response({
+            "count": len(results),
+            "date": today.isoformat(),
+            "results": results,
+        })
+
 
 class JobRankingFilter(django_filters.FilterSet):
     class Meta:
@@ -257,4 +291,35 @@ class JobRankingViewSet(viewsets.ModelViewSet):
         return Response(
             {"created": created, "updated": updated, "errors": errors},
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="update_ranks")
+    def update_ranks(self, request):
+        """Bulk-update the rank field on existing JobRanking rows."""
+        updates = request.data if isinstance(request.data, list) else request.data.get("updates", [])
+        updated = 0
+        errors = []
+
+        for item in updates:
+            job_id = item.get("job_id")
+            profile_id = item.get("profile_id")
+            rank = item.get("rank")
+
+            if not job_id or not profile_id or rank is None:
+                errors.append({"error": "job_id, profile_id, and rank are required", "data": item})
+                continue
+
+            try:
+                ranking = JobRanking.objects.get(job_id=job_id, profile_id=profile_id)
+                ranking.rank = rank
+                ranking.save(update_fields=["rank"])
+                updated += 1
+            except JobRanking.DoesNotExist:
+                errors.append({"error": f"Ranking not found for job={job_id} profile={profile_id}"})
+            except Exception as e:
+                errors.append({"error": str(e)})
+
+        return Response(
+            {"updated": updated, "errors": errors},
+            status=status.HTTP_200_OK,
         )

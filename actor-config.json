@@ -16,38 +16,5 @@
       ],
       "saveOnlyUniqueItems": true
     }
-  },
-  {
-    "actor_id": "jungle_synthesizer/japan-dev-scraper",
-    "source": "japan_dev",
-    "input": {
-      "maxItems": 1000,
-      "searchQuery": "Python"
-    }
-  },
-  {
-    "actor_id": "jungle_synthesizer/tokyo-dev-scraper",
-    "source": "tokyo_dev",
-    "input": {
-      "japaneseRequired": "no-japanese-required",
-      "maxItems": 1000,
-      "proxyConfiguration": {
-        "useApifyProxy": false
-      },
-      "scrapeMode": "jobs"
-    }
-  },
-  {
-    "actor_id": "misceres/indeed-scraper",
-    "source": "indeed",
-    "input": {
-      "country": "JP",
-      "followApplyRedirects": false,
-      "location": "Tokyo",
-      "maxItemsPerSearch": 500,
-      "parseCompanyDetails": false,
-      "position": "(\"Software Engineer\" OR \"Software Developer\" OR \"Backend Engineer\" OR \"Cloud Engineer\" OR \"Python\") AND (\"English\")",
-      "saveOnlyUniqueItems": true
-    }
   }
 ]

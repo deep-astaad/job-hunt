@@ -29,6 +29,7 @@ class JobFormatter:
                 {"role": "user", "content": json.dumps(raw_job, indent=2, default=str)},
             ],
             temperature=0.1,
+            timeout=60,
         )
         text = response.choices[0].message.content.strip()
         if text.startswith("```"):
@@ -200,7 +201,7 @@ class DjangoPersistence:
     def _fetch_job_id_by_url(self, url):
         response = requests.get(
             self.JOBS_SEARCH_URL,
-            params={"search": url},
+            params={"url": url, "page_size": 1},
             timeout=10,
         )
         response.raise_for_status()
