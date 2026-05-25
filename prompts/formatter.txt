@@ -242,7 +242,7 @@ RETURN:
 ━━━━━━━━━━━━━━━━━━━━
 
 ## 9. language
-DETECT WHETHER THE JOB SHOULD BE CLASSIFIED AS JAPANESE ("JP") OR ENGLISH ("EN").
+DETECT WHETHER THE JOB SHOULD BE CLASSIFIED AS JAPANESE ("JP"), ENGLISH ("EN"), OR NON-ENGLISH ("non-english").
 
 YOU MUST ANALYZE:
 - title
@@ -289,6 +289,12 @@ RETURN "EN" IF:
 
 ━━━━━━━━━━━━━━━━━━━━
 
+RETURN "non-english" IF:
+- The primary job content is in a language other than Japanese or English (e.g., Chinese, Korean, Vietnamese, Spanish, etc.)
+- The listing is clearly not targeted at English or Japanese speakers
+
+━━━━━━━━━━━━━━━━━━━━
+
 IMPORTANT LANGUAGE DETECTION RULES
 
 CLASSIFY AS "JP" WHEN:
@@ -301,6 +307,10 @@ CLASSIFY AS "EN" WHEN:
 - English is the dominant language
 - Japanese appears only minimally
 - The job includes a proper English title/description
+
+CLASSIFY AS "non-english" WHEN:
+- The primary language of the job posting is neither English nor Japanese
+- The job requires fluency in a language other than English or Japanese for daily operations
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -345,6 +355,9 @@ Mostly English with small Japanese snippets.
 IMPORTANT:
 IF ALL VISIBLE JOB CONTENT IS JAPANESE-ONLY WITH NO ENGLISH EQUIVALENT, ALWAYS RETURN:
 "JP"
+
+IF THE CONTENT IS PRIMARILY IN ANOTHER LANGUAGE (NOT EN OR JP), ALWAYS RETURN:
+"non-english"
 
 ━━━━━━━━━━━━━━━━━━━━
 

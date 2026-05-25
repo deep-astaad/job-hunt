@@ -16,6 +16,7 @@ class Job(models.Model):
     LANGUAGE_CHOICES = [
         ("EN", "English"),
         ("JP", "Japanese"),
+        ("non-english", "Non-English"),
     ]
 
     title = models.CharField(max_length=500)
@@ -30,7 +31,7 @@ class Job(models.Model):
     tech_stack = models.JSONField(null=True, blank=True)
     raw_data = models.JSONField(null=True, blank=True)
 
-    language = models.CharField(max_length=5, choices=LANGUAGE_CHOICES, null=True, blank=True)
+    language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, null=True, blank=True)
     experience_required = models.CharField(max_length=100, blank=True, default="")
 
     is_active = models.BooleanField(default=True)

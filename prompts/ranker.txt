@@ -72,9 +72,9 @@ YOU MUST PRIORITIZE:
 HARD FILTER RULES (MANDATORY)
 ━━━━━━━━━━━━━━━━━━━━
 
-## 1. JAPANESE REQUIREMENT FILTER — AUTOMATIC F-TIER
+## 1. LANGUAGE REQUIREMENT FILTER — AUTOMATIC F-TIER
 
-IF THE JOB STATES THAT JAPANESE IS:
+IF THE JOB STATES THAT JAPANESE OR ANY NON-ENGLISH LANGUAGE IS:
 - Required
 - Mandatory
 - Necessary
@@ -88,13 +88,15 @@ OR MENTIONS:
 - JLPT N3
 - JLPT N4
 - JLPT N5
+- Language classification is "JP"
+- Language classification is "non-english"
 
 THEN:
 - AUTOMATICALLY ASSIGN `F-Tier`
 - REGARDLESS OF TECH STACK MATCH
 
 IMPORTANT:
-ONLY FAIL JOBS WHERE JAPANESE IS CLEARLY REQUIRED.
+ONLY FAIL JOBS WHERE JAPANESE OR A NON-ENGLISH LANGUAGE IS CLEARLY REQUIRED.
 
 DO NOT FAIL JOBS THAT SAY:
 - "Japanese is a plus"
@@ -124,6 +126,14 @@ IF THE JOB REQUIRES:
 THEN:
 - AUTOMATICALLY ASSIGN `F-Tier`
 
+IF THE JOB IS AN INTERNSHIP:
+- Intern
+- Internship
+- Student Placement
+
+THEN:
+- AUTOMATICALLY ASSIGN `F-Tier`
+
 IDEAL EXPERIENCE RANGE:
 - 0 years
 - 1 year
@@ -138,6 +148,8 @@ GOOD SIGNALS:
 - Associate engineer
 
 AUTOMATIC FAIL TITLES:
+- Intern
+- Internship
 - Senior Engineer
 - Lead Engineer
 - Staff Engineer
@@ -247,6 +259,8 @@ WEAK MATCH
 AUTOMATIC FAIL
 REASONS INCLUDE:
 - Japanese required
+- non-english language required
+- Intern or Internship role
 - JLPT required
 - 3+ years required
 - Senior-level expectations
