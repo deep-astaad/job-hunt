@@ -1,0 +1,848 @@
+{% extends "jobs/base.html" %}
+
+{% block title %}Dashboard | AeroJob Hunter{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Dashboard Layout */
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 1.5rem;
+        align-items: start;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1.25rem;
+    }
+
+    .stat-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--border-hover);
+    }
+
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: var(--radius-sm);
+        background: rgba(20, 240, 200, 0.1);
+        color: var(--brand-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .stat-info {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-value {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .stat-label {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* Left Sidebar: Profiles & Filters */
+    .sidebar-section {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 1.5rem;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .card-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 1.25rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Profiles Selector List */
+    .profile-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .profile-item {
+        display: block;
+        padding: 0.75rem 1rem;
+        border-radius: var(--radius-sm);
+        background: rgba(30, 41, 59, 0.2);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-align: left;
+        width: 100%;
+    }
+
+    .profile-item:hover {
+        background: var(--bg-surface-hover);
+        color: var(--text-primary);
+        border-color: var(--text-secondary);
+    }
+
+    .profile-item.active {
+        background: var(--brand-gradient);
+        color: var(--bg-base);
+        font-weight: 600;
+        border-color: transparent;
+        box-shadow: 0 4px 12px rgba(20, 240, 200, 0.2);
+    }
+
+    /* Selected Profile Detail Info Card */
+    .profile-details-card {
+        background: rgba(30, 41, 59, 0.25);
+        border: 1px dashed var(--border-color);
+    }
+
+    .profile-title-text {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: var(--brand-primary);
+        margin-bottom: 0.5rem;
+    }
+
+    .profile-meta-item {
+        font-size: 0.8125rem;
+        margin-bottom: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .profile-meta-item strong {
+        color: var(--text-primary);
+    }
+
+    .skills-flex {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.5rem;
+    }
+
+    .skill-pill {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+    }
+
+    /* Filters Styles */
+    .filter-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .form-label {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .form-input, .form-select {
+        background: var(--bg-base);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        color: var(--text-primary);
+        padding: 0.6rem 0.75rem;
+        font-size: 0.875rem;
+        width: 100%;
+        outline: none;
+        transition: border-color 0.2s ease;
+    }
+
+    .form-input:focus, .form-select:focus {
+        border-color: var(--brand-primary);
+    }
+
+    .tier-checkboxes {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .checkbox-label input {
+        accent-color: var(--brand-primary);
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Right Section: Jobs list */
+    .jobs-section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .results-count {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .results-count strong {
+        color: var(--brand-primary);
+    }
+
+    .jobs-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    /* Job Card Design */
+    .job-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: var(--shadow-sm);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .job-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: transparent;
+        transition: background-color 0.25s ease;
+    }
+
+    /* Tier specific left borders */
+    .job-card.tier-S::before { background: var(--tier-s-gradient); }
+    .job-card.tier-A::before { background: var(--tier-a-gradient); }
+    .job-card.tier-B::before { background: var(--tier-b-gradient); }
+    .job-card.tier-C::before { background: var(--tier-c-gradient); }
+    .job-card.tier-F::before { background: var(--tier-f-gradient); }
+
+    .job-card:hover {
+        transform: translateX(4px);
+        border-color: var(--border-hover);
+        box-shadow: var(--shadow-md);
+    }
+
+    .job-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .job-meta-top {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .rank-indicator {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 700;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+    }
+
+    .job-company {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .job-source-tag {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        background: rgba(30, 41, 59, 0.5);
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+    }
+
+    .job-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0.25rem 0;
+        line-height: 1.3;
+    }
+
+    .job-details-row {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        flex-wrap: wrap;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 0.75rem;
+    }
+
+    .detail-item {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .detail-item .icon {
+        color: var(--brand-primary);
+    }
+
+    .job-summary {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .job-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.5rem;
+    }
+
+    .scraped-time {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    /* Modal / Drawer Detail View content */
+    .drawer-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1.5rem;
+    }
+
+    .drawer-title-area {
+        flex-grow: 1;
+    }
+
+    .drawer-company {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .drawer-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.2;
+    }
+
+    .drawer-close-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.5rem;
+        cursor: pointer;
+        transition: color 0.2s ease;
+    }
+
+    .drawer-close-btn:hover {
+        color: var(--text-primary);
+    }
+
+    .drawer-body {
+        padding: 1.5rem;
+        overflow-y: auto;
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .drawer-section-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--brand-primary);
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
+
+    .meta-box {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        padding: 0.75rem 1rem;
+    }
+
+    .meta-box-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+
+    .meta-box-val {
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .ai-match-box {
+        background: rgba(20, 240, 200, 0.05);
+        border: 1px solid rgba(20, 240, 200, 0.15);
+        border-radius: var(--radius-sm);
+        padding: 1.25rem;
+    }
+
+    .ai-match-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .ai-match-summary-text {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
+        font-style: italic;
+    }
+
+    .desc-box {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
+        white-space: pre-wrap;
+        background: rgba(0, 0, 0, 0.15);
+        padding: 1.25rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-color);
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .drawer-footer {
+        padding: 1.25rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 1rem;
+        background: var(--bg-surface);
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        background: var(--bg-surface);
+        border: 1px dashed var(--border-color);
+        border-radius: var(--radius-md);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+    }
+
+    .empty-icon {
+        font-size: 3rem;
+        animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+    }
+
+    .empty-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+    }
+
+    .empty-desc {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        max-width: 400px;
+    }
+
+    /* Responsive grid behavior */
+    @media (max-width: 992px) {
+        .dashboard-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Top Level Stats Summary Panel -->
+<section class="stats-grid" aria-label="Job aggregator statistics">
+    <div class="stat-card">
+        <div class="stat-icon">💼</div>
+        <div class="stat-info">
+            <span class="stat-value">{{ stats.total }}</span>
+            <span class="stat-label">Total Jobs Scraped</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🟢</div>
+        <div class="stat-info">
+            <span class="stat-value">{{ stats.active }}</span>
+            <span class="stat-label">Active Listings</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">⚡</div>
+        <div class="stat-info">
+            <span class="stat-value">{{ stats.today }}</span>
+            <span class="stat-label">Scraped Today</span>
+        </div>
+    </div>
+</section>
+
+<!-- Dashboard Main Workspace -->
+<main class="dashboard-grid">
+    <!-- Left column: profiles list, profiles meta details, and parameters filter form -->
+    <div class="sidebar-section">
+        <!-- 1. Candidate Profiles switcher -->
+        <section class="card" aria-label="Candidate Profiles selector">
+            <h2 class="card-title">🎯 Candidate Profiles</h2>
+            <div class="profile-list">
+                {% for profile in profiles %}
+                <a href="?profile_id={{ profile.id }}&tiers={{ filters.tiers }}&source={{ filters.source }}&language={{ filters.language }}&date={{ filters.date }}&q={{ filters.q }}" 
+                   class="profile-item {% if profile.id == filters.profile_id %}active{% endif %}"
+                   role="tab"
+                   aria-selected="{% if profile.id == filters.profile_id %}true{% else %}false{% endif %}">
+                    {{ profile.title }}
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- 2. Selected Profile details card -->
+        {% if selected_profile %}
+        <section class="card profile-details-card" aria-label="Selected profile info">
+            <h3 class="profile-title-text">{{ selected_profile.title }}</h3>
+            <div class="profile-meta-item">
+                <strong>Target Experience:</strong> {{ selected_profile.experience }}
+            </div>
+            <div class="profile-meta-item">
+                <strong>Language requirements:</strong> {{ selected_profile.language_requirements }}
+            </div>
+            <div class="profile-meta-item">
+                <strong>Preferences:</strong> {{ selected_profile.preferences }}
+            </div>
+            <div class="profile-meta-item">
+                <strong>Core Skills:</strong>
+                <div class="skills-flex">
+                    {% for skill in selected_profile.core_skills %}
+                    <span class="skill-pill">{{ skill }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- 3. Dynamic Filter Form -->
+        <section class="card" aria-label="Filters">
+            <h2 class="card-title">🔍 Filter Parameters</h2>
+            <form method="get" action="" class="filter-form" id="filterForm">
+                <!-- Keep selected profile active -->
+                <input type="hidden" name="profile_id" value="{{ filters.profile_id }}">
+                
+                <!-- Search term input -->
+                <div class="form-group">
+                    <label for="searchQueryInput" class="form-label">Search Query</label>
+                    <input type="text" id="searchQueryInput" name="q" class="form-input" placeholder="Title, company, skill..." value="{{ filters.q }}">
+                </div>
+
+                <!-- Tiers selector (comma-separated checkboxes) -->
+                <div class="form-group">
+                    <span class="form-label">Match Tiers</span>
+                    <div class="tier-checkboxes" id="tierCheckboxesContainer">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="tier_opt" value="S" {% if 'S' in filters.tiers %}checked{% endif %}>
+                            <span class="badge badge-s">S Tier</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="tier_opt" value="A" {% if 'A' in filters.tiers %}checked{% endif %}>
+                            <span class="badge badge-a">A Tier</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="tier_opt" value="B" {% if 'B' in filters.tiers %}checked{% endif %}>
+                            <span class="badge badge-b">B Tier</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="tier_opt" value="C" {% if 'C' in filters.tiers %}checked{% endif %}>
+                            <span class="badge badge-c">C Tier</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="tier_opt" value="F" {% if 'F' in filters.tiers %}checked{% endif %}>
+                            <span class="badge badge-f">F Tier</span>
+                        </label>
+                    </div>
+                    <input type="hidden" name="tiers" id="tiersHiddenInput" value="{{ filters.tiers }}">
+                </div>
+
+                <!-- Scraper Source filter selection -->
+                <div class="form-group">
+                    <label for="scraperSourceSelect" class="form-label">Scraper Source</label>
+                    <select id="scraperSourceSelect" name="source" class="form-select">
+                        <option value="">All Sources</option>
+                        {% for value, name in source_choices %}
+                        <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Language filter selection -->
+                <div class="form-group">
+                    <label for="languageSelect" class="form-label">Job Language</label>
+                    <select id="languageSelect" name="language" class="form-select">
+                        <option value="">All Languages</option>
+                        {% for value, name in language_choices %}
+                        <option value="{{ value }}" {% if filters.language == value %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Date Scraped range filter selection -->
+                <div class="form-group">
+                    <label for="dateSelect" class="form-label">Date Scraped</label>
+                    <select id="dateSelect" name="date" class="form-select">
+                        <option value="all" {% if filters.date == "all" %}selected{% endif %}>All Records</option>
+                        <option value="today" {% if filters.date == "today" %}selected{% endif %}>Today Only</option>
+                        <option value="3days" {% if filters.date == "3days" %}selected{% endif %}>Last 3 Days</option>
+                        <option value="7days" {% if filters.date == "7days" %}selected{% endif %}>Last 7 Days</option>
+                    </select>
+                </div>
+
+                <!-- Action Button Controls -->
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                    <button type="submit" class="btn btn-primary" style="flex-grow: 1;">Apply Filters</button>
+                    <button type="button" id="resetFiltersBtn" class="btn btn-secondary">Reset</button>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <!-- Right column: list of matching jobs -->
+    <section aria-label="Aggregated matched jobs list">
+        <div class="jobs-section-header">
+            <h2 class="section-title">Matched Opportunities</h2>
+            <div class="results-count">
+                Found <strong>{{ jobs|length }}</strong> matching listings
+            </div>
+        </div>
+
+        <div class="jobs-list" id="jobsListContainer">
+            {% for job in jobs %}
+            <article class="job-card tier-{{ job.match_tier }}" id="jobCard-{{ job.id }}" aria-labelledby="jobTitle-{{ job.id }}">
+                <div class="job-header">
+                    <div class="job-meta-top">
+                        <span class="badge badge-{{ job.match_tier|lower }}">{{ job.match_tier }} Tier</span>
+                        {% if job.rank > 0 %}
+                        <span class="rank-indicator">#{{ job.rank }}</span>
+                        {% endif %}
+                        <span class="job-company">{{ job.company }}</span>
+                        <span class="job-source-tag">{{ job.get_source_display }}</span>
+                    </div>
+                </div>
+
+                <h3 class="job-title" id="jobTitle-{{ job.id }}">{{ job.title }}</h3>
+
+                <div class="job-details-row">
+                    {% if job.salary %}
+                    <div class="detail-item">
+                        <span class="icon">💰</span> {{ job.salary }}
+                    </div>
+                    {% endif %}
+                    {% if job.language %}
+                    <div class="detail-item">
+                        <span class="icon">🌐</span> {{ job.get_language_display }}
+                    </div>
+                    {% endif %}
+                    {% if job.experience_required %}
+                    <div class="detail-item">
+                        <span class="icon">💼</span> {{ job.experience_required }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if job.jd_summary %}
+                <p class="job-summary">{{ job.jd_summary }}</p>
+                {% elif job.description %}
+                <p class="job-summary">{{ job.description }}</p>
+                {% else %}
+                <p class="job-summary" style="color: var(--text-muted); font-style: italic;">No job description summary compiled.</p>
+                {% endif %}
+
+                <div class="job-footer">
+                    <span class="scraped-time">Scraped: {{ job.scraped_at|date:"Y-m-d H:i" }}</span>
+                    <button class="btn btn-secondary btn-sm open-drawer-btn" data-job-id="{{ job.id }}" aria-controls="jobDetailDrawer">
+                        View Details →
+                    </button>
+                </div>
+            </article>
+            {% empty %}
+            <div class="empty-state">
+                <div class="empty-icon">🚀</div>
+                <h3 class="empty-title">No Listings Meet Current Filters</h3>
+                <p class="empty-desc">Try resetting your filter parameters or select a different profile. Alternatively, run the scrapers to aggregate new job matches.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+</main>
+
+<!-- Job Detail Slide-over Drawer -->
+<div class="drawer-overlay" id="drawerOverlay" role="presentation"></div>
+<aside class="drawer" id="jobDetailDrawer" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="detailDrawerTitle">
+    <div class="drawer-header">
+        <div class="drawer-title-area">
+            <div class="drawer-company" id="detailDrawerCompany">Company Name</div>
+            <h2 class="drawer-title" id="detailDrawerTitle">Job Title Opportunity</h2>
+        </div>
+        <button class="drawer-close-btn" id="closeDrawerBtn" aria-label="Close details panel">&times;</button>
+    </div>
+    
+    <div class="drawer-body">
+        <!-- AI Match Info -->
+        <div class="ai-match-box">
+            <div class="ai-match-header">
+                <div class="badge badge-s" id="detailDrawerTier">S Tier</div>
+                <div class="rank-indicator" id="detailDrawerRank">Rank #1</div>
+            </div>
+            <div class="drawer-section-title">✨ AI Match Summary</div>
+            <p class="ai-match-summary-text" id="detailDrawerJdSummary">AI generated summary will appear here describing the suitability of the candidate against this opportunity.</p>
+        </div>
+
+        <!-- Meta Details Box -->
+        <div class="meta-grid">
+            <div class="meta-box">
+                <div class="meta-box-label">Salary</div>
+                <div class="meta-box-val" id="detailDrawerSalary">—</div>
+            </div>
+            <div class="meta-box-label meta-box" style="display: block;">
+                <div class="meta-box-label">Language</div>
+                <div class="meta-box-val" id="detailDrawerLanguage">—</div>
+            </div>
+            <div class="meta-box-label meta-box" style="display: block;">
+                <div class="meta-box-label">Experience</div>
+                <div class="meta-box-val" id="detailDrawerExperience">—</div>
+            </div>
+            <div class="meta-box-label meta-box" style="display: block;">
+                <div class="meta-box-label">Source</div>
+                <div class="meta-box-val" id="detailDrawerSource">—</div>
+            </div>
+        </div>
+
+        <!-- Tech Stack section -->
+        <div>
+            <div class="drawer-section-title">🛠️ Tech Stack</div>
+            <div class="skills-flex" id="detailDrawerTechStack">
+                <!-- Javascript will insert pills -->
+            </div>
+        </div>
+
+        <!-- Job Description Section -->
+        <div>
+            <div class="drawer-section-title">📄 Full Description</div>
+            <pre class="desc-box" id="detailDrawerDescription">Full description content...</pre>
+        </div>
+    </div>
+    
+    <div class="drawer-footer">
+        <a href="#" target="_blank" id="detailDrawerApplyLink" class="btn btn-primary" style="flex-grow: 1; text-align: center; color: var(--bg-base);">
+            Apply on Source Platform ↗
+        </a>
+    </div>
+</aside>
+
+{% endblock %}
+
+{% block extra_js %}
+<!-- Pass Django CSRF token to window for fetch scripting -->
+<script>
+    window.csrfToken = "{{ csrf_token }}";
+</script>
+<!-- Include the custom main JS asset -->
+<script src="/static/jobs/js/main.js"></script>
+{% endblock %}

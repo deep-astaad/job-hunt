@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <!-- Clickjacking defense -->
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <title>{% block title %}AeroJob Hunter{% endblock %}</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Global CSS Variables & Styling -->
+    <style>
+        :root {
+            /* HSL Theme Colors */
+            --bg-base: hsl(222, 47%, 10%);
+            --bg-surface: hsl(217, 33%, 15%);
+            --bg-surface-hover: hsl(217, 33%, 20%);
+            --bg-card: hsl(217, 33%, 17%);
+            --border-color: hsla(217, 33%, 30%, 0.4);
+            --border-hover: hsla(172, 66%, 50%, 0.4);
+            
+            --text-primary: hsl(210, 40%, 98%);
+            --text-secondary: hsl(215, 20%, 75%);
+            --text-muted: hsl(215, 16%, 55%);
+            
+            --brand-primary: hsl(172, 66%, 50%);
+            --brand-secondary: hsl(190, 90%, 45%);
+            --brand-gradient: linear-gradient(135deg, hsl(172, 66%, 50%) 0%, hsl(190, 90%, 45%) 100%);
+            
+            /* Match Tier Gradients */
+            --tier-s-gradient: linear-gradient(135deg, hsl(45, 93%, 47%) 0%, hsl(16, 92%, 52%) 100%);
+            --tier-a-gradient: linear-gradient(135deg, hsl(162, 84%, 40%) 0%, hsl(186, 94%, 39%) 100%);
+            --tier-b-gradient: linear-gradient(135deg, hsl(262, 83%, 58%) 0%, hsl(231, 89%, 64%) 100%);
+            --tier-c-gradient: linear-gradient(135deg, hsl(215, 16%, 47%) 0%, hsl(218, 11%, 65%) 100%);
+            --tier-f-gradient: linear-gradient(135deg, hsl(346, 84%, 55%) 0%, hsl(324, 76%, 45%) 100%);
+            
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
+            --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.25);
+            --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
+            
+            --radius-sm: 6px;
+            --radius-md: 12px;
+            --radius-lg: 20px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            line-height: 1.5;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        a {
+            color: var(--brand-primary);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        a:hover {
+            color: var(--brand-secondary);
+        }
+
+        /* Layout Container */
+        .app-container {
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Premium Header */
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--brand-gradient);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.4rem;
+            color: var(--bg-base);
+            box-shadow: 0 0 15px rgba(20, 240, 200, 0.4);
+        }
+
+        .logo-text h1 {
+            font-size: 1.25rem;
+            background: var(--brand-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        .logo-text p {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Scraper Status Panel */
+        .scraper-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        /* Gradient buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border-radius: var(--radius-sm);
+            font-weight: 600;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-primary {
+            background: var(--brand-gradient);
+            color: var(--bg-base);
+            box-shadow: 0 4px 14px rgba(20, 240, 200, 0.2);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(20, 240, 200, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-surface-hover);
+            border-color: var(--text-secondary);
+        }
+
+        /* Badge Styles */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.6rem;
+            border-radius: 50px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .badge-s { background: var(--tier-s-gradient); color: hsl(222, 47%, 10%); }
+        .badge-a { background: var(--tier-a-gradient); color: hsl(222, 47%, 10%); }
+        .badge-b { background: var(--tier-b-gradient); color: hsl(222, 47%, 10%); }
+        .badge-c { background: var(--tier-c-gradient); color: var(--text-primary); }
+        .badge-f { background: var(--tier-f-gradient); color: var(--text-primary); }
+
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-base);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: var(--radius-sm);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Modal / Slide-over Drawer Styles */
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .drawer-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 100%;
+            max-width: 600px;
+            height: 100%;
+            background: var(--bg-surface);
+            border-left: 1px solid var(--border-color);
+            z-index: 1001;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            flex-direction: column;
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .drawer.active {
+            right: 0;
+        }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 768px) {
+            .app-container {
+                padding: 0.75rem;
+                gap: 1rem;
+            }
+            .app-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: stretch;
+                text-align: center;
+            }
+            .logo-section {
+                justify-content: center;
+            }
+            .scraper-actions {
+                justify-content: center;
+            }
+            .drawer {
+                max-width: 100%;
+            }
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 400px;
+            width: calc(100% - 48px);
+        }
+
+        .toast {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--brand-primary);
+            border-radius: var(--radius-sm);
+            padding: 1rem;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            transform: translateY(20px);
+            opacity: 0;
+            animation: slideIn 0.3s forwards cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .toast.success {
+            border-left-color: hsl(162, 84%, 40%);
+        }
+
+        .toast.error {
+            border-left-color: hsl(346, 84%, 55%);
+        }
+
+        .toast-content {
+            flex-grow: 1;
+            font-size: 0.875rem;
+        }
+
+        .toast-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.1rem;
+        }
+
+        .toast-close:hover {
+            color: var(--text-primary);
+        }
+
+        @keyframes slideIn {
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        <!-- Global Header -->
+        <header class="app-header">
+            <div class="logo-section">
+                <div class="logo-icon">🪂</div>
+                <div class="logo-text">
+                    <h1>AeroJob Hunter</h1>
+                    <p>Intelligent Scraper & AI Profile Matcher</p>
+                </div>
+            </div>
+            
+            <div class="scraper-actions">
+                <button id="triggerScraperBtn" class="btn btn-primary" aria-label="Trigger Scraper Pipeline">
+                    <span class="icon">🕸️</span> Trigger Scraper
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Body Content -->
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Toast Notification Anchor -->
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+    <!-- Global JS dependencies -->
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
