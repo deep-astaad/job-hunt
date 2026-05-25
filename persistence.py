@@ -16,8 +16,11 @@ class JobFormatter:
     """Processes each raw Apify job through gpt-4o-mini to format it as a Job model entry."""
 
     def __init__(self):
+        import os
         self.client = OpenAI(api_key=OPENAI_API_KEY)
-        with open("prompts/formatter.txt", "r", encoding="utf-8") as f:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        prompt_path = os.path.join(base_dir, "prompts/formatter.txt")
+        with open(prompt_path, "r", encoding="utf-8") as f:
             self.SYSTEM_PROMPT = f.read()
 
     def format_job(self, raw_job):

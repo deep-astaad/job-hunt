@@ -81,69 +81,55 @@ def dashboard(request):
     date_param = request.GET.get("date", "all") # Default to all to ensure they see data
     q_param = request.GET.get("q", "").strip()
     
-    # Prefetch rankings for the selected profile
-    rankings_prefetch = Prefetch(
-        "rankings",
-        queryset=JobRanking.objects.filter(profile_id=selected_profile_id),
-        to_attr="profile_rankings"
-    )
-    
-    # Base Queryset: Fetch jobs that have a ranking for this profile
-    qs = Job.objects.prefetch_related(rankings_prefetch).filter(
-        rankings__profile_id=selected_profile_id
-    )
+    # Base Queryset: Fetch rankings for this profile, select related Job to avoid N+1
+    rankings_qs = JobRanking.objects.filter(profile_id=selected_profile_id).select_related("job")
     
     # Filter by Tiers
     if tiers_list:
-        qs = qs.filter(rankings__match_tier__in=tiers_list)
+        rankings_qs = rankings_qs.filter(match_tier__in=tiers_list)
         
-    # Filter by Source
+    # Apply Job-level filters
     if source_param:
-        qs = qs.filter(source=source_param)
+        rankings_qs = rankings_qs.filter(job__source=source_param)
         
-    # Filter by Language
     if lang_param:
-        qs = qs.filter(language=lang_param)
+        rankings_qs = rankings_qs.filter(job__language=lang_param)
         
-    # Filter by Date
     if date_param == "today":
-        qs = qs.filter(scraped_at__date=date.today())
+        rankings_qs = rankings_qs.filter(job__scraped_at__date=date.today())
     elif date_param == "3days":
-        qs = qs.filter(scraped_at__date__gte=date.today() - timedelta(days=3))
+        rankings_qs = rankings_qs.filter(job__scraped_at__date__gte=date.today() - timedelta(days=3))
     elif date_param == "7days":
-        qs = qs.filter(scraped_at__date__gte=date.today() - timedelta(days=7))
+        rankings_qs = rankings_qs.filter(job__scraped_at__date__gte=date.today() - timedelta(days=7))
         
-    # Search query
     if q_param:
-        qs = qs.filter(
-            Q(title__icontains=q_param) |
-            Q(company__icontains=q_param) |
-            Q(description__icontains=q_param)
+        rankings_qs = rankings_qs.filter(
+            Q(job__title__icontains=q_param) |
+            Q(job__company__icontains=q_param) |
+            Q(job__description__icontains=q_param)
         )
         
-    # 4. Custom sorting (S, A, B, C, F then Rank)
+    # Custom sorting (S, A, B, C, F then Rank)
     tier_order = Case(
-        When(rankings__match_tier="S", then=Value(0)),
-        When(rankings__match_tier="A", then=Value(1)),
-        When(rankings__match_tier="B", then=Value(2)),
-        When(rankings__match_tier="C", then=Value(3)),
-        When(rankings__match_tier="F", then=Value(4)),
+        When(match_tier="S", then=Value(0)),
+        When(match_tier="A", then=Value(1)),
+        When(match_tier="B", then=Value(2)),
+        When(match_tier="C", then=Value(3)),
+        When(match_tier="F", then=Value(4)),
         default=Value(99),
         output_field=IntegerField(),
     )
     
-    # Select related columns & distinct values
-    jobs_qs = qs.annotate(tier_val=tier_order).order_by("tier_val", "rankings__rank")
+    rankings_qs = rankings_qs.annotate(tier_val=tier_order).order_by("tier_val", "rank")
     
-    # Build list of jobs with pre-extracted ranking details for convenient template rendering
+    # Extract jobs and attach ranking fields for the template
     jobs = []
-    for job in jobs_qs:
-        ranking = job.profile_rankings[0] if job.profile_rankings else None
-        if ranking:
-            job.match_tier = ranking.match_tier
-            job.rank = ranking.rank
-            job.jd_summary = ranking.jd_summary
-            jobs.append(job)
+    for ranking in rankings_qs:
+        job = ranking.job
+        job.match_tier = ranking.match_tier
+        job.rank = ranking.rank
+        job.jd_summary = ranking.jd_summary
+        jobs.append(job)
             
     # Compile filters for context
     active_filters = {
@@ -175,8 +161,12 @@ def dashboard(request):
 @require_POST
 def trigger_scrape(request):
     """Trigger the scraping and ranking pipeline asynchronously via Celery worker."""
-    from tasks.pipeline import run_pipeline
+    import sys
+    if str(settings.BASE_DIR.parent) not in sys.path:
+        sys.path.append(str(settings.BASE_DIR.parent))
+        
     try:
+        from tasks.pipeline import run_pipeline
         actor_configs = load_actor_configs()
         profiles = load_profiles()
         profile_ids = [p["id"] for p in profiles]
@@ -186,6 +176,15 @@ def trigger_scrape(request):
                 "status": "error",
                 "message": "No Apify actor configurations found in actor-config.json."
             }, status=400)
+            
+        target_source = request.POST.get("source", "").strip()
+        if target_source:
+            actor_configs = [c for c in actor_configs if c.get("source") == target_source]
+            if not actor_configs:
+                return JsonResponse({
+                    "status": "error",
+                    "message": f"No actor config found with source '{target_source}'."
+                }, status=400)
             
         # Dispatch the Celery task
         task = run_pipeline.delay(actor_configs, profile_ids)

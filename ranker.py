@@ -10,11 +10,17 @@ class JobRankerAI:
         self.client = OpenAI(api_key=OPENAI_API_KEY)
 
     def _read_file(self, filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
+        import os
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        abs_path = os.path.join(base_dir, filepath)
+        with open(abs_path, "r", encoding="utf-8") as f:
             return f.read()
 
     def _load_json(self, filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
+        import os
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        abs_path = os.path.join(base_dir, filepath)
+        with open(abs_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     @staticmethod

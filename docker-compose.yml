@@ -79,8 +79,8 @@ services:
     command: >
       celery -A celery_app worker
       --loglevel=info
-      --concurrency=4
-      --max-tasks-per-child=100
+      --pool=threads
+      --concurrency=20
 
   job-finder:
     build:
@@ -101,6 +101,27 @@ services:
       django:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jobhunt-celery-beat
+    env_file:
+      - .env
+    environment:
+      APP_MODE: celery-beat
+      DJANGO_API_URL: http://django:8000
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - .:/app
+      - ./.env:/app/.env:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      django:
         condition: service_healthy
 
 volumes:

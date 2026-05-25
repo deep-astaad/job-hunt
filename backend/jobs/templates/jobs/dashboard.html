@@ -701,6 +701,25 @@
                 </div>
             </form>
         </section>
+
+        <!-- 4. Manual Scraper Trigger -->
+        <section class="card" aria-label="Run Scrapers">
+            <h2 class="card-title">🚀 Run Scrapers</h2>
+            <form method="post" action="{% url 'jobs_web:trigger_scrape' %}" class="filter-form" onsubmit="return handleScrapeSubmit(event, this);">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="triggerSourceSelect" class="form-label">Select Source</label>
+                    <select id="triggerSourceSelect" name="source" class="form-select">
+                        <option value="">All Actors</option>
+                        {% for value, name in source_choices %}
+                        <option value="{{ value }}">{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" id="runScraperBtn">Trigger Pipeline</button>
+            </form>
+            <div id="scrapeResultMsg" style="margin-top: 1rem; font-size: 0.8125rem; display: none; padding: 0.5rem; border-radius: var(--radius-sm);"></div>
+        </section>
     </div>
 
     <!-- Right column: list of matching jobs -->
@@ -843,6 +862,85 @@
 <script>
     window.csrfToken = "{{ csrf_token }}";
 </script>
+
+<script>
+async function handleScrapeSubmit(event, form) {
+    event.preventDefault();
+    const btn = document.getElementById('runScraperBtn');
+    const msgBox = document.getElementById('scrapeResultMsg');
+    
+    btn.disabled = true;
+    btn.innerText = "Triggering...";
+    msgBox.style.display = "none";
+    
+    const formData = new FormData(form);
+    await submitScrapeRequest(formData, btn, msgBox);
+}
+
+async function submitScrapeRequest(formData, btn, msgBox) {
+    try {
+        const response = await fetch("{% url 'jobs_web:trigger_scrape' %}", {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+        
+        const data = await response.json();
+        msgBox.style.display = "block";
+        
+        if (response.ok) {
+            msgBox.style.background = "rgba(20, 240, 200, 0.1)";
+            msgBox.style.color = "var(--brand-primary)";
+            msgBox.style.border = "1px solid rgba(20, 240, 200, 0.2)";
+            msgBox.innerText = "✅ Pipeline started! (Task ID: " + data.task_id + ")";
+        } else {
+            msgBox.style.background = "rgba(255, 50, 50, 0.1)";
+            msgBox.style.color = "#ff6b6b";
+            msgBox.style.border = "1px solid rgba(255, 50, 50, 0.2)";
+            msgBox.innerText = "❌ Error: " + data.message;
+        }
+    } catch (err) {
+        msgBox.style.display = "block";
+        msgBox.style.background = "rgba(255, 50, 50, 0.1)";
+        msgBox.style.color = "#ff6b6b";
+        msgBox.style.border = "1px solid rgba(255, 50, 50, 0.2)";
+        msgBox.innerText = "❌ Network error occurred.";
+    } finally {
+        if(btn) {
+            btn.disabled = false;
+            btn.innerText = btn.dataset.originalText || "Trigger Pipeline";
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const topTriggerBtn = document.getElementById('triggerScraperBtn');
+    if (topTriggerBtn) {
+        topTriggerBtn.addEventListener('click', async () => {
+            topTriggerBtn.dataset.originalText = topTriggerBtn.innerText;
+            topTriggerBtn.disabled = true;
+            topTriggerBtn.innerText = "Triggering...";
+            
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            
+            // Get source from the new top dropdown
+            const topSourceSelect = document.getElementById('topTriggerSourceSelect');
+            const sourceVal = topSourceSelect ? topSourceSelect.value : '';
+            formData.append('source', sourceVal);
+            
+            // We'll show the result in the sidebar message box for visibility
+            const msgBox = document.getElementById('scrapeResultMsg');
+            msgBox.style.display = "none";
+            
+            await submitScrapeRequest(formData, topTriggerBtn, msgBox);
+        });
+    }
+});
+</script>
+
 <!-- Include the custom main JS asset -->
 <script src="/static/jobs/js/main.js"></script>
 {% endblock %}

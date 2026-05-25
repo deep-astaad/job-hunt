@@ -33,4 +33,5 @@ dependencies = [
     "tqdm==4.67.3",
     "typing-extensions==4.15.0",
     "typing-inspection==0.4.2",
+    "django-celery-beat>=2.9.0",
 ]

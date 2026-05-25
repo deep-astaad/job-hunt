@@ -366,9 +366,17 @@
             </div>
             
             <div class="scraper-actions">
-                <button id="triggerScraperBtn" class="btn btn-primary" aria-label="Trigger Scraper Pipeline">
-                    <span class="icon">🕸️</span> Trigger Scraper
-                </button>
+                <form id="topTriggerForm" style="display: flex; gap: 0.5rem; align-items: center;" onsubmit="return false;">
+                    <select id="topTriggerSourceSelect" name="source" class="form-select" style="padding: 0.4rem; font-size: 0.875rem; background: rgba(30, 41, 59, 0.8); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); min-width: 130px; outline: none;">
+                        <option value="">All Actors</option>
+                        {% for value, name in source_choices %}
+                        <option value="{{ value }}">{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" id="triggerScraperBtn" class="btn btn-primary" aria-label="Trigger Scraper Pipeline">
+                        <span class="icon">🕸️</span> Trigger Scraper
+                    </button>
+                </form>
             </div>
         </header>
 

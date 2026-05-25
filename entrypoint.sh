@@ -20,6 +20,11 @@ case "$APP_MODE" in
     cd /app
     exec celery -A celery_app worker --loglevel=info --concurrency=4
     ;;
+  celery-beat)
+    echo "Starting Celery beat..."
+    cd /app
+    exec celery -A celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    ;;
   *)
     echo "Unknown APP_MODE: $APP_MODE"
     echo "Valid modes: web, job-finder, celery-worker"

@@ -10,7 +10,7 @@ class ExportHandler:
             print("⚠️ Skipping Discord: DISCORD_WEBHOOK_URL not set.")
             return
 
-        params = {"tiers": "S,A"}
+        params = {"tiers": "S,A", "alert_sent": "False"}
         if profile_id:
             params["profile_id"] = profile_id
 
@@ -73,5 +73,17 @@ class ExportHandler:
 
         if embeds_batch:
             requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds_batch})
+
+        # Mark alerts as sent
+        job_ids = [job.get("id") for job in jobs[:DISCORD_TOP_N_JOBS] if job.get("id")]
+        if job_ids:
+            try:
+                requests.post(
+                    f"{DJANGO_API_URL}/api/jobs/mark_alerts_sent/",
+                    json={"job_ids": job_ids},
+                    timeout=10,
+                )
+            except requests.RequestException as e:
+                print(f"⚠️ Failed to mark alerts as sent: {e}")
 
         print(f"✅ Sent {min(len(jobs), DISCORD_TOP_N_JOBS)} S/A ranked jobs to Discord.")

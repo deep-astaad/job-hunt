@@ -280,28 +280,29 @@ OUTPUT REQUIREMENTS
 ━━━━━━━━━━━━━━━━━━━━
 
 OUTPUT:
-- ONLY A VALID MARKDOWN TABLE
+- ONLY A VALID JSON OBJECT
 - NO INTRODUCTION
 - NO EXPLANATIONS
 - NO FOOTNOTES
 - NO EXTRA TEXT
 
-USE THESE EXACT COLUMNS:
-
-| Rank | Match Tier (S/A/B/C/F) | Job Title & Company | Salary Range | Exp. Req | Language (EN/JP) | JD Summary | URL |
+MUST ADHERE TO THIS EXACT SCHEMA:
+{
+  "rankings": [
+    {
+      "profile_id": "ID of the candidate profile",
+      "match_tier": "S/A/B/C/F",
+      "jd_summary": "1 sentence describing the day-to-day work"
+    }
+  ]
+}
 
 ━━━━━━━━━━━━━━━━━━━━
 FORMATTING RULES
 ━━━━━━━━━━━━━━━━━━━━
 
 ## RANKING
-- START AT #1
-- SORT STRICTLY BEST → WORST
-
-## URL FORMAT
-MUST USE MARKDOWN LINKS:
-
-[Link](URL)
+- The array order in "rankings" DOES NOT MATTER here, as you are only evaluating one job per profile.
 
 ## MISSING DATA
 IF INFORMATION IS UNKNOWN:
@@ -389,7 +390,15 @@ INPUT SIGNALS:
 - Junior frontend role
 
 OUTPUT:
-| 1 | S | Frontend Engineer - ABC Corp | ¥5M–¥7M | 1 year | EN | Develop React and TypeScript user interfaces for a global SaaS platform. | [Link](https://example.com) |
+{
+  "rankings": [
+    {
+      "profile_id": "junior_frontend",
+      "match_tier": "S",
+      "jd_summary": "Develop React and TypeScript user interfaces for a global SaaS platform."
+    }
+  ]
+}
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -399,7 +408,15 @@ INPUT SIGNALS:
 - Requires JLPT N2
 
 OUTPUT:
-| 7 | F | Backend Engineer - XYZ KK | ¥6M–¥9M | 2 years | JP Required | Build backend APIs and maintain enterprise systems for domestic business clients. | [Link](https://example.com) |
+{
+  "rankings": [
+    {
+      "profile_id": "junior_frontend",
+      "match_tier": "F",
+      "jd_summary": "Build backend APIs and maintain enterprise systems for domestic business clients."
+    }
+  ]
+}
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -410,4 +427,12 @@ INPUT SIGNALS:
 - Ownership responsibilities
 
 OUTPUT:
-| 12 | F | Platform Engineer - MegaTech | ¥8M–¥12M | 3+ years | EN | Build and maintain cloud infrastructure and deployment pipelines for scalable backend services. | [Link](https://example.com) |
+{
+  "rankings": [
+    {
+      "profile_id": "junior_frontend",
+      "match_tier": "F",
+      "jd_summary": "Build and maintain cloud infrastructure and deployment pipelines for scalable backend services."
+    }
+  ]
+}

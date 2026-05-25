@@ -9,3 +9,7 @@ backend/staticfiles/
 backend/__pycache__/
 backend/**/__pycache__/
 *.pyc
+celerybeat-schedule
+.gitignore
+celerybeat-schedule-wal
+celerybeat-schedule-shm

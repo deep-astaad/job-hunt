@@ -23,9 +23,14 @@ FOR EACH TIER GROUP (S first, then A, then B, then C, then F):
 OUTPUT FORMAT
 ━━━━━━━━━━━━━━━━━━━━
 
-OUTPUT ONLY a valid JSON array. No text before or after.
+OUTPUT ONLY a valid JSON object containing an array. No text before or after.
 
-Each element: {"job_id": <number>, "rank": <number>}
+Schema:
+{
+  "rankings": [
+    {"job_id": <number>, "rank": <number>}
+  ]
+}
 
 - Start rank at 1 for the first tier group
 - Continue numbering across tiers (if S has 3 jobs ranked 1-3, A starts at 4)
@@ -34,15 +39,17 @@ Each element: {"job_id": <number>, "rank": <number>}
 EXAMPLE:
 Input has 2 S-tier jobs, 3 A-tier jobs, 1 B-tier job.
 Output:
-[
-  {"job_id": 5, "rank": 1},
-  {"job_id": 2, "rank": 2},
-  {"job_id": 8, "rank": 3},
-  {"job_id": 1, "rank": 4},
-  {"job_id": 3, "rank": 5},
-  {"job_id": 7, "rank": 6},
-  {"job_id": 4, "rank": 7}
-]
+{
+  "rankings": [
+    {"job_id": 5, "rank": 1},
+    {"job_id": 2, "rank": 2},
+    {"job_id": 8, "rank": 3},
+    {"job_id": 1, "rank": 4},
+    {"job_id": 3, "rank": 5},
+    {"job_id": 7, "rank": 6},
+    {"job_id": 4, "rank": 7}
+  ]
+}
 
 ━━━━━━━━━━━━━━━━━━━━
 RULES

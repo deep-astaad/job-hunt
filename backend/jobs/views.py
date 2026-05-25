@@ -22,7 +22,7 @@ class TodayRankedJobFilter(django_filters.FilterSet):
 
     class Meta:
         model = Job
-        fields = ["profile_id", "tiers"]
+        fields = ["profile_id", "tiers", "alert_sent"]
 
     def filter_tiers(self, queryset, name, value):
         tiers = [t.strip().upper() for t in value.split(",") if t.strip()]
@@ -36,7 +36,7 @@ class JobFilter(django_filters.FilterSet):
 
     class Meta:
         model = Job
-        fields = ["source", "is_active", "language", "company", "is_formatted", "url"]
+        fields = ["source", "is_active", "language", "company", "is_formatted", "url", "alert_sent"]
 
     def __init__(self, data=None, *args, **kwargs):
         # Alias ?from=... and ?to=... to updated_at date lookups
@@ -152,6 +152,14 @@ class JobViewSet(viewsets.ModelViewSet):
             "by_source": by_source,
             "by_tier": by_tier,
         })
+
+    @action(detail=False, methods=["post"], url_path="mark_alerts_sent")
+    def mark_alerts_sent(self, request):
+        job_ids = request.data.get("job_ids", [])
+        if not job_ids:
+            return Response({"error": "job_ids required"}, status=status.HTTP_400_BAD_REQUEST)
+        updated = Job.objects.filter(id__in=job_ids).update(alert_sent=True)
+        return Response({"updated": updated}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"], url_path="today-ranked")
     def today_ranked(self, request):

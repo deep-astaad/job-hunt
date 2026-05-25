@@ -18,7 +18,7 @@ def _fallback_from_raw(job_data):
         "url": job_data.get("url", ""),
         "source": job_data.get("source", "custom"),
         "salary": job_data.get("salary", "") or "",
-        "description": str(job_data.get("description", ""))[:500],
+        "description": str(job_data.get("description", "")),
         "full_description": str(job_data.get("full_description", "")),
         "tech_stack": [],
         "language": "",

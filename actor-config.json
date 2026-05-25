@@ -2,6 +2,7 @@
   {
     "actor_id": "curious_coder/linkedin-jobs-scraper",
     "source": "linkedin",
+    "schedule_frequency": "daily",
     "input": {
       "count": 100,
       "scrapeCompany": false,

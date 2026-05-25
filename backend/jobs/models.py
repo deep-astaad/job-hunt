@@ -35,6 +35,7 @@ class Job(models.Model):
 
     is_active = models.BooleanField(default=True)
     is_formatted = models.BooleanField(default=False, db_index=True)
+    alert_sent = models.BooleanField(default=False, db_index=True)
 
     scraped_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

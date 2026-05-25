@@ -1,10 +1,20 @@
 import os
 import sys
 
-# Ensure project root is on Python path for task autodiscovery
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure project root and backend are on Python path for task autodiscovery and django settings
+base_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, base_dir)
+sys.path.insert(0, os.path.join(base_dir, "backend"))
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "job_hunt.settings")
+try:
+    import django
+    django.setup()
+except ImportError:
+    pass
 
 from celery import Celery
+from celery.schedules import crontab
 from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
 
 app = Celery('job_hunt')
