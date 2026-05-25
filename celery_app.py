@@ -18,8 +18,8 @@ app.config_from_object({
     'task_track_started': True,
     'task_acks_late': True,
     'worker_prefetch_multiplier': 1,
-    'task_soft_time_limit': 900,
-    'task_time_limit': 960,
+    'task_soft_time_limit': 18000,
+    'task_time_limit': 18300,
 })
 
 # Explicitly import task modules to register tasks with the worker.

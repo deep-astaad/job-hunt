@@ -80,7 +80,7 @@ class JobRankerAI:
         user_content = f"CANDIDATE PROFILE:\n{json.dumps(profile, indent=2)}\n\nJOB DATA:\n{json.dumps(batch, indent=2)}"
 
         response = self.client.chat.completions.create(
-            model="gpt-5.4-nano-2026-03-17",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
@@ -109,7 +109,7 @@ class JobRankerAI:
         )
 
         response = self.client.chat.completions.create(
-            model="gpt-5.4-nano-2026-03-17",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": merge_prompt},
                 {"role": "user", "content": combined_table},
@@ -120,7 +120,7 @@ class JobRankerAI:
 
     def generate_rankings(self, minimized_jobs, profile_id="backend_dev"):
         """Matches data vectors against a target profile via gpt-4.1-nano in batches."""
-        system_prompt = self._read_file("system-prompt.txt")
+        system_prompt = self._read_file("prompts/ranker.txt")
         profiles = self._load_json("user-profiles.json")
 
         selected_profile = next((p for p in profiles if p["id"] == profile_id), profiles[0])

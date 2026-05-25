@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 3
 POLL_BATCH_SIZE = 1000
-ACTOR_POLL_TIMEOUT_SECS = 2400  # max time waiting for actor to reach terminal status (40 min for slow actors like tokyo-dev)
+ACTOR_POLL_TIMEOUT_SECS = 3600  # max time waiting for actor to reach terminal status (40 min for slow actors like tokyo-dev)
 IDLE_TIMEOUT_SECS = 300        # stop early if actor is done and no new items
 
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
@@ -131,6 +131,104 @@ def poll_and_persist(client, run_id, dataset_id, clean_fn, persist_fn,
         "final_status": final_status,
         "polls": polls,
     }
+
+
+def poll_items(client, run_id, dataset_id,
+               actor_timeout=ACTOR_POLL_TIMEOUT_SECS,
+               idle_timeout=IDLE_TIMEOUT_SECS):
+    """Generator that yields individual items from an Apify dataset as they become available.
+
+    Same polling logic as poll_and_persist but yields items one at a time
+    for immediate per-item processing (format → rank).
+    Returns a summary dict after the actor completes.
+    """
+    offset = 0
+    last_item_time = time.time()
+    total_processed = 0
+    polls = 0
+    retries = 0
+    start_time = time.time()
+    final_status = "UNKNOWN"
+
+    while True:
+        elapsed = time.time() - start_time
+
+        # --- Step 1: Fetch dataset items ---
+        try:
+            page = client.dataset(dataset_id).list_items(
+                offset=offset, limit=POLL_BATCH_SIZE,
+            )
+            retries = 0
+        except (RequestException, ApifyApiError, TimeoutError) as exc:
+            retries += 1
+            backoff = min(2 ** retries, 30)
+            logger.warning("poll_error", extra={
+                "actor_id": run_id, "error": str(exc),
+                "retry_count": retries, "offset": offset,
+            })
+            time.sleep(backoff)
+            continue
+
+        items = page.items
+        batch_size = len(items)
+
+        # --- Step 2: Yield each item individually ---
+        if batch_size > 0:
+            for item in items:
+                yield item
+                total_processed += 1
+
+            offset += batch_size
+            last_item_time = time.time()
+            logger.info("batch_yielded", extra={
+                "run_id": run_id, "batch_size": batch_size,
+                "total_processed": total_processed, "offset": offset,
+            })
+
+        # --- Step 3: Check actor status ---
+        try:
+            run_info = client.run(run_id).get()
+            if run_info:
+                final_status = run_info.get("status", "UNKNOWN")
+        except (RequestException, ApifyApiError, TimeoutError):
+            pass
+
+        # --- Step 4: Decide whether to stop ---
+        if final_status in TERMINAL_STATUSES and batch_size == 0:
+            break
+
+        if final_status not in TERMINAL_STATUSES:
+            if elapsed > actor_timeout:
+                logger.warning("actor_timeout", extra={
+                    "run_id": run_id, "actor_status": final_status,
+                    "elapsed_secs": round(elapsed),
+                    "total_processed": total_processed,
+                })
+                break
+        else:
+            if batch_size == 0:
+                idle_secs = time.time() - last_item_time
+                if idle_secs > idle_timeout:
+                    logger.warning("idle_timeout", extra={
+                        "run_id": run_id, "idle_secs": round(idle_secs),
+                        "total_processed": total_processed,
+                    })
+                    break
+
+        # --- Step 5: Wait before next poll ---
+        time.sleep(POLL_INTERVAL)
+        polls += 1
+
+    elapsed = round(time.time() - start_time, 1)
+    logger.info("actor_finished", extra={
+        "run_id": run_id, "status": final_status,
+        "total_items": total_processed, "polls": polls,
+        "elapsed_secs": elapsed,
+    })
+
+    # Signal end of iteration with a summary
+    yield {"_done": True, "total_processed": total_processed,
+           "final_status": final_status, "polls": polls, "elapsed_secs": elapsed}
 
 
 class JobScraperPipeline:

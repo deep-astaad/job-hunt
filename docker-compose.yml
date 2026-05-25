@@ -58,7 +58,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: jobhunt-celery-worker
+    # container_name: jobhunt-celery-worker
     env_file:
       - .env
     environment:

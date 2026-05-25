@@ -15,35 +15,15 @@ def normalize_url(url):
 class JobFormatter:
     """Processes each raw Apify job through gpt-4o-mini to format it as a Job model entry."""
 
-    SYSTEM_PROMPT = """You are a job data formatter. You receive the full raw JSON object scraped from a job board.
-
-The raw JSON may come from different sources (LinkedIn, Indeed, Japan Dev, Tokyo Dev, etc.) and will have different field names. Extract and standardize into these fields:
-- title: Job title string
-- company: Company name string
-- url: The job listing URL
-- source: Infer from the URL domain:
-  * linkedin.com -> "linkedin"
-  * indeed.com or indeed.co.jp -> "indeed"
-  * japan-dev.com -> "japan_dev"
-  * tokyodev.com -> "tokyo_dev"
-  * daijob.com -> "daijob"
-  * Anything else -> "custom"
-- salary: Build a human-readable salary string from ANY salary fields in the raw data (e.g. salaryMin/salaryMax/salaryCurrency, salaryInsights, salaryString, compensation, etc.). If no salary info exists, return "".
-- description: A concise 1-2 sentence summary of the role (max 500 chars)
-- full_description: The complete job description text from the raw data
-- tech_stack: JSON array of technology names found in the description (max 10). Empty array [] if none.
-- language: "EN" or "JP". Use "JP" if the description contains Japanese characters (hiragana, katakana, kanji). Otherwise "EN".
-- experience_required: Minimum years of experience as a string (e.g. "3 years"). Empty string "" if not mentioned.
-
-IMPORTANT: Look at ALL fields in the raw JSON for salary, description, and company info — field names vary by source. Return ONLY a valid JSON object with these exact keys. No markdown fences, no commentary."""
-
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
+        with open("prompts/formatter.txt", "r", encoding="utf-8") as f:
+            self.SYSTEM_PROMPT = f.read()
 
     def format_job(self, raw_job):
         """Send one raw job to gpt-4o-mini and return the formatted Job model object."""
         response = self.client.chat.completions.create(
-            model="gpt-5.4-nano-2026-03-17",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(raw_job, indent=2, default=str)},
@@ -51,12 +31,12 @@ IMPORTANT: Look at ALL fields in the raw JSON for salary, description, and compa
             temperature=0.1,
         )
         text = response.choices[0].message.content.strip()
-        # Strip markdown fences if present
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
         if text.endswith("```"):
             text = text.rsplit("```", 1)[0]
-        return json.loads(text.strip())
+        result = json.loads(text.strip())
+        return result
 
     def format_all(self, raw_jobs):
         """Process each raw job individually through gpt-4o-mini."""
@@ -114,7 +94,7 @@ class DjangoPersistence:
         from datetime import date
         today = date.today().isoformat()
         all_jobs = []
-        url = f"{self.JOBS_SEARCH_URL}?is_formatted=false&updated_at__date={today}&page_size=100"
+        url = f"{self.JOBS_SEARCH_URL}?is_formatted=false&from={today}&page_size=100"
         while url:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
@@ -148,7 +128,7 @@ class DjangoPersistence:
         from datetime import date
         today = date.today().isoformat()
         all_jobs = []
-        url = f"{self.JOBS_SEARCH_URL}?page_size=100&updated_at__date={today}"
+        url = f"{self.JOBS_SEARCH_URL}?page_size=100&from={today}"
         while url:
             response = requests.get(url, timeout=30)
             response.raise_for_status()

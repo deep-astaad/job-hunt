@@ -1,7 +1,7 @@
 import json
 from tasks.pipeline import run_pipeline
 
-PROFILE_IDS = ["backend_dev", "cloud_infra"]
+PROFILE_IDS = ["backend_platform_engineer", "cloud_devops_architect", "data_ai_engineer"]
 
 
 def main():

@@ -1,6 +1,8 @@
 from celery_app import app
 from persistence import JobFormatter, DjangoPersistence
 
+_formatter = JobFormatter()
+
 
 @app.task(
     bind=True,
@@ -15,17 +17,14 @@ def format_and_persist_job(self, job_data):
     Receives a job dict from the DB (fetched by scrape_all_actors).
     If raw_data (full Apify JSON) is present, it's sent to GPT for formatting.
     """
-    formatter = JobFormatter()
     persister = DjangoPersistence()
     job_id = job_data.get("id")
 
-    # raw_data is the full Apify JSON — only use it if present and actually raw
     raw_data = job_data.get("raw_data")
-    # Send raw_data to GPT if available, otherwise fall back to job_data
     input_json = raw_data or job_data
 
     try:
-        result = formatter.format_job(input_json)
+        result = _formatter.format_job(input_json)
         result.setdefault("title", job_data.get("title", "Unknown"))
         result.setdefault("company", job_data.get("company", "Unknown"))
         result.setdefault("url", job_data.get("url", ""))
@@ -36,6 +35,7 @@ def format_and_persist_job(self, job_data):
         result.setdefault("tech_stack", [])
         result.setdefault("language", "EN")
         result.setdefault("experience_required", "")
+
     except Exception as exc:
         print(f"  LLM formatting failed, using raw fallback: {exc}")
         result = {

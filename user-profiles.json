@@ -1,36 +1,80 @@
 [
-    {
-        "id": "backend_dev",
-        "title": "Backend Software Engineer",
-        "experience": "2 years",
-        "core_skills": [
-            "Python",
-            "Django",
-            "Celery",
-            "Kafka",
-            "Web Scraping",
-            "AI Integration",
-            "PostgreSQL",
-            "Docker",
-            "AWS"
-        ],
-        "language_requirements": "English only. No mandatory Japanese.",
-        "preferences": "Strictly heavy backend architecture, asynchronous task processing, data pipelines, and AI integration. No front-end development."
-    },
-    {
-        "id": "cloud_infra",
-        "title": "CloudOps Engineer / Solutions Architect",
-        "experience": "1 year",
-        "core_skills": [
-            "AWS",
-            "CloudOps",
-            "Solutions Architecture",
-            "Terraform",
-            "CI/CD",
-            "Linux",
-            "Python scripts"
-        ],
-        "language_requirements": "English business level. Basic Japanese is okay but not required.",
-        "preferences": "AWS infrastructure design, platform engineering, and container orchestration."
-    }
+  {
+    "id": "backend_platform_engineer",
+    "title": "Backend Platform Engineer / Software Development Engineer",
+    "experience": "2.5 years",
+    "core_skills": [
+      "Python",
+      "Django",
+      "FastAPI",
+      "Celery",
+      "Kafka",
+      "PostgreSQL",
+      "Redis",
+      "Web Scraping",
+      "AI Integration",
+      "LLM APIs",
+      "Async Processing",
+      "Data Pipelines",
+      "Docker",
+      "AWS",
+      "Linux",
+      "Nginx",
+      "Gunicorn",
+      "Bash Scripting",
+      "Backend System Architecture"
+    ],
+    "language_requirements": "English business level. No mandatory Japanese.",
+    "preferences": "Strong focus on scalable backend systems, distributed task processing, API architecture, scraping infrastructure, AI-powered workflows, and high-performance data pipelines. Strictly heavy backend architecture with beginner-level/minimal front-end scope."
+  },
+  {
+    "id": "cloud_devops_architect",
+    "title": "Cloud Platform Engineer / AWS Solutions Architect",
+    "experience": "1.5 years | AWS Certified Solutions Architect – Associate (SAA) & AWS Certified SysOps Administrator – Associate (SOA)",
+    "core_skills": [
+      "AWS",
+      "Solutions Architecture",
+      "System Operations (SysOps)",
+      "CloudOps",
+      "Docker",
+      "Terraform",
+      "CI/CD",
+      "Linux",
+      "Nginx",
+      "EC2",
+      "RDS",
+      "CloudWatch",
+      "Cloud Networking",
+      "Log Monitoring Automation",
+      "Infrastructure Automation",
+      "Python Automation Scripts",
+      "Shell Scripting",
+      "Server Administration"
+    ],
+    "language_requirements": "English business level. No mandatory Japanese.",
+    "preferences": "AWS infrastructure design, system operations, backend deployment automation, resource tagging, platform engineering, automated log tracking/observability, and containerized application environments."
+  },
+  {
+    "id": "data_ai_engineer",
+    "title": "Data & AI Integration Engineer",
+    "experience": "2 years",
+    "core_skills": [
+      "Python",
+      "LLM Integration",
+      "OpenAI APIs",
+      "Web Scraping",
+      "Data Extraction",
+      "Data Processing Pipelines",
+      "Vector Search",
+      "Meilisearch",
+      "Kafka",
+      "PostgreSQL",
+      "Automation",
+      "AI Workflow Orchestration",
+      "Docker",
+      "AWS"
+    ],
+    "language_requirements": "English business level. No mandatory Japanese.",
+    "preferences": "AI-enabled backend systems, intelligent automation, large-scale data collection pipelines, search systems, and production AI integrations."
+  }
 ]

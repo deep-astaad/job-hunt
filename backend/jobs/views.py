@@ -6,7 +6,7 @@ from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Count, Case, When, Value, IntegerField
+from django.db.models import Count, Min, Case, When, Value, IntegerField
 from .models import Job, JobRanking
 from .serializers import (
     JobSerializer,
@@ -31,11 +31,50 @@ class TodayRankedJobFilter(django_filters.FilterSet):
         return queryset
 
 
+class JobFilter(django_filters.FilterSet):
+    updated_at = django_filters.DateFilter(field_name="updated_at", lookup_expr="date")
+
+    class Meta:
+        model = Job
+        fields = ["source", "is_active", "language", "company", "is_formatted"]
+
+    def __init__(self, data=None, *args, **kwargs):
+        # Alias ?from=... and ?to=... to updated_at date lookups
+        if data:
+            data = data.dict()
+            if "from" in data:
+                data["from_date"] = data.pop("from")
+            if "to" in data:
+                data["to_date"] = data.pop("to")
+        super().__init__(data=data, *args, **kwargs)
+
+    from_date = django_filters.DateFilter(field_name="updated_at", lookup_expr="date__gte")
+    to_date = django_filters.DateFilter(field_name="updated_at", lookup_expr="date__lte")
+
+
+TIER_SORT_MAP = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
+
+
 class JobViewSet(viewsets.ModelViewSet):
     queryset = Job.objects.all()
-    filterset_fields = ["source", "is_active", "language", "company", "updated_at"]
+    filterset_class = JobFilter
     search_fields = ["title", "company", "description"]
-    ordering_fields = ["scraped_at", "company", "title"]
+    ordering_fields = ["scraped_at", "company", "title", "best_tier"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == "list":
+            tier_case = Case(
+                *[When(rankings__match_tier=t, then=Value(i)) for t, i in TIER_SORT_MAP.items()],
+                default=Value(99),
+                output_field=IntegerField(),
+            )
+            qs = qs.annotate(_best_tier_int=Min(tier_case)).distinct()
+            ordering = self.request.query_params.get("ordering", "")
+            if "best_tier" in ordering:
+                desc = ordering.startswith("-")
+                qs = qs.order_by(("-" if desc else "") + "_best_tier_int")
+        return qs
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -166,10 +205,16 @@ class JobViewSet(viewsets.ModelViewSet):
         })
 
 
+class JobRankingFilter(django_filters.FilterSet):
+    class Meta:
+        model = JobRanking
+        fields = ["profile_id", "match_tier"]
+
+
 class JobRankingViewSet(viewsets.ModelViewSet):
     queryset = JobRanking.objects.select_related("job").all()
     serializer_class = JobRankingSerializer
-    filterset_fields = ["profile_id", "match_tier"]
+    filterset_class = JobRankingFilter
     ordering_fields = ["rank", "created_at"]
 
     @action(detail=False, methods=["post"])
