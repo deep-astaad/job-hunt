@@ -33,13 +33,15 @@ graph TD
     schedule_daily_scrapers -->|Reads actor-config.json| run_pipeline
     
     run_pipeline -->|Initializes State| Redis[(Redis State Tracker)]
+    run_pipeline -->|Schedules Reconciliation| Reconciler[check_pipeline_completion]
     run_pipeline -->|Spawns 1 per actor| start_actor
     
     start_actor -->|POST Request| ApifyAPI
     start_actor -->|Triggers Async Polling| poll_actor_dataset
     
     poll_actor_dataset -.->|Periodically Fetches Batch| ApifyAPI
-    poll_actor_dataset -.->|Updates Pending Jobs Count| Redis
+    poll_actor_dataset -.->|Adds job_id to in_flight Set| Redis
+    poll_actor_dataset -.->|Sets dispatched_at Hash| Redis
     
     poll_actor_dataset -->|Check DB| SkipCheck{Already Processed?}
     SkipCheck -->|Yes: is_formatted=True| Skip[Skip Job]
@@ -50,11 +52,14 @@ graph TD
         Persist --> RankChain[rank_job_multi_profile]
         RankChain -->|Evaluates vs Profiles| GenerateTiers[Generate S/A/B/C/F Tiers]
         GenerateTiers --> SaveRanks[(Save Rankings to MySQL)]
-        SaveRanks -->|Decrements Pending Count| Redis
+        SaveRanks -->|Idempotent srem/hdel| Redis
     end
     
-    poll_actor_dataset -.->|When Actor Finished & Pending=0| send_discord_summary
-    Redis -.->|Monitors Completion via Idempotency Lock| send_discord_summary
+    Reconciler -->|Checks active_actors & in_flight| Redis
+    Reconciler -->|Sweeps timed-out tasks >5 mins| Redis
+    
+    Redis -.->|When active=0 & in_flight=0| send_discord_summary
+    Reconciler -.->|Trigger if complete| send_discord_summary
     
     send_discord_summary -->|Fetches S/A Tiers with alert_sent=False| MySQL[(Django DB)]
     MySQL -->|Returns Top Jobs| DiscordWebhook
@@ -65,13 +70,13 @@ graph TD
 ### Detailed Flow Breakdown
 1. **Trigger:** Celery Beat reads your schedule from the Django database and triggers `tasks.pipeline.schedule_daily_scrapers`.
 2. **Scheduling:** The task reads `actor-config.json` to determine which scrapers are due to run today based on their `schedule_frequency`.
-3. **Booting Actors:** It triggers the respective Apify actors and initializes tracking state in Redis (e.g., active actors and pending jobs).
+3. **Booting Actors:** It triggers the respective Apify actors, initializes tracking state in Redis, and schedules a periodic background reconciler task (`check_pipeline_completion`).
 4. **Async Polling:** Instead of blocking, the `poll_actor_dataset` task runs on a retry loop. It grabs batches of newly scraped jobs as they are collected by Apify.
 5. **Deduplication:** Before dispatching tasks, the system queries the Django API. If the job already has `is_formatted=True`, it silently skips it to save OpenAI credits.
 6. **Processing Pipeline:** For each **new** job, the system spins off an independent processing chain:
    - **Formatting:** Uses OpenAI to extract and structure the raw job data, persisting it to MySQL.
    - **Ranking:** Evaluates the formatted job against your predefined user profiles using OpenAI, assigning an `S`, `A`, `B`, `C`, or `F` tier and a justification summary.
-7. **Completion Tracking:** As each ranking finishes, Redis is updated. When the Apify actor finishes and the pending job count hits `0`, an atomic Redis lock (`SETNX`) safely triggers the final notification step exactly once.
+7. **Completion Tracking & Reconciler:** As each ranking finishes, it atomically removes itself from the Redis `in_flight` set. To ensure reliability against worker crashes or lost tasks, the periodic `check_pipeline_completion` reconciler checks for stale in-flight jobs, sweeps them if they time out (exceeding 5 minutes), and triggers the Discord summary exactly once when all scrapers and tasks are complete.
 
 ---
 
@@ -79,8 +84,8 @@ graph TD
 
 Notifications are carefully managed to avoid spam and duplication:
 
-- **When are they sent?** Only after **all** Apify actors have finished their runs and all background formatting and ranking queues are empty.
-- **What is sent?** The system queries the Django API for jobs scraped today that achieved a match tier of **S** or **A**.
+- **When are they sent?** Only after **all** Apify actors have finished their runs and all background formatting and ranking jobs are fully complete (or swept after timing out).
+- **How is it tracked safely?** Completeness is tracked using a Redis Set of in-flight job IDs. Removing finished jobs from the set is atomic (`SREM`), protecting against double-decrements from retries or duplicate executions. A periodic Celery reconciler task (`check_pipeline_completion`) acts as a watchdog to sweep dead tasks in case of worker crashes.
 - **Deduplication (`alert_sent` flag):** To ensure you aren't spammed with the same job if you run the scraper multiple times in a day, the system passes `alert_sent=False`. Once a batch of jobs is successfully sent to the Discord Webhook, an API call is made to update those specific jobs in the database to `alert_sent = True`. 
 
 ---

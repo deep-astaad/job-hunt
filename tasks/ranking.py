@@ -141,17 +141,18 @@ def _persist_rankings(job_id, rankings):
     default_retry_delay=60,
     soft_time_limit=180,
 )
-def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=None):
+def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=None, job_id=None):
     """Rank a single formatted job against ALL profiles in one GPT call."""
+    effective_job_id = job_id or (formatted_job_data.get("id") if isinstance(formatted_job_data, dict) else None)
+
     if not formatted_job_data or not isinstance(formatted_job_data, dict):
         logger.warning("rank_skipped_no_job_data")
-        _check_and_trigger_discord(pipeline_run_id)
+        _check_and_trigger_discord(pipeline_run_id, effective_job_id)
         return {"status": "skipped", "reason": "no_job_data"}
 
-    job_id = formatted_job_data.get("id")
-    if not job_id:
+    if not effective_job_id:
         logger.warning("rank_skipped_no_job_id")
-        _check_and_trigger_discord(pipeline_run_id)
+        _check_and_trigger_discord(pipeline_run_id, None)
         return {"status": "skipped", "reason": "no_job_id"}
 
     ranker = JobRankerAI()
@@ -170,23 +171,23 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
         rankings = _apply_hard_rules_multi(rankings, formatted_job_data)
 
         if rankings:
-            _persist_rankings(job_id, rankings)
+            _persist_rankings(effective_job_id, rankings)
             
     except (openai.RateLimitError, openai.APIError, openai.APITimeoutError) as exc:
         logger.warning("rank_gpt_retry", extra={
-            "job_id": job_id, "attempt": self.request.retries, "error": str(exc),
+            "job_id": effective_job_id, "attempt": self.request.retries, "error": str(exc),
         })
         raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
     except Exception as exc:
-        logger.error("rank_gpt_fatal", extra={"job_id": job_id, "error": str(exc)})
-        _check_and_trigger_discord(pipeline_run_id)
-        return {"status": "error", "job_id": job_id}
+        logger.error("rank_gpt_fatal", extra={"job_id": effective_job_id, "error": str(exc)})
+        _check_and_trigger_discord(pipeline_run_id, effective_job_id)
+        return {"status": "error", "job_id": effective_job_id}
 
-    _check_and_trigger_discord(pipeline_run_id)
-    return {"status": "done", "job_id": job_id, "ranked_profiles": len(rankings) if 'rankings' in locals() else 0}
+    _check_and_trigger_discord(pipeline_run_id, effective_job_id)
+    return {"status": "done", "job_id": effective_job_id, "ranked_profiles": len(rankings) if 'rankings' in locals() else 0}
 
-def _check_and_trigger_discord(pipeline_run_id):
-    """Decrement Redis pending counter and trigger Discord if pipeline is fully complete."""
+def _check_and_trigger_discord(pipeline_run_id, job_id=None):
+    """Remove job from Redis in-flight set, and trigger Discord if pipeline is fully complete."""
     if not pipeline_run_id:
         return
 
@@ -196,14 +197,28 @@ def _check_and_trigger_discord(pipeline_run_id):
     
     try:
         r = redis.Redis.from_url(CELERY_BROKER_URL)
-        pending = r.decr(f"pipeline:{pipeline_run_id}:pending_jobs")
-        active = int(r.get(f"pipeline:{pipeline_run_id}:active_actors") or 0)
         
-        if pending <= 0 and active <= 0:
-            if r.set(f"pipeline:{pipeline_run_id}:summary_sent", "1", nx=True, ex=86400):
-                send_discord_summary.delay(pipeline_run_id)
-            # Cleanup redis keys safely
-            r.delete(f"pipeline:{pipeline_run_id}:pending_jobs")
-            r.delete(f"pipeline:{pipeline_run_id}:active_actors")
+        in_flight_key = f"pipeline:{pipeline_run_id}:in_flight"
+        active_key = f"pipeline:{pipeline_run_id}:active_actors"
+        dispatched_key = f"pipeline:{pipeline_run_id}:dispatched_at"
+        summary_sent_key = f"pipeline:{pipeline_run_id}:summary_sent"
+        
+        removed = 0
+        if job_id:
+            removed = r.srem(in_flight_key, job_id)
+            r.hdel(dispatched_key, job_id)
+            
+        # Only check completion if we actually removed the job or no job_id was provided
+        if not job_id or removed == 1:
+            active = int(r.get(active_key) or 0)
+            in_flight_count = r.scard(in_flight_key)
+            
+            if active <= 0 and in_flight_count <= 0:
+                if r.set(summary_sent_key, "1", nx=True, ex=86400):
+                    send_discord_summary.delay(pipeline_run_id)
+                # Cleanup redis keys safely
+                r.delete(active_key)
+                r.delete(in_flight_key)
+                r.delete(dispatched_key)
     except Exception as exc:
-        logger.error("redis_decrement_failed", extra={"pipeline_run_id": pipeline_run_id, "error": str(exc)})
+        logger.error("redis_in_flight_removal_failed", extra={"pipeline_run_id": pipeline_run_id, "error": str(exc)})

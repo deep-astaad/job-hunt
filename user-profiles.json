@@ -53,28 +53,5 @@
     ],
     "language_requirements": "English business level. No mandatory Japanese.",
     "preferences": "AWS infrastructure design, system operations, backend deployment automation, resource tagging, platform engineering, automated log tracking/observability, and containerized application environments."
-  },
-  {
-    "id": "data_ai_engineer",
-    "title": "Data & AI Integration Engineer",
-    "experience": "2 years",
-    "core_skills": [
-      "Python",
-      "LLM Integration",
-      "OpenAI APIs",
-      "Web Scraping",
-      "Data Extraction",
-      "Data Processing Pipelines",
-      "Vector Search",
-      "Meilisearch",
-      "Kafka",
-      "PostgreSQL",
-      "Automation",
-      "AI Workflow Orchestration",
-      "Docker",
-      "AWS"
-    ],
-    "language_requirements": "English business level. No mandatory Japanese.",
-    "preferences": "AI-enabled backend systems, intelligent automation, large-scale data collection pipelines, search systems, and production AI integrations."
   }
 ]
