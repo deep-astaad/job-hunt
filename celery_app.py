@@ -15,6 +15,7 @@ except ImportError:
 
 from celery import Celery
 from celery.schedules import crontab
+from kombu import Queue
 from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
 
 app = Celery('job_hunt')
@@ -30,6 +31,15 @@ app.config_from_object({
     'worker_prefetch_multiplier': 1,
     'task_soft_time_limit': 18000,
     'task_time_limit': 18300,
+    'task_queues': (
+        Queue('celery'),
+        Queue('formatting'),
+        Queue('ranking'),
+    ),
+    'task_routes': {
+        'tasks.formatting.format_and_persist_job': {'queue': 'formatting'},
+        'tasks.ranking.rank_job_multi_profile': {'queue': 'ranking'},
+    },
 })
 
 # Explicitly import task modules to register tasks with the worker.

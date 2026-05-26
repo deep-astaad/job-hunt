@@ -18,12 +18,20 @@ case "$APP_MODE" in
   celery-worker)
     echo "Starting Celery worker..."
     cd /app
-    exec celery -A celery_app worker --loglevel=info --concurrency=4
+    if [ $# -gt 0 ]; then
+      exec "$@"
+    else
+      exec celery -A celery_app worker --loglevel=info --concurrency=4
+    fi
     ;;
   celery-beat)
     echo "Starting Celery beat..."
     cd /app
-    exec celery -A celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    if [ $# -gt 0 ]; then
+      exec "$@"
+    else
+      exec celery -A celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    fi
     ;;
   *)
     echo "Unknown APP_MODE: $APP_MODE"

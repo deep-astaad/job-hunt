@@ -164,9 +164,23 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
         )
 
     try:
-        json_text = _rank_single_job_multi_profile(
-            ranker, formatted_job_data, profiles, system_prompt
-        )
+        import os
+        import time
+        if os.getenv("MOCK_LLM") == "1":
+            time.sleep(1)  # Simulate API latency
+            json_text = json.dumps({
+                "rankings": [
+                    {
+                        "profile_id": p["id"],
+                        "match_tier": "A",
+                        "jd_summary": "Dummy summary for " + p["id"]
+                    } for p in profiles
+                ]
+            })
+        else:
+            json_text = _rank_single_job_multi_profile(
+                ranker, formatted_job_data, profiles, system_prompt
+            )
         rankings = _parse_rankings_json(json_text, profiles)
         rankings = _apply_hard_rules_multi(rankings, formatted_job_data)
 
@@ -174,10 +188,13 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
             _persist_rankings(effective_job_id, rankings)
             
     except (openai.RateLimitError, openai.APIError, openai.APITimeoutError) as exc:
-        logger.warning("rank_gpt_retry", extra={
-            "job_id": effective_job_id, "attempt": self.request.retries, "error": str(exc),
-        })
-        raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+        if os.getenv("MOCK_LLM") == "1":
+            rankings = []
+        else:
+            logger.warning("rank_gpt_retry", extra={
+                "job_id": effective_job_id, "attempt": self.request.retries, "error": str(exc),
+            })
+            raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
     except Exception as exc:
         logger.error("rank_gpt_fatal", extra={"job_id": effective_job_id, "error": str(exc)})
         _check_and_trigger_discord(pipeline_run_id, effective_job_id)

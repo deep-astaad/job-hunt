@@ -47,12 +47,20 @@ def format_and_persist_job(self, job_data):
     input_json = raw_data or job_data
 
     try:
+        import os
+        import time
+        if os.getenv("MOCK_LLM") == "1":
+            time.sleep(1)  # Simulate API latency
+            raise Exception("Mocking LLM fallback")
         result = _formatter.format_job(input_json)
     except (openai.RateLimitError, openai.APIError, openai.APITimeoutError) as exc:
-        logger.warning("format_gpt_retry", extra={
-            "job_id": job_id, "attempt": self.request.retries, "error": str(exc),
-        })
-        raise self.retry(exc=exc, countdown=30 * (2 ** self.request.retries))
+        if os.getenv("MOCK_LLM") == "1":
+            result = _fallback_from_raw(job_data)
+        else:
+            logger.warning("format_gpt_retry", extra={
+                "job_id": job_id, "attempt": self.request.retries, "error": str(exc),
+            })
+            raise self.retry(exc=exc, countdown=30 * (2 ** self.request.retries))
     except Exception as exc:
         logger.warning("format_gpt_fallback", extra={
             "job_id": job_id, "error": str(exc),
