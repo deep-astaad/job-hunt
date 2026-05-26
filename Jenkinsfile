@@ -39,7 +39,9 @@ pipeline {
 
     stage('Publish image') {
       when {
-        branch 'main'
+        expression {
+          env.BRANCH_NAME == 'main' || env.GIT_BRANCH == 'main' || env.GIT_BRANCH == 'origin/main'
+        }
       }
       steps {
         withCredentials([usernamePassword(
