@@ -33,9 +33,18 @@ case "$APP_MODE" in
       exec celery -A celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     fi
     ;;
+  celery-flower)
+    echo "Starting Celery flower..."
+    cd /app
+    if [ $# -gt 0 ]; then
+      exec "$@"
+    else
+      exec celery -A celery_app flower --port=5555
+    fi
+    ;;
   *)
     echo "Unknown APP_MODE: $APP_MODE"
-    echo "Valid modes: web, job-finder, celery-worker"
+    echo "Valid modes: web, job-finder, celery-worker, celery-beat, celery-flower"
     exit 1
     ;;
 esac
