@@ -1,0 +1,130 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: jobhunt-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${JOBHUNT_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${JOBHUNT_MYSQL_DATABASE}
+      MYSQL_USER: ${JOBHUNT_MYSQL_USER}
+      MYSQL_PASSWORD: ${JOBHUNT_MYSQL_PASSWORD}
+    volumes:
+      - ${JOBHUNT_MYSQL_DATA_LOCATION}:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: jobhunt-redis
+    restart: unless-stopped
+    volumes:
+      - ${JOBHUNT_REDIS_DATA_LOCATION}:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  django:
+    image: ${JOBHUNT_IMAGE}:${JOBHUNT_TAG}
+    container_name: jobhunt-django
+    restart: unless-stopped
+    environment:
+      APP_MODE: web
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${JOBHUNT_MYSQL_DATABASE}
+      MYSQL_USER: ${JOBHUNT_MYSQL_USER}
+      MYSQL_PASSWORD: ${JOBHUNT_MYSQL_PASSWORD}
+      DJANGO_SECRET_KEY: ${JOBHUNT_DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${JOBHUNT_HOST},django,localhost
+      APIFY_API_TOKEN: ${JOBHUNT_APIFY_API_TOKEN}
+      OPENAI_API_KEY: ${JOBHUNT_OPENAI_API_KEY}
+      DISCORD_WEBHOOK_URL: ${JOBHUNT_DISCORD_WEBHOOK_URL}
+      DISCORD_TOP_N_JOBS: ${JOBHUNT_DISCORD_TOP_N_JOBS}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    networks:
+      - default
+      - traefik
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.jobhunt.rule=Host(`${JOBHUNT_HOST}`)
+      - traefik.http.routers.jobhunt.entrypoints=websecure
+      - traefik.http.routers.jobhunt.tls.certresolver=cloudflare
+      - traefik.http.routers.jobhunt.middlewares=authelia-fa-jobhunt,secure-headers@docker,errpages@docker
+      - traefik.http.services.jobhunt.loadbalancer.server.port=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/jobs/stats/')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  celery-worker:
+    image: ${JOBHUNT_IMAGE}:${JOBHUNT_TAG}
+    restart: unless-stopped
+    environment:
+      APP_MODE: celery-worker
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${JOBHUNT_MYSQL_DATABASE}
+      MYSQL_USER: ${JOBHUNT_MYSQL_USER}
+      MYSQL_PASSWORD: ${JOBHUNT_MYSQL_PASSWORD}
+      DJANGO_SECRET_KEY: ${JOBHUNT_DJANGO_SECRET_KEY}
+      DJANGO_API_URL: http://django:8000
+      APIFY_API_TOKEN: ${JOBHUNT_APIFY_API_TOKEN}
+      OPENAI_API_KEY: ${JOBHUNT_OPENAI_API_KEY}
+      DISCORD_WEBHOOK_URL: ${JOBHUNT_DISCORD_WEBHOOK_URL}
+      DISCORD_TOP_N_JOBS: ${JOBHUNT_DISCORD_TOP_N_JOBS}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: >
+      celery -A celery_app worker
+      --loglevel=info
+      --pool=threads
+      --concurrency=20
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_healthy
+
+  celery-beat:
+    image: ${JOBHUNT_IMAGE}:${JOBHUNT_TAG}
+    container_name: jobhunt-celery-beat
+    restart: unless-stopped
+    environment:
+      APP_MODE: celery-beat
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${JOBHUNT_MYSQL_DATABASE}
+      MYSQL_USER: ${JOBHUNT_MYSQL_USER}
+      MYSQL_PASSWORD: ${JOBHUNT_MYSQL_PASSWORD}
+      DJANGO_SECRET_KEY: ${JOBHUNT_DJANGO_SECRET_KEY}
+      DJANGO_API_URL: http://django:8000
+      APIFY_API_TOKEN: ${JOBHUNT_APIFY_API_TOKEN}
+      OPENAI_API_KEY: ${JOBHUNT_OPENAI_API_KEY}
+      DISCORD_WEBHOOK_URL: ${JOBHUNT_DISCORD_WEBHOOK_URL}
+      DISCORD_TOP_N_JOBS: ${JOBHUNT_DISCORD_TOP_N_JOBS}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_healthy
+
+networks:
+  traefik:
+    external: true
