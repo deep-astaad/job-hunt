@@ -7,7 +7,7 @@ pipeline {
   }
 
   environment {
-    IMAGE_NAME = 'ghcr.io/deep-astaad/job-hunt'
+    IMAGE_NAME = 'ghcr.io/Harsh-Upadhayay/job-hunt'
   }
 
   stages {
