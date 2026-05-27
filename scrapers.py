@@ -5,7 +5,7 @@ import time
 from apify_client import ApifyClient
 from apify_client._errors import ApifyApiError
 from requests.exceptions import RequestException
-from config import APIFY_API_TOKEN
+from config import get_apify_api_token
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +233,7 @@ def poll_items(client, run_id, dataset_id,
 
 class JobScraperPipeline:
     def __init__(self):
-        self.client = ApifyClient(APIFY_API_TOKEN)
+        self.client = ApifyClient(get_apify_api_token())
 
     def load_json_file(self, filepath):
         with open(filepath, 'r') as f:

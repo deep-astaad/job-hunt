@@ -331,3 +331,38 @@ class JobRankingViewSet(viewsets.ModelViewSet):
             {"updated": updated, "errors": errors},
             status=status.HTTP_200_OK,
         )
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAdminUser
+
+class SettingsAPIView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from config import get_apify_api_token, get_openai_api_key, get_openai_model, get_openai_base_url
+        return Response({
+            "OPENAI_API_KEY": get_openai_api_key() or "",
+            "OPENAI_BASE_URL": get_openai_base_url() or "https://api.openai.com/v1",
+            "OPENAI_MODEL": get_openai_model() or "gpt-4o-mini",
+            "APIFY_API_TOKEN": get_apify_api_token() or ""
+        })
+
+    def post(self, request):
+        data = request.data
+        keys_to_update = {
+            "OPENAI_API_KEY": data.get("OPENAI_API_KEY"),
+            "OPENAI_BASE_URL": data.get("OPENAI_BASE_URL"),
+            "OPENAI_MODEL": data.get("OPENAI_MODEL"),
+            "APIFY_API_TOKEN": data.get("APIFY_API_TOKEN")
+        }
+
+        valid_keys = {k: str(v) for k, v in keys_to_update.items() if v is not None}
+
+        if valid_keys:
+            from config import set_dynamic_settings
+            success = set_dynamic_settings(valid_keys)
+            if not success:
+                return Response({"status": "error", "message": "Failed to save settings to Redis."}, status=500)
+
+        return Response({"status": "success", "message": "Settings updated successfully."})

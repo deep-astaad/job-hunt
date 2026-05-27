@@ -376,6 +376,9 @@
                     <button type="button" id="triggerScraperBtn" class="btn btn-primary" aria-label="Trigger Scraper Pipeline">
                         <span class="icon">🕸️</span> Trigger Scraper
                     </button>
+                    <button type="button" id="openSettingsBtn" class="btn btn-secondary" aria-label="Settings" onclick="window.settingsDrawer.show()">
+                        <span class="icon" style="margin-right: 0;">⚙️</span>
+                    </button>
                 </form>
             </div>
         </header>
@@ -383,6 +386,8 @@
         <!-- Main Body Content -->
         {% block content %}{% endblock %}
     </div>
+
+    {% include "jobs/settings_modal.html" %}
 
     <!-- Toast Notification Anchor -->
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>

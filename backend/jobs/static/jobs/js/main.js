@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // -------------------------------------------------------------
     // Toast Notification System
     // -------------------------------------------------------------
-    const showToast = (message, type = 'success') => {
+    window.showToast = (message, type = 'success') => {
         const container = document.getElementById('toastContainer');
         if (!container) return;
 
@@ -58,12 +58,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
 
                 if (response.ok && data.status === 'success') {
-                    showToast('✅ Scraper pipeline dispatched successfully! It is running in the background.', 'success');
+                    window.showToast('✅ Scraper pipeline dispatched successfully! It is running in the background.', 'success');
                 } else {
-                    showToast(`❌ Scraper failed to trigger: ${data.message || 'Unknown error'}`, 'error');
+                    window.showToast(`❌ Scraper failed to trigger: ${data.message || 'Unknown error'}`, 'error');
                 }
             } catch (err) {
-                showToast(`❌ Connection error: ${err.message}`, 'error');
+                window.showToast(`❌ Connection error: ${err.message}`, 'error');
             } finally {
                 triggerBtn.disabled = false;
                 triggerBtn.textContent = originalText;
@@ -264,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 openDrawer();
 
             } catch (err) {
-                showToast(`❌ Error: ${err.message}`, 'error');
+                window.showToast(`❌ Error: ${err.message}`, 'error');
             } finally {
                 button.disabled = false;
                 button.textContent = originalHtml;
@@ -272,3 +272,99 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// --- Settings Drawer logic ---
+window.settingsDrawer = {
+    overlay: document.getElementById('settingsDrawerOverlay'),
+    drawer: document.getElementById('settingsDrawer'),
+    form: document.getElementById('settingsForm'),
+
+    show: async function() {
+        this.overlay.classList.add('active');
+        this.drawer.classList.add('active');
+        this.drawer.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+
+        // Fetch current settings
+        try {
+            const resp = await fetch('/api/settings/');
+            if (!resp.ok) throw new Error('Failed to load settings');
+            const data = await resp.json();
+
+            document.getElementById('openaiApiKey').value = data.OPENAI_API_KEY || '';
+            document.getElementById('openaiBaseUrl').value = data.OPENAI_BASE_URL || '';
+            document.getElementById('openaiModel').value = data.OPENAI_MODEL || '';
+            document.getElementById('apifyApiToken').value = data.APIFY_API_TOKEN || '';
+        } catch (err) {
+            window.window.showToast(`Error loading settings: ${err.message}`, 'error');
+        }
+    },
+
+    hide: function() {
+        this.overlay.classList.remove('active');
+        this.drawer.classList.remove('active');
+        this.drawer.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    },
+
+    save: async function() {
+        const btn = document.getElementById('saveSettingsBtn');
+        const originalText = btn.textContent;
+        btn.textContent = 'Saving...';
+        btn.disabled = true;
+
+        const formData = {
+            OPENAI_API_KEY: document.getElementById('openaiApiKey').value,
+            OPENAI_BASE_URL: document.getElementById('openaiBaseUrl').value,
+            OPENAI_MODEL: document.getElementById('openaiModel').value,
+            APIFY_API_TOKEN: document.getElementById('apifyApiToken').value
+        };
+
+        try {
+            const resp = await fetch('/api/settings/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken') // Ensure CSRF is passed
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (!resp.ok) throw new Error('Failed to save settings');
+
+            const result = await resp.json();
+            if (result.status === 'success') {
+                window.window.showToast('Settings saved successfully! ⚙️', 'success');
+                this.hide();
+            } else {
+                throw new Error(result.message || 'Unknown error');
+            }
+        } catch (err) {
+            window.window.showToast(`Error saving settings: ${err.message}`, 'error');
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    }
+};
+
+// Add event listener to overlay to close the settings drawer when clicked outside
+if (window.settingsDrawer.overlay) {
+    window.settingsDrawer.overlay.addEventListener('click', () => {
+        window.settingsDrawer.hide();
+    });
+}
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
