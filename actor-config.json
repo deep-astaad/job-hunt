@@ -4,7 +4,7 @@
     "source": "linkedin",
     "schedule_frequency": "daily",
     "input": {
-      "count": 100,
+      "count": 2000,
       "scrapeCompany": false,
       "splitByLocation": false,
       "splitCountry": "JP",
