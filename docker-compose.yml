@@ -35,8 +35,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: jobhunt-django
-    # ports:
-    #   - "8000:8000"
+    ports:
+      - "8000:8000"
     env_file:
       - .env
     environment:
