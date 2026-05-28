@@ -226,6 +226,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     dApplyLink.style.display = 'none';
                 }
 
+                // Store active ranking and job IDs on drawer opening
+                drawer.dataset.activeRankingId = profileRanking ? profileRanking.id : '';
+                drawer.dataset.activeJobId = jobId;
+
+                // Set initial state of tier button selectors and rank input field
+                const tierValue = profileRanking ? (profileRanking.match_tier || 'C') : 'C';
+                const editTierButtons = drawer.querySelectorAll('.tier-select-btn');
+                editTierButtons.forEach(btn => {
+                    if (btn.getAttribute('data-tier') === tierValue) {
+                        btn.classList.add('selected');
+                    } else {
+                        btn.classList.remove('selected');
+                    }
+                });
+
+                const rankValue = profileRanking ? (profileRanking.rank || 0) : 0;
+                const rankInput = document.getElementById('rankingRankInput');
+                if (rankInput) {
+                    rankInput.value = rankValue;
+                }
+
                 // Open the slide-over drawer
                 openDrawer();
 
@@ -234,6 +255,101 @@ document.addEventListener('DOMContentLoaded', () => {
             } finally {
                 button.disabled = false;
                 button.textContent = originalHtml;
+            }
+        });
+    }
+
+    // -------------------------------------------------------------
+    // Edit Ranking UI Handlers
+    // -------------------------------------------------------------
+    const editTierButtons = document.querySelectorAll('.tier-select-btn');
+    editTierButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            editTierButtons.forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        });
+    });
+
+    const saveRankingBtn = document.getElementById('saveRankingBtn');
+    if (saveRankingBtn) {
+        saveRankingBtn.addEventListener('click', async () => {
+            const rankingId = drawer.dataset.activeRankingId;
+            const jobId = drawer.dataset.activeJobId;
+            if (!rankingId) {
+                window.showToast("❌ No active ranking to save.", "error");
+                return;
+            }
+
+            const selectedBtn = drawer.querySelector('.tier-select-btn.selected');
+            const newTier = selectedBtn ? selectedBtn.getAttribute('data-tier') : 'C';
+            const rankInput = document.getElementById('rankingRankInput');
+            const newRank = parseInt(rankInput.value, 10) || 0;
+
+            saveRankingBtn.disabled = true;
+            const originalBtnText = saveRankingBtn.textContent;
+            saveRankingBtn.textContent = 'Saving...';
+
+            try {
+                const csrfToken = window.csrfToken || getCookie('csrftoken');
+                const response = await fetch(`/api/rankings/${rankingId}/`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({
+                        match_tier: newTier,
+                        rank: newRank
+                    })
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || 'Failed to save changes.');
+                }
+
+                window.showToast("✅ Ranking updated successfully!", "success");
+
+                // Update drawer UI dynamically
+                dTier.textContent = `${newTier} Tier`;
+                dTier.className = `badge badge-${newTier.toLowerCase()}`;
+                if (newRank > 0) {
+                    dRank.textContent = `#${newRank}`;
+                    dRank.style.display = 'inline-block';
+                } else {
+                    dRank.style.display = 'none';
+                }
+
+                // Update main dashboard card dynamically
+                const card = document.getElementById(`jobCard-${jobId}`);
+                if (card) {
+                    // Update tier border classes:
+                    card.className = card.className.replace(/tier-\w+/, `tier-${newTier}`);
+                    
+                    // Update badge text and classes:
+                    const cardBadge = card.querySelector('.job-meta-top .badge');
+                    if (cardBadge) {
+                        cardBadge.textContent = `${newTier} Tier`;
+                        cardBadge.className = `badge badge-${newTier.toLowerCase()}`;
+                    }
+
+                    // Update rank indicator:
+                    const cardRank = card.querySelector('.job-meta-top .rank-indicator');
+                    if (cardRank) {
+                        cardRank.textContent = `#${newRank}`;
+                        if (newRank > 0) {
+                            cardRank.style.display = 'inline-block';
+                        } else {
+                            cardRank.style.display = 'none';
+                        }
+                    }
+                }
+            } catch (err) {
+                window.showToast(`❌ Error: ${err.message}`, 'error');
+            } finally {
+                saveRankingBtn.disabled = false;
+                saveRankingBtn.textContent = originalBtnText;
             }
         });
     }

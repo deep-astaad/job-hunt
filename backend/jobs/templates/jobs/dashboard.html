@@ -548,6 +548,30 @@
             grid-template-columns: 1fr;
         }
     }
+
+    /* Tier Selection Buttons */
+    .tier-select-btn {
+        font-weight: 700;
+        font-family: 'Outfit', sans-serif;
+        border: 1px solid var(--border-color);
+        transition: all 0.2s ease;
+        opacity: 0.6;
+        cursor: pointer;
+    }
+    .tier-select-btn:hover {
+        opacity: 0.9;
+        background: var(--bg-surface-hover);
+    }
+    .tier-select-btn.selected {
+        opacity: 1;
+        transform: scale(1.05);
+        box-shadow: var(--shadow-sm);
+    }
+    .tier-select-btn.selected[data-tier="S"] { background: var(--tier-s-gradient) !important; color: hsl(222, 47%, 10%) !important; border-color: transparent !important; }
+    .tier-select-btn.selected[data-tier="A"] { background: var(--tier-a-gradient) !important; color: hsl(222, 47%, 10%) !important; border-color: transparent !important; }
+    .tier-select-btn.selected[data-tier="B"] { background: var(--tier-b-gradient) !important; color: hsl(222, 47%, 10%) !important; border-color: transparent !important; }
+    .tier-select-btn.selected[data-tier="C"] { background: var(--tier-c-gradient) !important; color: var(--text-primary) !important; border-color: transparent !important; }
+    .tier-select-btn.selected[data-tier="F"] { background: var(--tier-f-gradient) !important; color: var(--text-primary) !important; border-color: transparent !important; }
 </style>
 {% endblock %}
 
@@ -719,9 +743,7 @@
                 <div class="job-header">
                     <div class="job-meta-top">
                         <span class="badge badge-{{ job.match_tier|lower }}">{{ job.match_tier }} Tier</span>
-                        {% if job.rank > 0 %}
-                        <span class="rank-indicator">#{{ job.rank }}</span>
-                        {% endif %}
+                        <span class="rank-indicator" style="{% if job.rank <= 0 %}display: none;{% endif %}">#{{ job.rank }}</span>
                         <span class="job-company">{{ job.company }}</span>
                         <span class="job-source-tag">{{ job.get_source_display }}</span>
                     </div>
@@ -793,6 +815,32 @@
             </div>
             <div class="drawer-section-title">✨ AI Match Summary</div>
             <p class="ai-match-summary-text" id="detailDrawerJdSummary">AI generated summary will appear here describing the suitability of the candidate against this opportunity.</p>
+        </div>
+
+        <!-- Adjust Ranking Section -->
+        <div class="meta-box" style="display: flex; flex-direction: column; gap: 1rem; border-color: rgba(20, 240, 200, 0.25); background: rgba(20, 240, 200, 0.02); padding: 1.25rem;">
+            <div class="drawer-section-title" style="margin-bottom: 0;">✏️ Adjust Ranking</div>
+            
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <span class="form-label">Tier</span>
+                <div style="display: flex; gap: 0.5rem; width: 100%;">
+                    <button type="button" class="btn btn-secondary tier-select-btn" data-tier="S" style="flex: 1; padding: 0.4rem 0;">S</button>
+                    <button type="button" class="btn btn-secondary tier-select-btn" data-tier="A" style="flex: 1; padding: 0.4rem 0;">A</button>
+                    <button type="button" class="btn btn-secondary tier-select-btn" data-tier="B" style="flex: 1; padding: 0.4rem 0;">B</button>
+                    <button type="button" class="btn btn-secondary tier-select-btn" data-tier="C" style="flex: 1; padding: 0.4rem 0;">C</button>
+                    <button type="button" class="btn btn-secondary tier-select-btn" data-tier="F" style="flex: 1; padding: 0.4rem 0;">F</button>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1;">
+                    <label for="rankingRankInput" class="form-label">Numerical Rank</label>
+                    <input type="number" id="rankingRankInput" min="0" max="9999" class="form-input" style="padding: 0.4rem 0.6rem; text-align: center;">
+                </div>
+                <button type="button" id="saveRankingBtn" class="btn btn-primary" style="padding: 0.48rem 1.2rem; font-size: 0.875rem;">
+                    Save
+                </button>
+            </div>
         </div>
 
         <!-- Meta Details Box -->
