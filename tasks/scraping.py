@@ -3,7 +3,7 @@ import logging
 from celery.exceptions import SoftTimeLimitExceeded
 from celery_app import app
 from apify_client import ApifyClient
-from config import APIFY_API_TOKEN
+from config import get_apify_api_token
 from scrapers import JobScraperPipeline, poll_and_persist
 from persistence import DjangoPersistence
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 )
 def scrape_actor(self, actor_id, run_input, source=None):
     """Start an Apify actor asynchronously and persist dataset items incrementally."""
-    client = ApifyClient(APIFY_API_TOKEN)
+    client = ApifyClient(get_apify_api_token())
     pipeline = JobScraperPipeline()
     persister = DjangoPersistence()
 
