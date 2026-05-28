@@ -67,6 +67,7 @@ def format_and_persist_job(self, job_data):
         })
         result = _fallback_from_raw(job_data)
 
+    from persistence import detect_job_language
     result.setdefault("title", job_data.get("title", "Unknown"))
     result.setdefault("company", job_data.get("company", "Unknown"))
     result.setdefault("url", job_data.get("url", ""))
@@ -76,6 +77,7 @@ def format_and_persist_job(self, job_data):
     result.setdefault("full_description", "")
     result.setdefault("tech_stack", [])
     result.setdefault("language", "EN")
+    result["language"] = detect_job_language(result)
     result.setdefault("experience_required", "")
 
     if raw_data:

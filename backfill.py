@@ -61,6 +61,7 @@ def format_jobs(jobs):
         input_json = raw_data or job
         try:
             result = formatter.format_job(input_json)
+            from persistence import detect_job_language
             result.setdefault("title", job.get("title", "Unknown"))
             result.setdefault("company", job.get("company", "Unknown"))
             result.setdefault("url", job.get("url", ""))
@@ -70,6 +71,7 @@ def format_jobs(jobs):
             result.setdefault("full_description", "")
             result.setdefault("tech_stack", [])
             result.setdefault("language", "EN")
+            result["language"] = detect_job_language(result)
             result.setdefault("experience_required", "")
             if raw_data:
                 result["raw_data"] = raw_data

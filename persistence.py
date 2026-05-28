@@ -11,6 +11,54 @@ def normalize_url(url):
     parsed = urlparse(url)
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
+def detect_job_language(job_dict):
+    """Detect and normalize language choice based on content and language field."""
+    lang = str(job_dict.get("language", "")).strip().upper()
+    if lang in ("JP", "JAPANESE"):
+        lang = "JP"
+    elif lang in ("EN", "ENGLISH"):
+        lang = "EN"
+    elif lang in ("NON-ENGLISH", "NON_ENGLISH"):
+        lang = "non-english"
+    else:
+        lang = "EN"
+
+    # Check description, title, etc. for explicit Japanese requirements
+    desc = (job_dict.get("full_description") or job_dict.get("description") or "").lower()
+    title = (job_dict.get("title") or "").lower()
+
+    if not desc and "raw_data" in job_dict:
+        raw_data = job_dict["raw_data"] or {}
+        desc = str(raw_data.get("descriptionText", raw_data.get("description", ""))).lower()
+
+    # Define common phrases suggesting Japanese is required
+    jp_indicators = [
+        r"business[- ]level japanese",
+        r"japanese[:\s]+business",
+        r"fluent japanese",
+        r"japanese[:\s]+fluent",
+        r"native japanese",
+        r"japanese[:\s]+native",
+        r"japanese[- ]level[\s:]+fluent",
+        r"jlpt[\s]*n[1-3]",
+        r"japanese required",
+        r"japanese is required",
+        r"all text in japanese",
+        r"japanese language proficiency",
+        r"language: japanese and english",
+        r"english and japanese required",
+    ]
+
+    for pattern in jp_indicators:
+        if re.search(pattern, desc) or re.search(pattern, title):
+            return "JP"
+
+    # Check if text contains Japanese characters (Hiragana, Katakana, or common Kanji)
+    if re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", desc) or re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", title):
+        return "JP"
+
+    return lang
+
 
 class JobFormatter:
     """Processes each raw Apify job through gpt-4o-mini to format it as a Job model entry."""
@@ -40,6 +88,8 @@ class JobFormatter:
         if text.endswith("```"):
             text = text.rsplit("```", 1)[0]
         result = json.loads(text.strip())
+        if isinstance(result, dict):
+            result["language"] = detect_job_language(result)
         return result
 
     def format_all(self, raw_jobs):
@@ -66,12 +116,13 @@ class JobFormatter:
                 result.setdefault("full_description", "")
                 result.setdefault("tech_stack", [])
                 result.setdefault("language", "EN")
+                result["language"] = detect_job_language(result)
                 result.setdefault("experience_required", "")
                 formatted.append(result)
             except Exception as e:
                 print(f"   ❌ [{i+1}/{total}] Failed: {e}. Using raw passthrough.")
                 # Minimal fallback from raw data
-                formatted.append({
+                fallback_job = {
                     "title": raw.get("title", raw.get("standardizedTitle", "Unknown")),
                     "company": raw.get("companyName", raw.get("company", "Unknown")),
                     "url": raw.get("link", raw.get("url", raw.get("applyUrl", ""))),
@@ -82,7 +133,9 @@ class JobFormatter:
                     "tech_stack": [],
                     "language": "EN",
                     "experience_required": "",
-                })
+                }
+                fallback_job["language"] = detect_job_language(fallback_job)
+                formatted.append(fallback_job)
 
         print(f"   ✅ Formatted {len(formatted)} jobs.")
         return formatted

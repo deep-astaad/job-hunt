@@ -278,14 +278,24 @@ OR
 AND
 NO MEANINGFUL ENGLISH VERSION IS PROVIDED
 
+OR
+
+4. THE JOB EXPLICITLY REQUIRES JAPANESE LANGUAGE SKILLS (e.g. Business level, Fluent, Conversational, JLPT certification N1-N5), OR REQUIRES BOTH ENGLISH AND JAPANESE.
+Examples of indicators:
+- "Business Level Japanese Required"
+- "all text in japanese" (or similar communication requirement instructions)
+- "Japanese: Business Level Required"
+- "Language: Japanese and English"
+- "fluent Japanese required"
+- "JLPT N2 required"
+If Japanese is a mandatory requirement for daily operations or communication, it MUST be classified as "JP", even if the listing itself is written in English.
+
 ━━━━━━━━━━━━━━━━━━━━
 
 RETURN "EN" IF:
-- The primary job content is English
-- The title has a clear English version
-- The description is mainly English
-- Only minor Japanese snippets appear
-- The listing is clearly intended for international/English-speaking candidates
+- The primary job content is English AND no Japanese language skills are required.
+- If Japanese is mentioned, it is strictly OPTIONAL (e.g. "Japanese is a plus", "Basic Japanese helpful", "No Japanese required").
+- The listing is clearly intended for candidates who do not speak Japanese.
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -302,11 +312,12 @@ CLASSIFY AS "JP" WHEN:
 - Entire summary is Japanese only
 - No English translation exists
 - The listing appears targeted primarily at Japanese speakers
+- The job requires Japanese language proficiency of any level (business, conversational, fluent, native, JLPT N1-N5)
+- The job is bilingual requiring both Japanese and English
 
 CLASSIFY AS "EN" WHEN:
-- English is the dominant language
-- Japanese appears only minimally
-- The job includes a proper English title/description
+- English is the dominant language AND Japanese is NOT required for the role (or is strictly optional/a plus)
+- The job includes a proper English title/description and does not mandate Japanese skills
 
 CLASSIFY AS "non-english" WHEN:
 - The primary language of the job posting is neither English nor Japanese
