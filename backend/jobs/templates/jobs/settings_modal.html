@@ -1,0 +1,33 @@
+<!-- Settings Drawer -->
+<div class="drawer-overlay" id="settingsDrawerOverlay" role="presentation"></div>
+
+<aside class="drawer" id="settingsDrawer" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="settingsDrawerTitle">
+    <div class="drawer-header">
+        <h2 class="drawer-title" id="settingsDrawerTitle">⚙️ Environment Settings</h2>
+        <button type="button" class="btn-close" aria-label="Close Settings Drawer" onclick="window.settingsDrawer.hide()">&times;</button>
+    </div>
+    <div class="drawer-body">
+        <form id="settingsForm">
+            <div class="form-group">
+                <label for="openaiApiKey" class="form-label">OpenAI API Key</label>
+                <input type="password" id="openaiApiKey" name="OPENAI_API_KEY" class="form-control" placeholder="sk-..." autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="openaiBaseUrl" class="form-label">OpenAI Base URL</label>
+                <input type="text" id="openaiBaseUrl" name="OPENAI_BASE_URL" class="form-control" placeholder="https://api.openai.com/v1" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="openaiModel" class="form-label">OpenAI Model Name</label>
+                <input type="text" id="openaiModel" name="OPENAI_MODEL" class="form-control" placeholder="gpt-4o-mini" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="apifyApiToken" class="form-label">Apify API Token</label>
+                <input type="password" id="apifyApiToken" name="APIFY_API_TOKEN" class="form-control" placeholder="apify_api_..." autocomplete="off">
+            </div>
+        </form>
+    </div>
+    <div class="drawer-footer">
+        <button type="button" class="btn btn-secondary" onclick="window.settingsDrawer.hide()">Cancel</button>
+        <button type="button" id="saveSettingsBtn" class="btn btn-primary" onclick="window.settingsDrawer.save()">Save Settings</button>
+    </div>
+</aside>

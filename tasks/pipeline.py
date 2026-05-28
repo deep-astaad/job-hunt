@@ -5,7 +5,7 @@ from datetime import datetime
 from celery import chain
 from celery_app import app
 from persistence import DjangoPersistence
-from config import APIFY_API_TOKEN, CELERY_BROKER_URL, DISCORD_WEBHOOK_URL
+from config import get_apify_api_token, CELERY_BROKER_URL, DISCORD_WEBHOOK_URL
 import redis
 import requests as req
 from apify_client import ApifyClient
@@ -75,7 +75,7 @@ def _load_profiles_for_ranking(profile_ids):
 @app.task(bind=True, name='tasks.pipeline.poll_actor_dataset', max_retries=1000)
 def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, pipeline_run_id, offset):
     """Async polling: fetches a batch of items, dispatches format/rank, and retries if more items exist or actor is running."""
-    client = ApifyClient(APIFY_API_TOKEN)
+    client = ApifyClient(get_apify_api_token())
     persister = DjangoPersistence()
     ranker_profiles = _load_profiles_for_ranking(profile_ids)
     r = redis.Redis.from_url(CELERY_BROKER_URL)
@@ -169,7 +169,7 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
 @app.task(bind=True, name='tasks.pipeline.start_actor')
 def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id):
     """Starts the Apify actor and kicks off the async polling."""
-    client = ApifyClient(APIFY_API_TOKEN)
+    client = ApifyClient(get_apify_api_token())
     try:
         run = client.actor(actor_id).start(run_input=run_input)
         run_id = run["id"]

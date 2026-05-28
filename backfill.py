@@ -10,7 +10,7 @@ import requests
 from persistence import JobFormatter, DjangoPersistence, normalize_url
 from ranker import JobRankerAI
 from outputs import ExportHandler
-from config import DJANGO_API_URL
+from config import DJANGO_API_URL, get_openai_model
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ def rank_jobs(jobs, profiles, system_prompt):
                 )
 
                 response = ranker.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=get_openai_model(),
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},

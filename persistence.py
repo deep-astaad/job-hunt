@@ -3,7 +3,7 @@ import re
 from urllib.parse import urlparse, urlunparse
 import requests
 from openai import OpenAI
-from config import OPENAI_API_KEY, DJANGO_API_URL
+from config import get_openai_api_key, get_openai_base_url, get_openai_model, DJANGO_API_URL
 
 
 def normalize_url(url):
@@ -17,7 +17,7 @@ class JobFormatter:
 
     def __init__(self):
         import os
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
+        self.client = OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
         base_dir = os.path.dirname(os.path.abspath(__file__))
         prompt_path = os.path.join(base_dir, "prompts/formatter.txt")
         with open(prompt_path, "r", encoding="utf-8") as f:
@@ -26,7 +26,7 @@ class JobFormatter:
     def format_job(self, raw_job):
         """Send one raw job to gpt-4o-mini and return the formatted Job model object."""
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=get_openai_model(),
             messages=[
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(raw_job, indent=2, default=str)},

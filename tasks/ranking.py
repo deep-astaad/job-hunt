@@ -5,7 +5,7 @@ import re
 import openai
 import requests
 from celery_app import app
-from config import DJANGO_API_URL
+from config import DJANGO_API_URL, get_openai_model
 from ranker import JobRankerAI
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def _rank_single_job_multi_profile(ranker, job_data, profiles, system_prompt):
     )
 
     response = ranker.client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=get_openai_model(),
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
