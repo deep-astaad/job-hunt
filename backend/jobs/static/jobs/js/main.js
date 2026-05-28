@@ -36,40 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 5000);
     };
 
-    // -------------------------------------------------------------
-    // Celery Scraper Trigger Action
-    // -------------------------------------------------------------
-    const triggerBtn = document.getElementById('triggerScraperBtn');
-    if (triggerBtn) {
-        triggerBtn.addEventListener('click', async () => {
-            const originalText = triggerBtn.textContent;
-            triggerBtn.disabled = true;
-            triggerBtn.textContent = '⏳ Starting...';
-
-            try {
-                const response = await fetch('/trigger-scrape/', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': window.csrfToken || '',
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.status === 'success') {
-                    window.showToast('✅ Scraper pipeline dispatched successfully! It is running in the background.', 'success');
-                } else {
-                    window.showToast(`❌ Scraper failed to trigger: ${data.message || 'Unknown error'}`, 'error');
-                }
-            } catch (err) {
-                window.showToast(`❌ Connection error: ${err.message}`, 'error');
-            } finally {
-                triggerBtn.disabled = false;
-                triggerBtn.textContent = originalText;
-            }
-        });
-    }
 
     // -------------------------------------------------------------
     // Filter Form Logic & Tiers Sync
