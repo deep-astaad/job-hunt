@@ -136,6 +136,8 @@ class JobViewSet(viewsets.ModelViewSet):
     def stats(self, request):
         total = Job.objects.count()
         active = Job.objects.filter(is_active=True).count()
+        formatted = Job.objects.filter(is_formatted=True).count()
+        ranked = Job.objects.filter(is_ranked=True).count()
         by_source = list(
             Job.objects.values("source")
             .annotate(count=Count("id"))
@@ -149,6 +151,8 @@ class JobViewSet(viewsets.ModelViewSet):
         return Response({
             "total_jobs": total,
             "active_jobs": active,
+            "formatted_jobs": formatted,
+            "ranked_jobs": ranked,
             "by_source": by_source,
             "by_tier": by_tier,
         })

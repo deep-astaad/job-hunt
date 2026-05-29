@@ -131,3 +131,54 @@ class CeleryTaskTests(TestCase):
         # Verify rank task was called directly for unranked job
         mock_rank_delay.assert_called_once()
 
+
+class JobStatsTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.job1 = Job.objects.create(
+            title="Engineer A",
+            company="Company A",
+            url="https://a.com",
+            url_hash="hasha",
+            is_formatted=True,
+            is_ranked=True,
+        )
+        self.job2 = Job.objects.create(
+            title="Engineer B",
+            company="Company B",
+            url="https://b.com",
+            url_hash="hashb",
+            is_formatted=True,
+            is_ranked=False,
+        )
+        self.ranking = JobRanking.objects.create(
+            job=self.job1,
+            profile_id="backend_platform_engineer",
+            profile_title="Backend Platform Engineer",
+            match_tier="S",
+            rank=1,
+        )
+
+    def test_dashboard_stats(self):
+        # We can call the dashboard url
+        url = reverse("jobs_web:dashboard")
+        # Passing profile_id in GET params to match test setup
+        response = self.client.get(f"{url}?profile_id=backend_platform_engineer")
+        self.assertEqual(response.status_code, 200)
+        stats = response.context["stats"]
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["formatted"], 2)
+        self.assertEqual(stats["ranked"], 1)
+        self.assertEqual(stats["tiers_count"]["S"], 1)
+        self.assertEqual(stats["tiers_count"]["A"], 0)
+
+    def test_api_stats(self):
+        url = reverse("job-stats")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["total_jobs"], 2)
+        self.assertEqual(data["formatted_jobs"], 2)
+        self.assertEqual(data["ranked_jobs"], 1)
+
+

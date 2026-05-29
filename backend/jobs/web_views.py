@@ -39,6 +39,8 @@ def dashboard(request):
     total_jobs = Job.objects.count()
     active_jobs = Job.objects.filter(is_active=True).count()
     scraped_today = Job.objects.filter(scraped_at__date=date.today()).count()
+    formatted_jobs = Job.objects.filter(is_formatted=True).count()
+    ranked_jobs = Job.objects.filter(is_ranked=True).count()
     
     # Breakdowns
     by_source = list(
@@ -131,6 +133,24 @@ def dashboard(request):
         job.jd_summary = ranking.jd_summary
         jobs.append(job)
             
+    # Calculate tier counts for the selected profile
+    by_tier_profile = []
+    if selected_profile_id:
+        by_tier_profile = list(
+            JobRanking.objects.filter(profile_id=selected_profile_id)
+            .values("match_tier")
+            .annotate(count=Count("id"))
+            .order_by("match_tier")
+        )
+    else:
+        by_tier_profile = by_tier
+
+    tiers_count = {t: 0 for t, _ in JobRanking.TIER_CHOICES}
+    for item in by_tier_profile:
+        t = item["match_tier"]
+        if t in tiers_count:
+            tiers_count[t] = item["count"]
+
     # Compile filters for context
     active_filters = {
         "profile_id": selected_profile_id,
@@ -149,8 +169,11 @@ def dashboard(request):
             "total": total_jobs,
             "active": active_jobs,
             "today": scraped_today,
+            "formatted": formatted_jobs,
+            "ranked": ranked_jobs,
             "by_source": by_source,
             "by_tier": by_tier,
+            "tiers_count": tiers_count,
         },
         "filters": active_filters,
         "source_choices": Job.SOURCE_CHOICES,

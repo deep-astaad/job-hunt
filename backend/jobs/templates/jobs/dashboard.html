@@ -361,6 +361,7 @@
         line-height: 1.6;
         display: -webkit-box;
         -webkit-line-clamp: 2;
+        line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
     }
@@ -599,6 +600,33 @@
             <span class="stat-label">Scraped Today</span>
         </div>
     </div>
+    <div class="stat-card">
+        <div class="stat-icon">✨</div>
+        <div class="stat-info">
+            <span class="stat-value">{{ stats.formatted }}</span>
+            <span class="stat-label">Formatted Jobs</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🏆</div>
+        <div class="stat-info">
+            <span class="stat-value">{{ stats.ranked }}</span>
+            <span class="stat-label">Ranked Jobs</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label" style="margin-bottom: 0.35rem; display: block;">Tier Distribution</span>
+            <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.25rem;">
+                <span class="badge badge-s" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">S: {{ stats.tiers_count.S }}</span>
+                <span class="badge badge-a" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">A: {{ stats.tiers_count.A }}</span>
+                <span class="badge badge-b" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">B: {{ stats.tiers_count.B }}</span>
+                <span class="badge badge-c" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">C: {{ stats.tiers_count.C }}</span>
+                <span class="badge badge-f" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">F: {{ stats.tiers_count.F }}</span>
+            </div>
+        </div>
+    </div>
 </section>
 
 <!-- Dashboard Main Workspace -->
@@ -743,7 +771,9 @@
                 <div class="job-header">
                     <div class="job-meta-top">
                         <span class="badge badge-{{ job.match_tier|lower }}">{{ job.match_tier }} Tier</span>
-                        <span class="rank-indicator" style="{% if job.rank <= 0 %}display: none;{% endif %}">#{{ job.rank }}</span>
+                        {% if job.rank > 0 %}
+                        <span class="rank-indicator">#{{ job.rank }}</span>
+                        {% endif %}
                         <span class="job-company">{{ job.company }}</span>
                         <span class="job-source-tag">{{ job.get_source_display }}</span>
                     </div>
