@@ -344,3 +344,70 @@ def check_pipeline_completion(self, pipeline_run_id):
     # Still has non-timed out jobs in flight, check again soon
     raise self.retry(countdown=30)
 
+
+@app.task(name='tasks.pipeline.process_unprocessed_jobs_task')
+def process_unprocessed_jobs_task(profile_ids=None):
+    """Fetch all unformatted jobs, format + rank them. Also fetch all formatted but unranked jobs, and rank them."""
+    from jobs.models import Job
+    from celery import chain
+    from tasks.formatting import format_and_persist_job
+    from tasks.ranking import rank_job_multi_profile
+
+    # 1. Load profiles for ranking
+    ranker_profiles = _load_profiles_for_ranking(profile_ids)
+    if not ranker_profiles:
+        logger.error("No profiles loaded for processing unprocessed jobs.")
+        return {"status": "error", "message": "No profiles found"}
+
+    # 2. Get all unformatted jobs
+    unformatted_jobs = Job.objects.filter(is_formatted=False)
+    unformatted_count = unformatted_jobs.count()
+
+    # 3. Get all unranked jobs (formatted, but not ranked)
+    unranked_jobs = Job.objects.filter(is_formatted=True, is_ranked=False)
+    unranked_count = unranked_jobs.count()
+
+    logger.info(f"Starting process_unprocessed_jobs_task: {unformatted_count} unformatted, {unranked_count} unranked jobs.")
+
+    # 4. Dispatch format + rank chain for unformatted jobs
+    for job in unformatted_jobs:
+        job_data = {
+            "id": job.id,
+            "title": job.title,
+            "company": job.company,
+            "url": job.url,
+            "source": job.source,
+            "raw_data": job.raw_data,
+        }
+        chain(
+            format_and_persist_job.s(job_data),
+            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
+        ).apply_async()
+
+    # 5. Dispatch rank directly for unranked jobs
+    for job in unranked_jobs:
+        job_data = {
+            "id": job.id,
+            "title": job.title,
+            "company": job.company,
+            "url": job.url,
+            "salary": job.salary,
+            "experience_required": job.experience_required,
+            "language": job.language,
+            "description": job.description,
+            "source": job.source,
+        }
+        rank_job_multi_profile.delay(
+            formatted_job_data=job_data,
+            profiles=ranker_profiles,
+            pipeline_run_id=None,
+            job_id=job.id
+        )
+
+    return {
+        "status": "success",
+        "unformatted_processed": unformatted_count,
+        "unranked_processed": unranked_count,
+    }
+
+

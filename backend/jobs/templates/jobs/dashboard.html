@@ -946,6 +946,47 @@ document.addEventListener('DOMContentLoaded', () => {
             await submitScrapeRequest(formData, topTriggerBtn);
         });
     }
+
+    const triggerProcessingBtn = document.getElementById('triggerProcessingBtn');
+    if (triggerProcessingBtn) {
+        triggerProcessingBtn.addEventListener('click', async () => {
+            triggerProcessingBtn.dataset.originalHtml = triggerProcessingBtn.innerHTML;
+            triggerProcessingBtn.disabled = true;
+            triggerProcessingBtn.innerHTML = "⏳ Processing...";
+
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+            try {
+                const response = await fetch("{% url 'jobs_web:trigger_processing' %}", {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (window.showToast) {
+                        window.showToast("✅ Format & Rank task started! (Task ID: " + data.task_id + ")", "success");
+                    }
+                } else {
+                    if (window.showToast) {
+                        window.showToast("❌ Error: " + data.message, "error");
+                    }
+                }
+            } catch (err) {
+                if (window.showToast) {
+                    window.showToast("❌ Network error occurred.", "error");
+                }
+            } finally {
+                triggerProcessingBtn.disabled = false;
+                triggerProcessingBtn.innerHTML = triggerProcessingBtn.dataset.originalHtml || "Format & Rank";
+            }
+        });
+    }
 });
 </script>
 

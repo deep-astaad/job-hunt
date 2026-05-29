@@ -6,4 +6,5 @@ app_name = "jobs_web"
 urlpatterns = [
     path("", web_views.dashboard, name="dashboard"),
     path("trigger-scrape/", web_views.trigger_scrape, name="trigger_scrape"),
+    path("trigger-processing/", web_views.trigger_processing, name="trigger_processing"),
 ]

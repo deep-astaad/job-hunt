@@ -131,6 +131,7 @@
             font-size: 1.25rem;
             background: var(--brand-gradient);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             font-weight: 800;
         }
@@ -145,6 +146,25 @@
             display: flex;
             align-items: center;
             gap: 1rem;
+        }
+
+        .auth-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            border-right: 1px solid var(--border-color);
+            padding-right: 1rem;
+            margin-right: 0.5rem;
+        }
+        .auth-section a {
+            color: var(--brand-primary);
+            font-weight: 600;
+        }
+        .auth-section a:hover {
+            color: var(--brand-secondary);
+            text-decoration: underline;
         }
 
         /* Gradient buttons */
@@ -366,6 +386,19 @@
             </div>
             
             <div class="scraper-actions">
+                <div class="auth-section">
+                    {% if request.user.is_authenticated %}
+                        <span>Hello, <strong>{{ request.user.username }}</strong></span>
+                        {% if request.user.is_staff %}
+                            <span class="badge badge-s" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; margin-left: 0.25rem;">Admin</span>
+                        {% endif %}
+                        <a href="/admin/logout/" style="margin-left: 0.5rem;">Logout</a>
+                    {% else %}
+                        <a href="/admin/login/?next={{ request.path }}">Admin Login</a>
+                    {% endif %}
+                </div>
+
+                {% if request.user.is_staff %}
                 <form id="topTriggerForm" style="display: flex; gap: 0.5rem; align-items: center;" onsubmit="return false;">
                     <select id="topTriggerSourceSelect" name="source" class="form-select" style="padding: 0.4rem; font-size: 0.875rem; background: rgba(30, 41, 59, 0.8); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); min-width: 130px; outline: none;">
                         <option value="">All Actors</option>
@@ -376,10 +409,14 @@
                     <button type="button" id="triggerScraperBtn" class="btn btn-primary" aria-label="Trigger Scraper Pipeline">
                         <span class="icon">🕸️</span> Trigger Scraper
                     </button>
+                    <button type="button" id="triggerProcessingBtn" class="btn btn-secondary" aria-label="Format and Rank Unprocessed Jobs">
+                        <span class="icon">✨</span> Format & Rank
+                    </button>
                     <button type="button" id="openSettingsBtn" class="btn btn-secondary" aria-label="Settings" onclick="window.settingsDrawer.show()">
                         <span class="icon" style="margin-right: 0;">⚙️</span>
                     </button>
                 </form>
+                {% endif %}
             </div>
         </header>
 

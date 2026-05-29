@@ -198,3 +198,36 @@ def trigger_scrape(request):
             "status": "error",
             "message": str(e)
         }, status=500)
+
+
+@require_POST
+def trigger_processing(request):
+    """Trigger processing of all unformatted and unranked jobs via Celery worker."""
+    if not request.user.is_staff:
+        return JsonResponse({
+            "status": "error",
+            "message": "Forbidden: Administrator permissions required."
+        }, status=403)
+
+    import sys
+    if str(settings.BASE_DIR.parent) not in sys.path:
+        sys.path.append(str(settings.BASE_DIR.parent))
+
+    try:
+        from tasks.pipeline import process_unprocessed_jobs_task
+        profiles = load_profiles()
+        profile_ids = [p["id"] for p in profiles]
+
+        # Dispatch the Celery task
+        task = process_unprocessed_jobs_task.delay(profile_ids)
+        return JsonResponse({
+            "status": "success",
+            "task_id": task.id,
+            "message": "Format and rank pipeline task triggered successfully."
+        })
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "message": str(e)
+        }, status=500)
+

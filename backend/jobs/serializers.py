@@ -23,7 +23,7 @@ class JobListSerializer(serializers.ModelSerializer):
         model = Job
         fields = [
             "id", "title", "company", "url", "source", "salary",
-            "language", "experience_required", "is_active", "scraped_at",
+            "language", "experience_required", "is_active", "is_ranked", "scraped_at",
         ]
 
 

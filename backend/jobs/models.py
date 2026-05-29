@@ -36,6 +36,7 @@ class Job(models.Model):
 
     is_active = models.BooleanField(default=True)
     is_formatted = models.BooleanField(default=False, db_index=True)
+    is_ranked = models.BooleanField(default=False, db_index=True)
     alert_sent = models.BooleanField(default=False, db_index=True)
 
     scraped_at = models.DateTimeField(auto_now_add=True)
@@ -48,7 +49,13 @@ class Job(models.Model):
             models.Index(fields=["company"]),
             models.Index(fields=["is_active"]),
             models.Index(fields=["is_formatted"]),
+            models.Index(fields=["is_ranked"]),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.is_formatted:
+            self.is_ranked = False
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.title} @ {self.company}"
@@ -79,6 +86,12 @@ class JobRanking(models.Model):
             models.Index(fields=["profile_id"]),
             models.Index(fields=["match_tier"]),
         ]
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.job.is_ranked:
+            self.job.is_ranked = True
+            self.job.save(update_fields=["is_ranked"])
 
     def __str__(self):
         return f"[{self.match_tier}] #{self.rank} {self.job.title}"
