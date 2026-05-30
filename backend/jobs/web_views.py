@@ -38,9 +38,11 @@ def dashboard(request):
     # 1. Retrieve stats
     total_jobs = Job.objects.count()
     active_jobs = Job.objects.filter(is_active=True).count()
+    
+    # Today's jobs
     scraped_today = Job.objects.filter(scraped_at__date=date.today()).count()
-    formatted_jobs = Job.objects.filter(is_formatted=True).count()
-    ranked_jobs = Job.objects.filter(is_ranked=True).count()
+    formatted_today = Job.objects.filter(scraped_at__date=date.today(), is_formatted=True).count()
+    ranked_today = Job.objects.filter(scraped_at__date=date.today(), is_ranked=True).count()
     
     # Breakdowns
     by_source = list(
@@ -145,11 +147,30 @@ def dashboard(request):
     else:
         by_tier_profile = by_tier
 
-    tiers_count = {t: 0 for t, _ in JobRanking.TIER_CHOICES}
+    tiers_count = {t: 0 for t in ["S", "A", "B", "C"]}
     for item in by_tier_profile:
         t = item["match_tier"]
         if t in tiers_count:
             tiers_count[t] = item["count"]
+
+    # Calculate today's tier counts for the selected profile
+    by_tier_today = []
+    if selected_profile_id:
+        by_tier_today = list(
+            JobRanking.objects.filter(
+                profile_id=selected_profile_id,
+                job__scraped_at__date=date.today()
+            )
+            .values("match_tier")
+            .annotate(count=Count("id"))
+            .order_by("match_tier")
+        )
+
+    today_tiers_count = {t: 0 for t in ["S", "A", "B", "C"]}
+    for item in by_tier_today:
+        t = item["match_tier"]
+        if t in today_tiers_count:
+            today_tiers_count[t] = item["count"]
 
     # Compile filters for context
     active_filters = {
@@ -169,11 +190,15 @@ def dashboard(request):
             "total": total_jobs,
             "active": active_jobs,
             "today": scraped_today,
-            "formatted": formatted_jobs,
-            "ranked": ranked_jobs,
+            "formatted": formatted_today,
+            "ranked": ranked_today,
             "by_source": by_source,
             "by_tier": by_tier,
             "tiers_count": tiers_count,
+            "today_scraped": scraped_today,
+            "today_formatted": formatted_today,
+            "today_ranked": ranked_today,
+            "today_tiers_count": today_tiers_count,
         },
         "filters": active_filters,
         "source_choices": Job.SOURCE_CHOICES,

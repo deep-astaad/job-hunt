@@ -15,18 +15,19 @@
     /* Stats Grid */
     .stats-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 1.25rem;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
     }
 
     .stat-card {
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: var(--radius-md);
-        padding: 1.25rem;
+        padding: 1.5rem;
         display: flex;
-        align-items: center;
-        gap: 1rem;
+        align-items: flex-start;
+        gap: 1.25rem;
         box-shadow: var(--shadow-sm);
         transition: transform 0.2s ease, border-color 0.2s ease;
     }
@@ -46,25 +47,103 @@
         align-items: center;
         justify-content: center;
         font-size: 1.5rem;
+        flex-shrink: 0;
     }
 
     .stat-info {
         display: flex;
         flex-direction: column;
+        flex-grow: 1;
     }
 
     .stat-value {
         font-family: 'Outfit', sans-serif;
-        font-size: 1.75rem;
-        font-weight: 700;
-        line-height: 1.2;
+        font-size: 2.25rem;
+        font-weight: 800;
+        line-height: 1.1;
+        margin-top: 0.25rem;
+        margin-bottom: 0.75rem;
+        background: var(--brand-gradient);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
 
     .stat-label {
-        font-size: 0.8125rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+    }
+
+    /* Today's sub stats row */
+    .today-sub-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.75rem;
+        margin-top: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .sub-stat {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        padding: 0.5rem 0.25rem;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .sub-stat-val {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .sub-stat-lbl {
+        font-size: 0.625rem;
         color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.05em;
+        margin-top: 0.15rem;
+    }
+
+    /* Tier Distribution section inside card */
+    .tier-distribution {
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        padding-top: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .tier-dist-title {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .tier-badges-row {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    .tier-badges-row .badge {
+        font-size: 0.6875rem;
+        padding: 0.2rem 0.5rem;
+        font-weight: 700;
+        min-width: 44px;
+        text-align: center;
+        justify-content: center;
     }
 
     /* Left Sidebar: Profiles & Filters */
@@ -579,51 +658,51 @@
 {% block content %}
 <!-- Top Level Stats Summary Panel -->
 <section class="stats-grid" aria-label="Job aggregator statistics">
+    <!-- Total Jobs Card -->
     <div class="stat-card">
         <div class="stat-icon">💼</div>
         <div class="stat-info">
+            <span class="stat-label">Total Jobs</span>
             <span class="stat-value">{{ stats.total }}</span>
-            <span class="stat-label">Total Jobs Scraped</span>
+            <div class="tier-distribution">
+                <span class="tier-dist-title">Tier Wise</span>
+                <div class="tier-badges-row">
+                    <span class="badge badge-s">S: {{ stats.tiers_count.S }}</span>
+                    <span class="badge badge-a">A: {{ stats.tiers_count.A }}</span>
+                    <span class="badge badge-b">B: {{ stats.tiers_count.B }}</span>
+                    <span class="badge badge-c">C: {{ stats.tiers_count.C }}</span>
+                </div>
+            </div>
         </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-icon">🟢</div>
-        <div class="stat-info">
-            <span class="stat-value">{{ stats.active }}</span>
-            <span class="stat-label">Active Listings</span>
-        </div>
-    </div>
+
+    <!-- Today's Jobs Card -->
     <div class="stat-card">
         <div class="stat-icon">⚡</div>
         <div class="stat-info">
-            <span class="stat-value">{{ stats.today }}</span>
-            <span class="stat-label">Scraped Today</span>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">✨</div>
-        <div class="stat-info">
-            <span class="stat-value">{{ stats.formatted }}</span>
-            <span class="stat-label">Formatted Jobs</span>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">🏆</div>
-        <div class="stat-info">
-            <span class="stat-value">{{ stats.ranked }}</span>
-            <span class="stat-label">Ranked Jobs</span>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">📊</div>
-        <div class="stat-info" style="width: 100%;">
-            <span class="stat-label" style="margin-bottom: 0.35rem; display: block;">Tier Distribution</span>
-            <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.25rem;">
-                <span class="badge badge-s" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">S: {{ stats.tiers_count.S }}</span>
-                <span class="badge badge-a" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">A: {{ stats.tiers_count.A }}</span>
-                <span class="badge badge-b" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">B: {{ stats.tiers_count.B }}</span>
-                <span class="badge badge-c" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">C: {{ stats.tiers_count.C }}</span>
-                <span class="badge badge-f" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; font-weight: 700;">F: {{ stats.tiers_count.F }}</span>
+            <span class="stat-label">Today's Jobs</span>
+            <div class="today-sub-stats">
+                <div class="sub-stat">
+                    <span class="sub-stat-val">{{ stats.today_scraped }}</span>
+                    <span class="sub-stat-lbl">Scraped</span>
+                </div>
+                <div class="sub-stat">
+                    <span class="sub-stat-val">{{ stats.today_formatted }}</span>
+                    <span class="sub-stat-lbl">Formatted</span>
+                </div>
+                <div class="sub-stat">
+                    <span class="sub-stat-val">{{ stats.today_ranked }}</span>
+                    <span class="sub-stat-lbl">Ranked</span>
+                </div>
+            </div>
+            <div class="tier-distribution">
+                <span class="tier-dist-title">Tier Wise</span>
+                <div class="tier-badges-row">
+                    <span class="badge badge-s">S: {{ stats.today_tiers_count.S }}</span>
+                    <span class="badge badge-a">A: {{ stats.today_tiers_count.A }}</span>
+                    <span class="badge badge-b">B: {{ stats.today_tiers_count.B }}</span>
+                    <span class="badge badge-c">C: {{ stats.today_tiers_count.C }}</span>
+                </div>
             </div>
         </div>
     </div>
