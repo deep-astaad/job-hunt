@@ -73,8 +73,8 @@ def dashboard(request):
             selected_profile_id = selected_profile["id"]
             
     # 3. Handle filters
-    # Tiers filter (comma-separated, default to S,A,B,C)
-    tiers_param = request.GET.get("tiers", "S,A,B,C")
+    # Tiers filter (comma-separated, default to S,A,B,C,F)
+    tiers_param = request.GET.get("tiers", "S,A,B,C,F")
     if tiers_param == "all":
         tiers_list = []
     else:
@@ -147,7 +147,7 @@ def dashboard(request):
     else:
         by_tier_profile = by_tier
 
-    tiers_count = {t: 0 for t in ["S", "A", "B", "C"]}
+    tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
     for item in by_tier_profile:
         t = item["match_tier"]
         if t in tiers_count:
@@ -166,7 +166,7 @@ def dashboard(request):
             .order_by("match_tier")
         )
 
-    today_tiers_count = {t: 0 for t in ["S", "A", "B", "C"]}
+    today_tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
     for item in by_tier_today:
         t = item["match_tier"]
         if t in today_tiers_count:
