@@ -366,6 +366,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let hasMore = jobsListContainer.dataset.hasMore === 'true';
         let isLoading = false;
 
+        console.log("[Infinite Scroll] Initialized:", { page, hasMore, totalMatches: jobsListContainer.dataset.totalMatches });
+
         const loadMoreJobs = async () => {
             if (isLoading || !hasMore) return;
             isLoading = true;
@@ -376,17 +378,21 @@ document.addEventListener('DOMContentLoaded', () => {
             urlParams.set('page', nextPage);
             urlParams.set('ajax', '1');
 
+            console.log(`[Infinite Scroll] Fetching page ${nextPage}...`, urlParams.toString());
+
             try {
                 const response = await fetch(`${window.location.pathname}?${urlParams.toString()}`);
                 if (!response.ok) throw new Error('Failed to load next page.');
 
                 const data = await response.json();
+                console.log(`[Infinite Scroll] Received page ${nextPage} data:`, { hasMore: data.has_more, htmlLength: data.html ? data.html.length : 0 });
                 
                 // Append the new HTML to the list container
                 if (data.html && data.html.trim()) {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(data.html, 'text/html');
                     const cards = doc.body.children;
+                    console.log(`[Infinite Scroll] Appending ${cards.length} new cards.`);
                     while (cards.length > 0) {
                         jobsListContainer.appendChild(cards[0]);
                     }
@@ -397,7 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 hasMore = data.has_more;
                 jobsListContainer.dataset.hasMore = hasMore;
             } catch (error) {
-                console.error(error);
+                console.error("[Infinite Scroll] Error:", error);
                 window.showToast('❌ Error loading more jobs: ' + error.message, 'error');
             } finally {
                 isLoading = false;
@@ -405,6 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // If no more, unobserve and hide sentinel
                 if (!hasMore) {
+                    console.log("[Infinite Scroll] No more records. Unobserving sentinel.");
                     observer.unobserve(scrollSentinel);
                     scrollSentinel.style.display = 'none';
                 }
@@ -413,6 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const observer = new IntersectionObserver((entries) => {
             const entry = entries[0];
+            console.log("[Infinite Scroll] Sentinel intersection:", entry.isIntersecting, { hasMore, isLoading });
             if (entry.isIntersecting && hasMore && !isLoading) {
                 loadMoreJobs();
             }
@@ -423,8 +431,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hasMore) {
             observer.observe(scrollSentinel);
         } else {
+            console.log("[Infinite Scroll] hasMore is false initially. Hiding sentinel.");
             scrollSentinel.style.display = 'none';
         }
+    } else {
+        console.warn("[Infinite Scroll] Required DOM elements not found:", { jobsListContainer, scrollSentinel, scrollLoader });
     }
 });
 
