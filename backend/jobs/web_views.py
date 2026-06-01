@@ -127,15 +127,71 @@ def dashboard(request):
     
     rankings_qs = rankings_qs.annotate(tier_val=tier_order).order_by("tier_val", "rank")
     
-    # Extract jobs and attach ranking fields for the template
-    jobs = []
+    # Calculate total matches first (from the unpaginated QuerySet)
+    total_matches = rankings_qs.count()
+
+    # Calculate trending tech stack from all matching jobs before slicing
+    tech_counter = Counter()
     for ranking in rankings_qs:
+        job_tech_stack = ranking.job.tech_stack
+        if job_tech_stack and isinstance(job_tech_stack, list):
+            for tech in job_tech_stack:
+                if tech:
+                    tech_counter[tech.strip()] += 1
+
+    # Fallback to all active jobs if no tech stack info exists in filtered jobs
+    if not tech_counter:
+        for job in Job.objects.filter(is_active=True):
+            if job.tech_stack and isinstance(job.tech_stack, list):
+                for tech in job.tech_stack:
+                    if tech:
+                        tech_counter[tech.strip()] += 1
+
+    trending_tech = []
+    total_matching_jobs = total_matches
+    for name, count in tech_counter.most_common(6):
+        percentage = round((count / max(total_matching_jobs, 1)) * 100) if total_matching_jobs > 0 else 0
+        if total_matching_jobs == 0:
+            total_active = Job.objects.filter(is_active=True).count()
+            percentage = round((count / max(total_active, 1)) * 100) if total_active > 0 else 0
+        trending_tech.append({
+            "name": name,
+            "count": count,
+            "percentage": percentage
+        })
+
+    # Apply pagination slicing
+    page_size = 20
+    try:
+        page = int(request.GET.get("page", 1))
+        if page < 1:
+            page = 1
+    except ValueError:
+        page = 1
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated_rankings = rankings_qs[start:end]
+    has_more = end < total_matches
+
+    # Extract paginated jobs and attach ranking fields for the template
+    jobs = []
+    for ranking in paginated_rankings:
         job = ranking.job
         job.match_tier = ranking.match_tier
         job.rank = ranking.rank
         job.jd_summary = ranking.jd_summary
         jobs.append(job)
-            
+
+    # Handle AJAX requests for infinite scroll
+    if request.GET.get("ajax") == "1":
+        from django.template.loader import render_to_string
+        html_content = render_to_string("jobs/job_cards_list.html", {"jobs": jobs}, request=request)
+        return JsonResponse({
+            "html": html_content,
+            "has_more": has_more
+        })
+
     # Calculate tier counts for the selected profile
     by_tier_profile = []
     if selected_profile_id:
@@ -173,35 +229,6 @@ def dashboard(request):
         if t in today_tiers_count:
             today_tiers_count[t] = item["count"]
 
-    # Calculate trending tech stack
-    tech_counter = Counter()
-    for job in jobs:
-        if job.tech_stack and isinstance(job.tech_stack, list):
-            for tech in job.tech_stack:
-                if tech:
-                    tech_counter[tech.strip()] += 1
-
-    # Fallback to all active jobs if no tech stack info exists in filtered jobs
-    if not tech_counter:
-        for job in Job.objects.filter(is_active=True):
-            if job.tech_stack and isinstance(job.tech_stack, list):
-                for tech in job.tech_stack:
-                    if tech:
-                        tech_counter[tech.strip()] += 1
-
-    trending_tech = []
-    total_matching_jobs = len(jobs)
-    for name, count in tech_counter.most_common(6):
-        percentage = round((count / max(total_matching_jobs, 1)) * 100) if total_matching_jobs > 0 else 0
-        if total_matching_jobs == 0:
-            total_active = Job.objects.filter(is_active=True).count()
-            percentage = round((count / max(total_active, 1)) * 100) if total_active > 0 else 0
-        trending_tech.append({
-            "name": name,
-            "count": count,
-            "percentage": percentage
-        })
-
     # Compile filters for context
     active_filters = {
         "profile_id": selected_profile_id,
@@ -216,6 +243,8 @@ def dashboard(request):
         "profiles": profiles,
         "selected_profile": selected_profile,
         "jobs": jobs,
+        "total_matches": total_matches,
+        "has_more": has_more,
         "stats": {
             "total": total_jobs,
             "active": active_jobs,

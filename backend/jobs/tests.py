@@ -209,3 +209,55 @@ class JobStatsTests(TestCase):
         self.assertEqual(data["ranked_jobs"], 1)
 
 
+class DashboardInfiniteScrollTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        # Create 25 jobs and rankings for backend_platform_engineer
+        for i in range(25):
+            job = Job.objects.create(
+                title=f"Engineer {i}",
+                company=f"Company {i}",
+                url=f"https://example.com/job/{i}",
+                url_hash=f"hash_{i}",
+                is_formatted=True,
+                is_ranked=True,
+            )
+            JobRanking.objects.create(
+                job=job,
+                profile_id="backend_platform_engineer",
+                profile_title="Backend Platform Engineer",
+                match_tier="S",
+                rank=i + 1,
+            )
+
+    @patch("jobs.web_views.load_profiles")
+    def test_dashboard_pagination_first_page(self, mock_load_profiles):
+        mock_load_profiles.return_value = [{"id": "backend_platform_engineer", "title": "Backend Platform Engineer"}]
+        url = reverse("jobs_web:dashboard")
+        response = self.client.get(f"{url}?profile_id=backend_platform_engineer")
+        self.assertEqual(response.status_code, 200)
+        
+        # Only 20 jobs should be rendered/passed in context
+        self.assertEqual(len(response.context["jobs"]), 20)
+        self.assertEqual(response.context["total_matches"], 25)
+        self.assertTrue(response.context["has_more"])
+
+    @patch("jobs.web_views.load_profiles")
+    def test_dashboard_pagination_ajax_page(self, mock_load_profiles):
+        mock_load_profiles.return_value = [{"id": "backend_platform_engineer", "title": "Backend Platform Engineer"}]
+        url = reverse("jobs_web:dashboard")
+        
+        # Request page 2 with ajax=1
+        response = self.client.get(f"{url}?profile_id=backend_platform_engineer&page=2&ajax=1")
+        self.assertEqual(response.status_code, 200)
+        
+        # It should return a JsonResponse
+        data = response.json()
+        self.assertIn("html", data)
+        self.assertFalse(data["has_more"])
+        
+        # The HTML should contain 5 job cards
+        self.assertEqual(data["html"].count("class=\"job-card"), 5)
+
+
+

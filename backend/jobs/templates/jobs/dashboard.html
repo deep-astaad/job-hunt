@@ -652,6 +652,98 @@
     .tier-select-btn.selected[data-tier="B"] { background: var(--tier-b-gradient) !important; color: hsl(222, 47%, 10%) !important; border-color: transparent !important; }
     .tier-select-btn.selected[data-tier="C"] { background: var(--tier-c-gradient) !important; color: var(--text-primary) !important; border-color: transparent !important; }
     .tier-select-btn.selected[data-tier="F"] { background: var(--tier-f-gradient) !important; color: var(--text-primary) !important; border-color: transparent !important; }
+
+    /* Trending Tech Stack Card styles */
+    .trending-tech-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        margin-top: 0.75rem;
+        width: 100%;
+    }
+
+    .tech-progress-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        width: 100%;
+    }
+
+    .tech-progress-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.8125rem;
+    }
+
+    .tech-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        transition: color 0.2s ease;
+    }
+
+    .tech-count-pct {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .tech-bar-bg {
+        width: 100%;
+        height: 6px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        overflow: hidden;
+        position: relative;
+        transition: border-color 0.2s ease;
+    }
+
+    .tech-bar-fill {
+        height: 100%;
+        background: var(--brand-gradient);
+        border-radius: 3px;
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tech-progress-row:hover .tech-name {
+        color: var(--brand-primary);
+    }
+
+    .tech-progress-row:hover .tech-bar-bg {
+        border-color: var(--border-hover);
+    }
+
+    /* Infinite Scroll Styling */
+    .scroll-loader {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 1.5rem;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        background: rgba(255, 255, 255, 0.01);
+        border: 1px dashed var(--border-color);
+        border-radius: var(--radius-md);
+        margin-top: 1rem;
+        transition: opacity 0.3s ease;
+    }
+    
+    .spinner {
+        width: 24px;
+        height: 24px;
+        border: 3px solid rgba(20, 240, 200, 0.1);
+        border-radius: 50%;
+        border-top-color: var(--brand-primary);
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
 </style>
 {% endblock %}
 
@@ -705,6 +797,33 @@
                     <span class="badge badge-c">C: {{ stats.today_tiers_count.C }}</span>
                     <span class="badge badge-f">F: {{ stats.today_tiers_count.F }}</span>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trending Tech Stack Card -->
+    <div class="stat-card">
+        <div class="stat-icon">🛠️</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label">Trending Tech Stack</span>
+            <div class="trending-tech-container">
+                {% for tech in stats.trending_tech %}
+                <div class="tech-progress-row">
+                    <div class="tech-progress-info">
+                        <span class="tech-name">{{ tech.name }}</span>
+                        <span class="tech-count-pct">
+                            {{ tech.count }} {% if tech.count == 1 %}job{% else %}jobs{% endif %} ({{ tech.percentage }}%)
+                        </span>
+                    </div>
+                    <div class="tech-bar-bg">
+                        <div class="tech-bar-fill" style="width: {{ tech.percentage }}%;"></div>
+                    </div>
+                </div>
+                {% empty %}
+                <div style="font-size: 0.8125rem; color: var(--text-muted); font-style: italic; text-align: center; padding: 1rem 0;">
+                    No technology data available.
+                </div>
+                {% endfor %}
             </div>
         </div>
     </div>
@@ -842,59 +961,13 @@
         <div class="jobs-section-header">
             <h2 class="section-title">Matched Opportunities</h2>
             <div class="results-count">
-                Found <strong>{{ jobs|length }}</strong> matching listings
+                Found <strong>{{ total_matches }}</strong> matching listings
             </div>
         </div>
 
-        <div class="jobs-list" id="jobsListContainer">
+        <div class="jobs-list" id="jobsListContainer" data-has-more="{% if has_more %}true{% else %}false{% endif %}" data-total-matches="{{ total_matches }}">
             {% for job in jobs %}
-            <article class="job-card tier-{{ job.match_tier }}" id="jobCard-{{ job.id }}" aria-labelledby="jobTitle-{{ job.id }}">
-                <div class="job-header">
-                    <div class="job-meta-top">
-                        <span class="badge badge-{{ job.match_tier|lower }}">{{ job.match_tier }} Tier</span>
-                        {% if job.rank > 0 %}
-                        <span class="rank-indicator">#{{ job.rank }}</span>
-                        {% endif %}
-                        <span class="job-company">{{ job.company }}</span>
-                        <span class="job-source-tag">{{ job.get_source_display }}</span>
-                    </div>
-                </div>
-
-                <h3 class="job-title" id="jobTitle-{{ job.id }}">{{ job.title }}</h3>
-
-                <div class="job-details-row">
-                    {% if job.salary %}
-                    <div class="detail-item">
-                        <span class="icon">💰</span> {{ job.salary }}
-                    </div>
-                    {% endif %}
-                    {% if job.language %}
-                    <div class="detail-item">
-                        <span class="icon">🌐</span> {{ job.get_language_display }}
-                    </div>
-                    {% endif %}
-                    {% if job.experience_required %}
-                    <div class="detail-item">
-                        <span class="icon">💼</span> {{ job.experience_required }}
-                    </div>
-                    {% endif %}
-                </div>
-
-                {% if job.jd_summary %}
-                <p class="job-summary">{{ job.jd_summary }}</p>
-                {% elif job.description %}
-                <p class="job-summary">{{ job.description }}</p>
-                {% else %}
-                <p class="job-summary" style="color: var(--text-muted); font-style: italic;">No job description summary compiled.</p>
-                {% endif %}
-
-                <div class="job-footer">
-                    <span class="scraped-time">Scraped: {{ job.scraped_at|date:"Y-m-d H:i" }}</span>
-                    <button class="btn btn-secondary btn-sm open-drawer-btn" data-job-id="{{ job.id }}" aria-controls="jobDetailDrawer">
-                        View Details →
-                    </button>
-                </div>
-            </article>
+                {% include "jobs/job_card.html" with job=job %}
             {% empty %}
             <div class="empty-state">
                 <div class="empty-icon">🚀</div>
@@ -902,6 +975,13 @@
                 <p class="empty-desc">Try resetting your filter parameters or select a different profile. Alternatively, run the scrapers to aggregate new job matches.</p>
             </div>
             {% endfor %}
+        </div>
+
+        <!-- Infinite Scroll Sentinel & Loader -->
+        <div id="infiniteScrollSentinel" style="height: 1px;"></div>
+        <div id="infiniteScrollLoader" class="scroll-loader" style="display: none;">
+            <div class="spinner"></div>
+            <span>Loading more opportunities...</span>
         </div>
     </section>
 </main>

@@ -353,6 +353,79 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // -------------------------------------------------------------
+    // Infinite Scrolling Logic (IntersectionObserver)
+    // -------------------------------------------------------------
+    const jobsListContainer = document.getElementById('jobsListContainer');
+    const scrollSentinel = document.getElementById('infiniteScrollSentinel');
+    const scrollLoader = document.getElementById('infiniteScrollLoader');
+
+    if (jobsListContainer && scrollSentinel && scrollLoader) {
+        let page = 1;
+        let hasMore = jobsListContainer.dataset.hasMore === 'true';
+        let isLoading = false;
+
+        const loadMoreJobs = async () => {
+            if (isLoading || !hasMore) return;
+            isLoading = true;
+            scrollLoader.style.display = 'flex';
+
+            const nextPage = page + 1;
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.set('page', nextPage);
+            urlParams.set('ajax', '1');
+
+            try {
+                const response = await fetch(`${window.location.pathname}?${urlParams.toString()}`);
+                if (!response.ok) throw new Error('Failed to load next page.');
+
+                const data = await response.json();
+                
+                // Append the new HTML to the list container
+                if (data.html && data.html.trim()) {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(data.html, 'text/html');
+                    const cards = doc.body.children;
+                    while (cards.length > 0) {
+                        jobsListContainer.appendChild(cards[0]);
+                    }
+                }
+
+                // Update states
+                page = nextPage;
+                hasMore = data.has_more;
+                jobsListContainer.dataset.hasMore = hasMore;
+            } catch (error) {
+                console.error(error);
+                window.showToast('❌ Error loading more jobs: ' + error.message, 'error');
+            } finally {
+                isLoading = false;
+                scrollLoader.style.display = 'none';
+                
+                // If no more, unobserve and hide sentinel
+                if (!hasMore) {
+                    observer.unobserve(scrollSentinel);
+                    scrollSentinel.style.display = 'none';
+                }
+            }
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            const entry = entries[0];
+            if (entry.isIntersecting && hasMore && !isLoading) {
+                loadMoreJobs();
+            }
+        }, {
+            rootMargin: '100px', // Pre-fetch before exact bottom reaches
+        });
+
+        if (hasMore) {
+            observer.observe(scrollSentinel);
+        } else {
+            scrollSentinel.style.display = 'none';
+        }
+    }
 });
 
 // --- Settings Drawer logic ---

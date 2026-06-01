@@ -1,0 +1,47 @@
+<article class="job-card tier-{{ job.match_tier }}" id="jobCard-{{ job.id }}" aria-labelledby="jobTitle-{{ job.id }}">
+    <div class="job-header">
+        <div class="job-meta-top">
+            <span class="badge badge-{{ job.match_tier|lower }}">{{ job.match_tier }} Tier</span>
+            {% if job.rank > 0 %}
+            <span class="rank-indicator">#{{ job.rank }}</span>
+            {% endif %}
+            <span class="job-company">{{ job.company }}</span>
+            <span class="job-source-tag">{{ job.get_source_display }}</span>
+        </div>
+    </div>
+
+    <h3 class="job-title" id="jobTitle-{{ job.id }}">{{ job.title }}</h3>
+
+    <div class="job-details-row">
+        {% if job.salary %}
+        <div class="detail-item">
+            <span class="icon">💰</span> {{ job.salary }}
+        </div>
+        {% endif %}
+        {% if job.language %}
+        <div class="detail-item">
+            <span class="icon">🌐</span> {{ job.get_language_display }}
+        </div>
+        {% endif %}
+        {% if job.experience_required %}
+        <div class="detail-item">
+            <span class="icon">💼</span> {{ job.experience_required }}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if job.jd_summary %}
+    <p class="job-summary">{{ job.jd_summary }}</p>
+    {% elif job.description %}
+    <p class="job-summary">{{ job.description }}</p>
+    {% else %}
+    <p class="job-summary" style="color: var(--text-muted); font-style: italic;">No job description summary compiled.</p>
+    {% endif %}
+
+    <div class="job-footer">
+        <span class="scraped-time">Scraped: {{ job.scraped_at|date:"Y-m-d H:i" }}</span>
+        <button class="btn btn-secondary btn-sm open-drawer-btn" data-job-id="{{ job.id }}" aria-controls="jobDetailDrawer">
+            View Details →
+        </button>
+    </div>
+</article>
