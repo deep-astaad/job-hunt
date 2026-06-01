@@ -1,5 +1,6 @@
 import json
 import os
+from collections import Counter
 from datetime import date, timedelta
 from django.shortcuts import render
 from django.conf import settings
@@ -172,6 +173,35 @@ def dashboard(request):
         if t in today_tiers_count:
             today_tiers_count[t] = item["count"]
 
+    # Calculate trending tech stack
+    tech_counter = Counter()
+    for job in jobs:
+        if job.tech_stack and isinstance(job.tech_stack, list):
+            for tech in job.tech_stack:
+                if tech:
+                    tech_counter[tech.strip()] += 1
+
+    # Fallback to all active jobs if no tech stack info exists in filtered jobs
+    if not tech_counter:
+        for job in Job.objects.filter(is_active=True):
+            if job.tech_stack and isinstance(job.tech_stack, list):
+                for tech in job.tech_stack:
+                    if tech:
+                        tech_counter[tech.strip()] += 1
+
+    trending_tech = []
+    total_matching_jobs = len(jobs)
+    for name, count in tech_counter.most_common(6):
+        percentage = round((count / max(total_matching_jobs, 1)) * 100) if total_matching_jobs > 0 else 0
+        if total_matching_jobs == 0:
+            total_active = Job.objects.filter(is_active=True).count()
+            percentage = round((count / max(total_active, 1)) * 100) if total_active > 0 else 0
+        trending_tech.append({
+            "name": name,
+            "count": count,
+            "percentage": percentage
+        })
+
     # Compile filters for context
     active_filters = {
         "profile_id": selected_profile_id,
@@ -199,6 +229,7 @@ def dashboard(request):
             "today_formatted": formatted_today,
             "today_ranked": ranked_today,
             "today_tiers_count": today_tiers_count,
+            "trending_tech": trending_tech,
         },
         "filters": active_filters,
         "source_choices": Job.SOURCE_CHOICES,

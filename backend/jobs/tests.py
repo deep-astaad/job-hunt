@@ -142,6 +142,7 @@ class JobStatsTests(TestCase):
             url_hash="hasha",
             is_formatted=True,
             is_ranked=True,
+            tech_stack=["Python", "Django", "React"],
         )
         self.job2 = Job.objects.create(
             title="Engineer B",
@@ -150,6 +151,7 @@ class JobStatsTests(TestCase):
             url_hash="hashb",
             is_formatted=True,
             is_ranked=False,
+            tech_stack=["Python", "Go"],
         )
         self.ranking = JobRanking.objects.create(
             job=self.job1,
@@ -171,6 +173,31 @@ class JobStatsTests(TestCase):
         self.assertEqual(stats["ranked"], 1)
         self.assertEqual(stats["tiers_count"]["S"], 1)
         self.assertEqual(stats["tiers_count"]["A"], 0)
+
+        # Check trending_tech calculation for filtered jobs (only job1 is ranked for backend_platform_engineer)
+        trending_tech = stats["trending_tech"]
+        self.assertTrue(len(trending_tech) > 0)
+        # Python, Django, React should be at the top with 100% since only 1 job is matched
+        python_tech = next(t for t in trending_tech if t["name"] == "Python")
+        self.assertEqual(python_tech["count"], 1)
+        self.assertEqual(python_tech["percentage"], 100)
+
+    def test_dashboard_stats_fallback(self):
+        # When profile_id has no ranked jobs (like cloud_devops_architect), it falls back to all active jobs
+        url = reverse("jobs_web:dashboard")
+        response = self.client.get(f"{url}?profile_id=cloud_devops_architect")
+        self.assertEqual(response.status_code, 200)
+        stats = response.context["stats"]
+        
+        # Falls back to all active jobs: job1 & job2.
+        trending_tech = stats["trending_tech"]
+        python_tech = next(t for t in trending_tech if t["name"] == "Python")
+        self.assertEqual(python_tech["count"], 2)
+        self.assertEqual(python_tech["percentage"], 100)
+
+        go_tech = next(t for t in trending_tech if t["name"] == "Go")
+        self.assertEqual(go_tech["count"], 1)
+        self.assertEqual(go_tech["percentage"], 50)
 
     def test_api_stats(self):
         url = reverse("job-stats")
