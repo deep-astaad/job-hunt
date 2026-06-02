@@ -53,5 +53,30 @@
     ],
     "language_requirements": "English business level. No mandatory Japanese.",
     "preferences": "AWS infrastructure design, system operations, backend deployment automation, resource tagging, platform engineering, automated log tracking/observability, and containerized application environments."
+  },
+  {
+    "id": "niraj_matere",
+    "title": "Software Engineer (Full-Stack & AI)",
+    "experience": "2+ years",
+    "core_skills": [
+      "Python",
+      "JavaScript",
+      "C++",
+      "SQL",
+      "React.js",
+      "FastAPI",
+      "MySQL",
+      "PostgreSQL",
+      "AWS",
+      "Pandas",
+      "NumPy",
+      "System Design",
+      "RAG Pipelines",
+      "LLM Workflows",
+      "API Design",
+      "Performance Optimization"
+    ],
+    "language_requirements": "English business level. No mandatory Japanese.",
+    "preferences": "End-to-end product development, building scalable Python services, designing LLM-powered workflows and RAG pipelines, dynamic load management, and full-stack feature development with a focus on product ownership."
   }
 ]
