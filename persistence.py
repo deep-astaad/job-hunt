@@ -65,11 +65,14 @@ class JobFormatter:
 
     def __init__(self):
         import os
-        self.client = OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
         base_dir = os.path.dirname(os.path.abspath(__file__))
         prompt_path = os.path.join(base_dir, "prompts/formatter.txt")
         with open(prompt_path, "r", encoding="utf-8") as f:
             self.SYSTEM_PROMPT = f.read()
+
+    @property
+    def client(self):
+        return OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
 
     def format_job(self, raw_job):
         """Send one raw job to gpt-4o-mini and return the formatted Job model object."""
