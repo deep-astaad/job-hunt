@@ -31,7 +31,7 @@ def _fallback_from_raw(job_data):
 @app.task(
     bind=True,
     name='tasks.formatting.format_and_persist_job',
-    max_retries=3,
+    max_retries=5,
     default_retry_delay=30,
     soft_time_limit=300,
 )

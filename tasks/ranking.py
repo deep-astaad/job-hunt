@@ -137,9 +137,9 @@ def _persist_rankings(job_id, rankings):
 @app.task(
     bind=True,
     name='tasks.ranking.rank_job_multi_profile',
-    max_retries=2,
-    default_retry_delay=60,
-    soft_time_limit=180,
+    max_retries=5,
+    default_retry_delay=30,
+    soft_time_limit=300,
 )
 def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=None, job_id=None):
     """Rank a single formatted job against ALL profiles in one GPT call."""
