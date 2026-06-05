@@ -92,7 +92,7 @@ services:
       celery -A celery_app worker
       --loglevel=info
       --pool=threads
-      --concurrency=20
+      --concurrency=4
     labels:
       - com.centurylinklabs.watchtower.enable=true
     depends_on:
