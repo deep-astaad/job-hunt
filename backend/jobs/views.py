@@ -175,7 +175,7 @@ class JobViewSet(viewsets.ModelViewSet):
         # Apply FilterSet for profile_id and tiers filtering
         base_qs = Job.objects.filter(is_active=True, scraped_at__date=today).distinct()
         filterset = TodayRankedJobFilter(request.query_params, queryset=base_qs)
-        jobs = filterset.qs.prefetch_related("rankings")
+        jobs = filterset.qs.distinct().prefetch_related("rankings")
 
         # Sort: requested tiers in order (S first, A second, etc.), then by rank
         tier_sort_map = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
