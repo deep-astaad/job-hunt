@@ -201,27 +201,6 @@ def send_discord_summary(pipeline_run_id):
     total_jobs = int(r.get(f"pipeline:{pipeline_run_id}:total_jobs") or 0)
     
     print(f"\n📊 Pipeline {pipeline_run_id} complete! {total_jobs} jobs formatted and ranked.")
-    
-    if DISCORD_WEBHOOK_URL:
-        try:
-            content = (
-                f"✅ **Pipeline Complete**\n"
-                f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-                f"{'-'*40}\n"
-                f"Jobs scraped, formatted & ranked: **{total_jobs}**\n"
-            )
-            req.post(DISCORD_WEBHOOK_URL, json={"content": content})
-            print("   -> Discord summary sent.")
-        except Exception as e:
-            print(f"   -> Discord send failed: {e}")
-    else:
-        print("   -> Discord webhook not configured, skipping.")
-
-    try:
-        from outputs import ExportHandler
-        ExportHandler.post_tiered_jobs_from_api()
-    except Exception as e:
-        print(f"   -> S/A Discord post failed: {e}")
         
     r.delete(f"pipeline:{pipeline_run_id}:total_jobs")
     return {"status": "done", "total_jobs": total_jobs}

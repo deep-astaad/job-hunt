@@ -74,8 +74,8 @@ def dashboard(request):
             selected_profile_id = selected_profile["id"]
             
     # 3. Handle filters
-    # Tiers filter (comma-separated, default to S,A,B,C,F)
-    tiers_param = request.GET.get("tiers", "S,A,B,C,F")
+    # Tiers filter (comma-separated, default to S,A,B)
+    tiers_param = request.GET.get("tiers", "S,A,B")
     if tiers_param == "all":
         tiers_list = []
     else:
@@ -83,7 +83,7 @@ def dashboard(request):
         
     source_param = request.GET.get("source", "")
     lang_param = request.GET.get("language", "")
-    date_param = request.GET.get("date", "all") # Default to all to ensure they see data
+    date_param = request.GET.get("date", "today") # Default to today
     q_param = request.GET.get("q", "").strip()
     
     # Base Queryset: Fetch rankings for this profile, select related Job to avoid N+1

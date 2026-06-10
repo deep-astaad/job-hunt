@@ -4,6 +4,41 @@ from config import DISCORD_WEBHOOK_URL, DISCORD_TOP_N_JOBS, DJANGO_API_URL
 
 class ExportHandler:
     @classmethod
+    def post_single_job_to_discord(cls, job_data, s_a_rankings):
+        """Send a single job to Discord if it has S/A rankings."""
+        if not DISCORD_WEBHOOK_URL:
+            return
+
+        color_map = {"S": 3066993, "A": 3447003}
+        best_tier = "A"
+        if any(r["match_tier"] == "S" for r in s_a_rankings):
+            best_tier = "S"
+
+        matched_profiles = ", ".join(r["profile_id"] for r in s_a_rankings)
+        jd_summary = s_a_rankings[0]["jd_summary"] if s_a_rankings else "—"
+
+        embed = {
+            "title": f"{job_data.get('title', 'Unknown')} — {job_data.get('company', '')}",
+            "description": (job_data.get("description", "") or "")[:300] or "No description",
+            "url": job_data.get("url", ""),
+            "color": color_map.get(best_tier, 8421504),
+            "fields": [
+                {"name": "🎯 Match Tier", "value": f"**{best_tier}**", "inline": True},
+                {"name": "🌐 Language", "value": job_data.get("language", "—") or "—", "inline": True},
+                {"name": "💰 Salary", "value": job_data.get("salary", "—") or "—", "inline": True},
+                {"name": "💼 Exp. Req", "value": job_data.get("experience_required", "—") or "—", "inline": True},
+                {"name": "👤 Matched Profile(s)", "value": matched_profiles or "—", "inline": False},
+                {"name": "📝 Summary", "value": jd_summary or "—", "inline": False},
+            ],
+            "footer": {"text": f"Auto-ranked by AI | {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
+        }
+
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=10)
+        except requests.RequestException as e:
+            print(f"⚠️ Failed to send job {job_data.get('id')} to Discord: {e}")
+
+    @classmethod
     def post_tiered_jobs_from_api(cls, profile_id=None):
         """Fetch S/A ranked jobs from the today-ranked API and send to Discord."""
         if not DISCORD_WEBHOOK_URL:

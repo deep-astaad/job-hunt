@@ -187,6 +187,15 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
         if rankings:
             _persist_rankings(effective_job_id, rankings)
             
+            # Send Discord notification for S/A ranked jobs immediately
+            s_a_rankings = [r for r in rankings if r.get("match_tier") in ("S", "A")]
+            if s_a_rankings:
+                try:
+                    from outputs import ExportHandler
+                    ExportHandler.post_single_job_to_discord(formatted_job_data, s_a_rankings)
+                except Exception as e:
+                    logger.error("failed_single_discord_post", extra={"job_id": effective_job_id, "error": str(e)})
+            
     except (openai.RateLimitError, openai.APIError, openai.APITimeoutError) as exc:
         if os.getenv("MOCK_LLM") == "1":
             rankings = []
