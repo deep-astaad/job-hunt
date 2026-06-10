@@ -103,6 +103,11 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                     logger.info("job_already_processed_skipping", extra={"url": job_dict.get("url", "")})
                     continue
                 
+                # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
+                if not r.set(f"job_processing_lock:{db_job['id']}", "1", nx=True, ex=3600):
+                    logger.info("job_already_in_progress_skipping", extra={"url": job_dict.get("url", "")})
+                    continue
+                
                 job_data = {
                     "id": db_job["id"],
                     "title": job_dict.get("title", "Unknown"),
@@ -348,8 +353,16 @@ def process_unprocessed_jobs_task(profile_ids=None):
 
     logger.info(f"Starting process_unprocessed_jobs_task: {unformatted_count} unformatted, {unranked_count} unranked jobs.")
 
+    import redis
+    from config import CELERY_BROKER_URL
+    r = redis.Redis.from_url(CELERY_BROKER_URL)
+
     # 4. Dispatch format + rank chain for unformatted jobs
     for job in unformatted_jobs:
+        # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
+        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
+            continue
+            
         job_data = {
             "id": job.id,
             "title": job.title,
@@ -365,6 +378,9 @@ def process_unprocessed_jobs_task(profile_ids=None):
 
     # 5. Dispatch rank directly for unranked jobs
     for job in unranked_jobs:
+        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
+            continue
+
         job_data = {
             "id": job.id,
             "title": job.title,
