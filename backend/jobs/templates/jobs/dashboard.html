@@ -725,6 +725,12 @@
         width: 100%;
     }
 
+    /* Grid columns default to min-width:auto; without this the rows can't
+       shrink and the name + delta overflow the card. */
+    .trend-columns > div {
+        min-width: 0;
+    }
+
     .trend-col-title {
         font-size: 0.72rem;
         font-weight: 700;
