@@ -33,7 +33,10 @@ def parse_salary_to_yen(text):
     if "$" in s or "usd" in s:
         vals = [v * 150 for v in vals]  # rough USD->JPY for comparability
     rep = sum(vals) / len(vals)
-    if rep < 1000:  # likely hourly/garbage, not an annual figure
+    # Discard implausible figures: anything under ~¥1k (hourly/garbage) or over
+    # ¥1B (parsing artifacts, equity pools, currency confusion). The upper bound
+    # also keeps the value within MySQL INT UNSIGNED range (salary_yen column).
+    if rep < 1000 or rep > 1_000_000_000:
         return None
     return int(rep)
 
