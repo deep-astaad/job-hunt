@@ -860,6 +860,76 @@
     @media (max-width: 380px) {
         .trend-columns { grid-template-columns: 1fr; }
     }
+
+    /* ----- Click-to-expand insight modal ----- */
+    .stat-card[data-expand-title] { cursor: pointer; }
+
+    .insight-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 1500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    .insight-modal-overlay.active { opacity: 1; visibility: visible; }
+
+    .insight-modal {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-lg);
+        width: 100%;
+        max-width: 560px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        transform: translateY(12px) scale(0.98);
+        transition: transform 0.25s ease;
+    }
+    .insight-modal-overlay.active .insight-modal { transform: none; }
+
+    .insight-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .insight-modal-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--brand-primary);
+    }
+    .insight-modal-body {
+        padding: 1.25rem 1.5rem;
+        overflow-y: auto;
+    }
+
+    /* Inside the modal, show everything in full -- no truncation. */
+    .insight-modal-body .stat-value {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+    .insight-modal-body .tech-name {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word;
+    }
+    .insight-modal-body .trend-row,
+    .insight-modal-body .tech-progress-row {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
 </style>
 {% endblock %}
 
@@ -874,7 +944,7 @@
 <!-- Top Level Stats Summary Panel -->
 <section class="stats-grid" aria-label="Job aggregator statistics">
     <!-- Total Jobs Card -->
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Total Jobs">
         <div class="stat-icon">💼</div>
         <div class="stat-info">
             <span class="stat-label">Total Jobs</span>
@@ -893,7 +963,7 @@
     </div>
 
     <!-- Today's Jobs Card -->
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Today's Jobs">
         <div class="stat-icon">⚡</div>
         <div class="stat-info">
             <span class="stat-label">Today's Jobs</span>
@@ -925,7 +995,7 @@
     </div>
 
     <!-- Trending Tech Stack Card -->
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Trending Tech Stack">
         <div class="stat-icon">🛠️</div>
         <div class="stat-info" style="width: 100%;">
             <span class="stat-label">Trending Tech Stack</span>
@@ -955,7 +1025,7 @@
 <!-- Career Growth Insights Panel -->
 <section class="stats-grid" aria-label="Career growth insights">
     <!-- Skill Gap / Skills To Learn Card -->
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Skills To Learn">
         <div class="stat-icon">📈</div>
         <div class="stat-info" style="width: 100%;">
             <span class="stat-label">Skills To Learn</span>
@@ -985,7 +1055,7 @@
     </div>
 
     <!-- Japanese Language ROI Card -->
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Japanese Language ROI">
         <div class="stat-icon">🇯🇵</div>
         <div class="stat-info" style="width: 100%;">
             <span class="stat-label">Japanese Language ROI</span>
@@ -1028,7 +1098,7 @@
 
     <!-- Market Trends Card -->
     {% if insights.trends %}
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Market Trends · 7d vs Prior 7d">
         <div class="stat-icon">📊</div>
         <div class="stat-info" style="width: 100%;">
             <span class="stat-label">Market Trends · 7d vs Prior 7d</span>
@@ -1062,7 +1132,7 @@
 
     <!-- Salary Bands Card -->
     {% if insights.salary %}
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Salary Bands · Matched Roles">
         <div class="stat-icon">💰</div>
         <div class="stat-info" style="width: 100%;">
             <span class="stat-label">Salary Bands · Matched Roles</span>
@@ -1087,7 +1157,7 @@
 
     <!-- Top Hiring Companies Card -->
     {% if insights.companies %}
-    <div class="stat-card">
+    <div class="stat-card" data-expand-title="Top Hiring Companies · Your Matches">
         <div class="stat-icon">🏢</div>
         <div class="stat-info" style="width: 100%;">
             <span class="stat-label">Top Hiring Companies · Your Matches</span>
@@ -1359,6 +1429,17 @@
     </div>
 </aside>
 
+<!-- Click-to-expand Insight Modal -->
+<div class="insight-modal-overlay" id="insightModalOverlay" role="dialog" aria-modal="true" aria-labelledby="insightModalTitle">
+    <div class="insight-modal">
+        <div class="insight-modal-header">
+            <h2 class="insight-modal-title" id="insightModalTitle">Details</h2>
+            <button type="button" class="drawer-close-btn" id="insightModalClose" aria-label="Close details">&times;</button>
+        </div>
+        <div class="insight-modal-body" id="insightModalBody"></div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -1491,6 +1572,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupCollapse('toggleOverviewBtn', 'overviewGroup');
     setupCollapse('toggleFiltersBtn', 'sidebarSection');
+})();
+</script>
+
+<!-- Click-to-expand insight cards: open a modal with the full, untruncated content -->
+<script>
+(function () {
+    const overlay = document.getElementById('insightModalOverlay');
+    const titleEl = document.getElementById('insightModalTitle');
+    const bodyEl = document.getElementById('insightModalBody');
+    const closeBtn = document.getElementById('insightModalClose');
+    if (!overlay || !bodyEl) return;
+
+    function openModal(title, infoNode) {
+        titleEl.textContent = title;
+        // Clone the already-rendered card body so the modal shows the full text
+        // (CSS in the modal overrides the ellipsis truncation). cloneNode keeps it
+        // safe -- no re-parsing of untrusted strings.
+        const clone = infoNode.cloneNode(true);
+        const label = clone.querySelector('.stat-label');
+        if (label) label.remove();  // avoid duplicating the title
+        bodyEl.replaceChildren(clone);
+        overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+        bodyEl.replaceChildren();
+    }
+
+    document.querySelectorAll('.stat-card[data-expand-title]').forEach(card => {
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        const info = card.querySelector('.stat-info');
+        const open = () => { if (info) openModal(card.dataset.expandTitle, info); };
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        });
+    });
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
+    });
 })();
 </script>
 
