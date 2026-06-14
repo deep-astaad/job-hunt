@@ -1,10 +1,11 @@
 import json
 import os
+import re
 from collections import Counter
 from datetime import date, timedelta
 from django.shortcuts import render
 from django.conf import settings
-from django.db.models import Q, Prefetch, Case, When, Value, IntegerField, Count
+from django.db.models import Q, Case, When, Value, IntegerField, Count
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
@@ -38,32 +39,111 @@ def _norm_skill(value):
     return str(value).strip().lower()
 
 
+def _parse_salary_to_yen(text):
+    """Best-effort parse of a free-text salary into an estimated annual yen figure.
+
+    Handles ranges (averaged), Japanese 万 units, k/M suffixes, and rough USD->JPY.
+    Returns None when nothing usable is found.
+    """
+    if not text:
+        return None
+    s = str(text).lower().replace(",", "").replace("，", "")
+    nums = re.findall(r"\d+(?:\.\d+)?", s)
+    if not nums:
+        return None
+    vals = [float(n) for n in nums]
+    if "万" in s:
+        vals = [v * 10000 for v in vals]
+    elif "m" in s or "million" in s:
+        vals = [v * 1_000_000 for v in vals]
+    elif "k" in s:
+        vals = [v * 1000 for v in vals]
+    if "$" in s or "usd" in s:
+        vals = [v * 150 for v in vals]  # rough USD->JPY for comparability
+    rep = sum(vals) / len(vals)
+    if rep < 1000:  # likely hourly/garbage, not an annual figure
+        return None
+    return int(rep)
+
+
+def _required_jlpt_level(text):
+    """Infer the JLPT level a job demands as an int (1=N1 hardest .. 5=N5 easiest).
+
+    Returns None when no Japanese requirement is detectable.
+    """
+    if not text:
+        return None
+    s = str(text).lower()
+    explicit = re.findall(r"n\s*([1-5])", s)
+    if explicit:
+        return min(int(x) for x in explicit)  # hardest level mentioned
+    if any(k in s for k in ["native", "母語", "ネイティブ"]):
+        return 1
+    if any(k in s for k in ["business", "fluent", "ビジネス", "流暢"]):
+        return 2
+    if "japanese" in s or "日本語" in s:
+        return 3  # generic conversational assumption
+    return None
+
+
+def _median(values):
+    if not values:
+        return 0
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) // 2
+
+
+def _fmt_yen(value):
+    return f"¥{value / 1_000_000:.1f}M"
+
+
 def compute_growth_insights(profile):
     """Career-growth analytics for a candidate profile.
 
-    1. Skill gap: tech that appears in the profile's matched roles (S/A/B) but
-       is missing from the profile -- a directed study list.
-    2. Japanese ROI: how many skill-relevant roles are locked behind Japanese
-       (force-downgraded by the ranking hard rule), quantifying the upside of
-       learning the language.
+    1. Skill gap (+ what each gap skill could lift) -- a directed study list.
+    2. Japanese ROI (+ JLPT-threshold simulation) -- cost of the language gate.
+    3. Market trends -- skills rising/cooling over the last 7d vs prior 7d.
+    4. Salary bands -- estimated pay of matched roles + highest-paying skills.
+    5. Company hiring signals -- companies most active among your matches.
     """
-    insights = {"skill_gap": [], "skill_gap_job_count": 0, "jp": None}
+    insights = {
+        "skill_gap": [], "skill_gap_job_count": 0,
+        "jp": None, "trends": None, "salary": None, "companies": [],
+    }
     if not profile:
         return insights
 
     profile_skills = {_norm_skill(s) for s in profile.get("core_skills", []) if s}
+    today = date.today()
 
-    # --- Feature 1: Skill gap ---
+    # ---- Pass 1: profile matched roles (S/A/B/C) -> gap, unlock, salary, companies ----
     relevant = (
         JobRanking.objects
         .filter(profile_id=profile["id"], match_tier__in=["S", "A", "B", "C"])
         .select_related("job")
     )
     gap_counter = Counter()
+    unlock_counter = Counter()   # gap skill -> # of non-S matched roles needing it
+    unlock_samples = {}          # gap skill -> ["Title @ Company", ...]
+    company_counter = Counter()
+    skill_salary = {}            # skill -> [yen, ...]
+    overall_salaries = []
     relevant_count = 0
+
     for ranking in relevant:
+        job = ranking.job
         relevant_count += 1
-        stack = ranking.job.tech_stack
+        company_counter[job.company or "Unknown"] += 1
+
+        yen = _parse_salary_to_yen(job.salary)
+        if yen:
+            overall_salaries.append(yen)
+
+        stack = job.tech_stack
         if not (stack and isinstance(stack, list)):
             continue
         seen = set()
@@ -71,37 +151,111 @@ def compute_growth_insights(profile):
             if not tech:
                 continue
             key = _norm_skill(tech)
-            if key in profile_skills or key in seen:
+            if key in seen:
                 continue
             seen.add(key)
+            if yen:
+                skill_salary.setdefault(tech.strip(), []).append(yen)
+            if key in profile_skills:
+                continue
             gap_counter[tech.strip()] += 1
+            if ranking.match_tier != "S":
+                unlock_counter[tech.strip()] += 1
+                samples = unlock_samples.setdefault(tech.strip(), [])
+                if len(samples) < 3:
+                    samples.append(f"{job.title} @ {job.company}")
 
     insights["skill_gap_job_count"] = relevant_count
     for name, count in gap_counter.most_common(8):
         percentage = round((count / max(relevant_count, 1)) * 100)
-        insights["skill_gap"].append({"name": name, "count": count, "percentage": percentage})
+        insights["skill_gap"].append({
+            "name": name, "count": count, "percentage": percentage,
+            "unlock_count": unlock_counter.get(name, 0),
+            "samples": unlock_samples.get(name, []),
+        })
 
-    # --- Feature 2: Japanese ROI ---
-    locked = 0      # skill-relevant AND Japanese-required
-    reachable = 0   # skill-relevant AND not Japanese-required
-    jp_total = 0
-    active_total = 0
-    for job in Job.objects.filter(is_active=True).values("tech_stack", "language"):
+    insights["companies"] = [
+        {"name": c, "count": n} for c, n in company_counter.most_common(8)
+    ]
+
+    if len(overall_salaries) >= 3:
+        high_paying = []
+        for skill, vals in skill_salary.items():
+            if len(vals) >= 2:
+                avg = int(sum(vals) / len(vals))
+                high_paying.append({
+                    "name": skill, "avg": avg,
+                    "avg_display": _fmt_yen(avg), "count": len(vals),
+                })
+        high_paying.sort(key=lambda x: x["avg"], reverse=True)
+        insights["salary"] = {
+            "count": len(overall_salaries),
+            "median_display": _fmt_yen(_median(overall_salaries)),
+            "min_display": _fmt_yen(min(overall_salaries)),
+            "max_display": _fmt_yen(max(overall_salaries)),
+            "high_paying": high_paying[:6],
+        }
+
+    # ---- Pass 2: market trends (last 7d vs prior 7d) ----
+    recent_counter = Counter()
+    prior_counter = Counter()
+    cutoff_recent = today - timedelta(days=7)
+    for job in Job.objects.filter(
+        scraped_at__date__gte=today - timedelta(days=14)
+    ).values("tech_stack", "scraped_at"):
+        stack = job["tech_stack"]
+        if not (stack and isinstance(stack, list)):
+            continue
+        scraped = job["scraped_at"]
+        d = scraped.date() if hasattr(scraped, "date") else scraped
+        bucket = recent_counter if d >= cutoff_recent else prior_counter
+        seen = set()
+        for tech in stack:
+            if not tech:
+                continue
+            key = _norm_skill(tech)
+            if key in seen:
+                continue
+            seen.add(key)
+            bucket[tech.strip()] += 1
+
+    deltas = []
+    for skill in set(recent_counter) | set(prior_counter):
+        delta = recent_counter[skill] - prior_counter[skill]
+        if delta != 0:
+            deltas.append({"name": skill, "delta": delta})
+    rising = sorted([d for d in deltas if d["delta"] > 0],
+                    key=lambda x: x["delta"], reverse=True)[:5]
+    falling = sorted([d for d in deltas if d["delta"] < 0],
+                     key=lambda x: x["delta"])[:5]
+    if rising or falling:
+        insights["trends"] = {"rising": rising, "falling": falling}
+
+    # ---- Pass 3: Japanese ROI + JLPT-threshold simulation ----
+    locked = reachable = jp_total = active_total = 0
+    jlpt_levels = Counter()  # required level among skill-relevant, JP-locked roles
+    for job in Job.objects.filter(is_active=True).values(
+        "tech_stack", "language", "title", "description"
+    ):
         active_total += 1
         is_jp = (job["language"] or "").upper() == "JP"
         if is_jp:
             jp_total += 1
         stack = job["tech_stack"]
-        if not (stack and isinstance(stack, list)):
+        overlap = set()
+        if stack and isinstance(stack, list):
+            overlap = {_norm_skill(t) for t in stack if t} & profile_skills
+        if not overlap:
             continue
-        overlap = {_norm_skill(t) for t in stack if t} & profile_skills
-        if overlap:
-            if is_jp:
-                locked += 1
-            else:
-                reachable += 1
+        if is_jp:
+            locked += 1
+            level = _required_jlpt_level(f"{job['title']} {job['description']}") or 2
+            jlpt_levels[level] += 1
+        else:
+            reachable += 1
 
     relevant_total = locked + reachable
+    c = jlpt_levels
     insights["jp"] = {
         "locked": locked,
         "reachable": reachable,
@@ -111,6 +265,11 @@ def compute_growth_insights(profile):
         "jp_total": jp_total,
         "active_total": active_total,
         "jp_market_pct": round((jp_total / active_total) * 100) if active_total else 0,
+        "jlpt": {
+            "n3": c[3] + c[4] + c[5],
+            "n2": c[2] + c[3] + c[4] + c[5],
+            "n1": locked,
+        },
     }
     return insights
 

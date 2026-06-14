@@ -714,6 +714,53 @@
         border-color: var(--border-hover);
     }
 
+    /* Career Growth Insight helpers */
+    .trend-columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-top: 0.5rem;
+        width: 100%;
+    }
+
+    .trend-col-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.4rem;
+    }
+
+    .trend-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8125rem;
+        padding: 0.2rem 0;
+    }
+
+    .trend-row .tech-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .trend-delta {
+        font-weight: 700;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .trend-up { color: #22c55e; }
+    .trend-down { color: #f87171; }
+
+    .trend-empty {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        font-style: italic;
+    }
+
     /* Infinite Scroll Styling */
     .scroll-loader {
         display: flex;
@@ -841,9 +888,9 @@
             </p>
             <div class="trending-tech-container">
                 {% for skill in insights.skill_gap %}
-                <div class="tech-progress-row">
+                <div class="tech-progress-row"{% if skill.samples %} title="Could lift: {% for s in skill.samples %}{{ s }}{% if not forloop.last %} · {% endif %}{% endfor %}"{% endif %}>
                     <div class="tech-progress-info">
-                        <span class="tech-name">{{ skill.name }}</span>
+                        <span class="tech-name">{{ skill.name }}{% if skill.unlock_count %} <span style="color: var(--text-muted); font-weight: 500;">· lifts {{ skill.unlock_count }} role{{ skill.unlock_count|pluralize }}</span>{% endif %}</span>
                         <span class="tech-count-pct">
                             {{ skill.count }} role{{ skill.count|pluralize }} ({{ skill.percentage }}%)
                         </span>
@@ -869,7 +916,7 @@
             {% if insights.jp %}
             <span class="stat-value">{{ insights.jp.locked_pct }}%</span>
             <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: -0.4rem 0 0.6rem; line-height: 1.55;">
-                of your skill-relevant roles are locked behind Japanese.{% if insights.jp.unlock_pct %} Learning Japanese (JLPT N2/N3) would grow your reachable roles by <strong style="color: var(--brand-primary);">{{ insights.jp.unlock_pct }}%</strong>.{% endif %}
+                of your skill-relevant roles are locked behind Japanese.{% if insights.jp.unlock_pct %} Learning Japanese would grow your reachable roles by <strong style="color: var(--brand-primary);">{{ insights.jp.unlock_pct }}%</strong>.{% endif %}
             </p>
             <div class="today-sub-stats">
                 <div class="sub-stat">
@@ -885,6 +932,16 @@
                     <span class="sub-stat-lbl">Market In JP</span>
                 </div>
             </div>
+            {% if insights.jp.locked %}
+            <div class="tier-distribution" style="margin-top: 0.5rem;">
+                <span class="tier-dist-title">JLPT Unlock</span>
+                <div class="tier-badges-row">
+                    <span class="rank-indicator">N3 → +{{ insights.jp.jlpt.n3 }}</span>
+                    <span class="rank-indicator">N2 → +{{ insights.jp.jlpt.n2 }}</span>
+                    <span class="rank-indicator">N1 → +{{ insights.jp.jlpt.n1 }}</span>
+                </div>
+            </div>
+            {% endif %}
             {% else %}
             <div style="font-size: 0.8125rem; color: var(--text-muted); font-style: italic; padding: 1rem 0;">
                 No data available.
@@ -892,6 +949,83 @@
             {% endif %}
         </div>
     </div>
+
+    <!-- Market Trends Card -->
+    {% if insights.trends %}
+    <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label">Market Trends · 7d vs Prior 7d</span>
+            <div class="trend-columns">
+                <div>
+                    <div class="trend-col-title trend-up">▲ Rising</div>
+                    {% for t in insights.trends.rising %}
+                    <div class="trend-row">
+                        <span class="tech-name">{{ t.name }}</span>
+                        <span class="trend-delta trend-up">+{{ t.delta }}</span>
+                    </div>
+                    {% empty %}
+                    <div class="trend-empty">—</div>
+                    {% endfor %}
+                </div>
+                <div>
+                    <div class="trend-col-title trend-down">▼ Cooling</div>
+                    {% for t in insights.trends.falling %}
+                    <div class="trend-row">
+                        <span class="tech-name">{{ t.name }}</span>
+                        <span class="trend-delta trend-down">{{ t.delta }}</span>
+                    </div>
+                    {% empty %}
+                    <div class="trend-empty">—</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Salary Bands Card -->
+    {% if insights.salary %}
+    <div class="stat-card">
+        <div class="stat-icon">💰</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label">Salary Bands · Matched Roles</span>
+            <span class="stat-value">{{ insights.salary.median_display }}</span>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin: -0.4rem 0 0.6rem;">
+                Estimated median across {{ insights.salary.count }} role{{ insights.salary.count|pluralize }} ({{ insights.salary.min_display }}–{{ insights.salary.max_display }}).
+            </p>
+            <span class="tier-dist-title" style="display: block; margin-bottom: 0.4rem;">Highest-paying skills</span>
+            <div class="trending-tech-container">
+                {% for s in insights.salary.high_paying %}
+                <div class="trend-row">
+                    <span class="tech-name">{{ s.name }}</span>
+                    <span class="tech-count-pct">{{ s.avg_display }} · {{ s.count }} roles</span>
+                </div>
+                {% empty %}
+                <div class="trend-empty">Not enough per-skill salary data.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Top Hiring Companies Card -->
+    {% if insights.companies %}
+    <div class="stat-card">
+        <div class="stat-icon">🏢</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label">Top Hiring Companies · Your Matches</span>
+            <div class="trending-tech-container">
+                {% for co in insights.companies %}
+                <div class="trend-row">
+                    <span class="tech-name">{{ co.name }}</span>
+                    <span class="tech-count-pct">{{ co.count }} role{{ co.count|pluralize }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </section>
 
 <!-- Dashboard Main Workspace -->
