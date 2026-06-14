@@ -71,7 +71,7 @@ def compute_growth_insights(profile):
     # ---- Pass 1: profile matched roles (S/A/B/C) -> gap, unlock, salary, companies ----
     relevant = (
         JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier__in=["S", "A", "B", "C"])
+        .filter(profile_id=profile["id"], match_tier__in=["S", "A", "B", "C"], job__is_active=True)
         .select_related("job")
     )
     gap_counter = Counter()
@@ -183,12 +183,12 @@ def compute_growth_insights(profile):
     GOOD_TIERS = ["S", "A", "B"]
     # Roles you can pursue now: a genuine match that wasn't gated.
     reachable = JobRanking.objects.filter(
-        profile_id=profile["id"], match_tier__in=GOOD_TIERS
+        profile_id=profile["id"], match_tier__in=GOOD_TIERS, job__is_active=True
     ).count()
     # Candidates for "locked": F-tier rankings on Japanese-required jobs.
     f_jp_rankings = (
         JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier="F")
+        .filter(profile_id=profile["id"], match_tier="F", job__is_active=True)
         .filter(Q(job__language="JP") | Q(job__jlpt_level__isnull=False))
         .select_related("job")
     )
