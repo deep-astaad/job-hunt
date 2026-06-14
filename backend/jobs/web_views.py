@@ -32,6 +32,88 @@ def load_actor_configs():
             pass
     return []
 
+
+def _norm_skill(value):
+    """Normalize a skill/tech name for case-insensitive comparison."""
+    return str(value).strip().lower()
+
+
+def compute_growth_insights(profile):
+    """Career-growth analytics for a candidate profile.
+
+    1. Skill gap: tech that appears in the profile's matched roles (S/A/B) but
+       is missing from the profile -- a directed study list.
+    2. Japanese ROI: how many skill-relevant roles are locked behind Japanese
+       (force-downgraded by the ranking hard rule), quantifying the upside of
+       learning the language.
+    """
+    insights = {"skill_gap": [], "skill_gap_job_count": 0, "jp": None}
+    if not profile:
+        return insights
+
+    profile_skills = {_norm_skill(s) for s in profile.get("core_skills", []) if s}
+
+    # --- Feature 1: Skill gap ---
+    relevant = (
+        JobRanking.objects
+        .filter(profile_id=profile["id"], match_tier__in=["S", "A", "B", "C"])
+        .select_related("job")
+    )
+    gap_counter = Counter()
+    relevant_count = 0
+    for ranking in relevant:
+        relevant_count += 1
+        stack = ranking.job.tech_stack
+        if not (stack and isinstance(stack, list)):
+            continue
+        seen = set()
+        for tech in stack:
+            if not tech:
+                continue
+            key = _norm_skill(tech)
+            if key in profile_skills or key in seen:
+                continue
+            seen.add(key)
+            gap_counter[tech.strip()] += 1
+
+    insights["skill_gap_job_count"] = relevant_count
+    for name, count in gap_counter.most_common(8):
+        percentage = round((count / max(relevant_count, 1)) * 100)
+        insights["skill_gap"].append({"name": name, "count": count, "percentage": percentage})
+
+    # --- Feature 2: Japanese ROI ---
+    locked = 0      # skill-relevant AND Japanese-required
+    reachable = 0   # skill-relevant AND not Japanese-required
+    jp_total = 0
+    active_total = 0
+    for job in Job.objects.filter(is_active=True).values("tech_stack", "language"):
+        active_total += 1
+        is_jp = (job["language"] or "").upper() == "JP"
+        if is_jp:
+            jp_total += 1
+        stack = job["tech_stack"]
+        if not (stack and isinstance(stack, list)):
+            continue
+        overlap = {_norm_skill(t) for t in stack if t} & profile_skills
+        if overlap:
+            if is_jp:
+                locked += 1
+            else:
+                reachable += 1
+
+    relevant_total = locked + reachable
+    insights["jp"] = {
+        "locked": locked,
+        "reachable": reachable,
+        "relevant_total": relevant_total,
+        "locked_pct": round((locked / relevant_total) * 100) if relevant_total else 0,
+        "unlock_pct": round((locked / reachable) * 100) if reachable else 0,
+        "jp_total": jp_total,
+        "active_total": active_total,
+        "jp_market_pct": round((jp_total / active_total) * 100) if active_total else 0,
+    }
+    return insights
+
 def dashboard(request):
     """Render the main jobs dashboard and filter results."""
     profiles = load_profiles()
@@ -229,6 +311,9 @@ def dashboard(request):
         if t in today_tiers_count:
             today_tiers_count[t] = item["count"]
 
+    # Career-growth insights (skill gap + Japanese ROI) for the selected profile
+    insights = compute_growth_insights(selected_profile)
+
     # Compile filters for context
     active_filters = {
         "profile_id": selected_profile_id,
@@ -261,6 +346,7 @@ def dashboard(request):
             "trending_tech": trending_tech,
         },
         "filters": active_filters,
+        "insights": insights,
         "source_choices": Job.SOURCE_CHOICES,
         "language_choices": Job.LANGUAGE_CHOICES,
     }

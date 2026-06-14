@@ -1,0 +1,110 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+An asynchronous pipeline that scrapes job listings (via Apify actors), formats and ranks them against user resume profiles (via OpenAI), persists everything in MySQL through a Django REST API, and notifies the user on Discord. Celery + Redis drive the async work. Aimed at Tokyo/Japan tech roles.
+
+## Architecture
+
+The repo is **two independent codebases**:
+
+- **Root** — the pipeline. Python at repo root (`tasks/`, `config.py`, `persistence.py`, `ranker.py`, `outputs.py`, `celery_app.py`) plus the Django app under `backend/`. All these run from the same Docker image, switched by `APP_MODE`.
+- **`japan-tech-scraper/`** — a standalone Apify actor (its own Docker image, deployed to Apify). It has its own `AGENTS.md`/`CLAUDE.md`; treat it as a separate project.
+
+### One image, five roles (`entrypoint.sh` + `APP_MODE`)
+
+`docker-compose.yml` builds one image and runs it in several modes via the `APP_MODE` env var: `web` (Django `runserver`, runs migrations first), `celery-worker`, `celery-beat` (uses `django_celery_beat` DatabaseScheduler), `celery-flower` (monitoring on :5555→host :5556), and `job-finder` (one-off `python main.py`). The Django web container maps host **8080 → 8000**.
+
+### Process boundary: Celery tasks talk to Django over HTTP, not the ORM
+
+The Celery side (`tasks/`, `persistence.py`) is **not** a Django app. It persists by calling the Django REST API over HTTP (`DjangoPersistence` in `persistence.py`, hitting `/api/jobs/bulk_create/`, `/api/rankings/bulk_create/`, etc.). The exception is a few tasks in `tasks/pipeline.py` (e.g. `process_unprocessed_jobs_task`) that import Django models directly — this works only because `celery_app.py` calls `django.setup()` and puts both repo root and `backend/` on `sys.path`. When adding pipeline logic, prefer the HTTP API; reach for the ORM only when already inside a task that uses it.
+
+### The async pipeline (`tasks/pipeline.py`)
+
+Nothing blocks waiting on a scraper. Flow:
+
+1. **`schedule_daily_scrapers`** (Celery Beat entry point) reads `actor-config.json`, filters actors by `schedule_frequency` (`daily` / `every_2_days` / `weekly`), and calls `run_pipeline`.
+2. **`run_pipeline`** mints a `pipeline_run_id` (uuid), seeds Redis counters, schedules the reconciler, and spawns one **`start_actor`** per config.
+3. **`start_actor`** launches the Apify actor and dispatches **`poll_actor_dataset`**.
+4. **`poll_actor_dataset`** is a self-retrying task that pages through the actor's dataset (`offset` carried in retry kwargs). For each new job it saves a stub, skips if `is_formatted` is already true, takes a Redis lock, and dispatches a `chain(format_and_persist_job → rank_job_multi_profile)`. It retries until the actor reaches a terminal status AND no new items remain.
+
+Routing: `format_and_persist_job` → `formatting` queue, `rank_job_multi_profile` → `ranking` queue (see `celery_app.py` `task_routes`). The worker pool is `--pool=threads` (OpenAI calls are IO-bound).
+
+### Completion tracking is Redis-based and must stay idempotent
+
+This is the subtle part. Per-run Redis keys: `pipeline:{id}:active_actors`, `:in_flight` (a SET of job ids), `:dispatched_at` (hash), `:total_jobs`, `:summary_sent`. A job is removed from `in_flight` via atomic `SREM` exactly when its ranking finishes (`_check_and_trigger_discord` in `tasks/ranking.py`). When `active_actors <= 0` and `in_flight` is empty, the summary fires **once**, guarded by `SET :summary_sent nx ex=86400`.
+
+Because Celery retries and re-deliveries can double-fire, every decrement/removal is designed to be idempotent — preserve that when editing. **`check_pipeline_completion`** is a watchdog reconciler that sweeps `in_flight` jobs stuck > 300s (worker crashes, lost tasks) so the summary can't hang forever. `job_processing_lock:{job_id}` (NX, 1h TTL) prevents concurrent duplicate processing of the same job.
+
+### Two distinct Discord notifications
+
+- **Immediate**: in `rank_job_multi_profile`, any S/A-tier result posts right away via `outputs.ExportHandler.post_single_job_to_discord`.
+- **Summary**: `send_discord_summary` fires once at full pipeline completion.
+
+### Ranking hard rules
+
+`_apply_hard_rules_multi` in `tasks/ranking.py` force-downgrades any job to **F** tier if it requires Japanese (`language` contains jp/japanese/jlpt) or > 4 years experience — applied after the LLM result, overriding it. `detect_job_language` in `persistence.py` infers `JP` from description/title keywords and CJK characters even when the source didn't label it.
+
+### Data model (`backend/jobs/models.py`)
+
+`Job` is deduplicated by `url_hash` (SHA-256 of url, unique) — bulk_create does `update_or_create` on it. Job lifecycle flags: `is_formatted` → `is_ranked` → `alert_sent`. Two invariants live in `save()`: a `Job` with `is_formatted=False` always resets `is_ranked=False`; saving a `JobRanking` flips its job's `is_ranked=True`. `JobRanking` is unique per `(job, profile_id)` with tiers S/A/B/C/F.
+
+### Dynamic config (`config.py`)
+
+Secrets (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `APIFY_API_TOKEN`) resolve from a Redis hash `app_settings` first, falling back to env vars. They're editable at runtime via the admin-only `/api/settings/` endpoint and the dashboard settings modal — so changing keys does **not** require a redeploy. The OpenAI-compatible client means any base URL works (DeepSeek, local vLLM, etc.); `test_llm.py` verifies a given endpoint/model.
+
+### Config files (repo root)
+
+- `actor-config.json` — which Apify actors to run, their input payloads, and `schedule_frequency`. (`example.actor-config.json` is the template.)
+- `user-profiles.json` — the resume profiles jobs are ranked against; each has an `id` used as `profile_id` throughout. `main.py` and the pipeline filter by these ids.
+- `prompts/` — LLM system prompts: `formatter.txt`, `ranker.txt`, `batch_ranker.txt`.
+
+## Commands
+
+All app commands run inside containers. Django lives in `backend/`, so `manage.py` calls need `-w /app/backend`.
+
+```bash
+# Full stack (mysql, redis, django, celery worker/beat/flower)
+docker compose up -d --build
+
+# Migrations & superuser (Django runs from /app/backend)
+docker compose exec -w /app/backend django python manage.py migrate
+docker compose exec -w /app/backend django python manage.py createsuperuser
+docker compose exec -w /app/backend django python manage.py makemigrations
+
+# Django tests (run from backend/)
+docker compose exec -w /app/backend django python manage.py test
+docker compose exec -w /app/backend django python manage.py test jobs.tests.JobModelTests
+docker compose exec -w /app/backend django python manage.py test jobs.tests.JobModelTests.test_save_resets_is_ranked_when_unformatted
+
+# Pipeline / Redis-logic tests (run from /app in the worker; need a live Redis)
+docker compose exec celery-worker python -m unittest scratch.test_pipeline
+
+# Trigger the pipeline manually (instead of waiting for Beat)
+docker compose exec celery-worker python main.py
+
+# Re-process all unformatted/unranked jobs in the DB
+docker compose exec celery-worker python backfill.py
+
+# Inspect Celery
+docker compose exec celery-worker celery -A celery_app inspect active
+# Flower UI: http://localhost:5556
+
+# Dependencies are managed with uv (Python 3.13)
+uv sync
+```
+
+Mock the LLM (no API calls, simulated latency/fallbacks) by setting `MOCK_LLM=1` — used in `format_and_persist_job` and `rank_job_multi_profile`.
+
+### Scheduling
+
+Schedules are **not** in code. `schedule_daily_scrapers` is registered as a periodic task through the Django admin (`/admin/` → django-celery-beat Crontabs + Periodic Tasks); `actor-config.json` only decides which actors run on a given day.
+
+## Endpoints
+
+- Frontend dashboard: `/` (Django-rendered, `jobs/web_views.py`, `jobs/web_urls.py`) — server-side, infinite-scroll via `?ajax=1`.
+- Django admin: `/admin/`
+- REST API: `/api/jobs/`, `/api/rankings/`, `/api/settings/`. Key custom actions: `jobs/bulk_create/`, `jobs/stats/`, `jobs/today-ranked/`, `jobs/mark_alerts_sent/`, `rankings/bulk_create/`, `rankings/update_ranks/`.
+</content>

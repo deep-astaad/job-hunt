@@ -829,6 +829,71 @@
     </div>
 </section>
 
+<!-- Career Growth Insights Panel -->
+<section class="stats-grid" aria-label="Career growth insights">
+    <!-- Skill Gap / Skills To Learn Card -->
+    <div class="stat-card">
+        <div class="stat-icon">📈</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label">Skills To Learn</span>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0.3rem 0 0.6rem; line-height: 1.5;">
+                Most common in your matched roles (S/A/B/C) but missing from your profile.{% if insights.skill_gap_job_count %} Based on {{ insights.skill_gap_job_count }} matched role{{ insights.skill_gap_job_count|pluralize }}.{% endif %}
+            </p>
+            <div class="trending-tech-container">
+                {% for skill in insights.skill_gap %}
+                <div class="tech-progress-row">
+                    <div class="tech-progress-info">
+                        <span class="tech-name">{{ skill.name }}</span>
+                        <span class="tech-count-pct">
+                            {{ skill.count }} role{{ skill.count|pluralize }} ({{ skill.percentage }}%)
+                        </span>
+                    </div>
+                    <div class="tech-bar-bg">
+                        <div class="tech-bar-fill" style="width: {{ skill.percentage }}%;"></div>
+                    </div>
+                </div>
+                {% empty %}
+                <div style="font-size: 0.8125rem; color: var(--text-muted); font-style: italic; text-align: center; padding: 1rem 0;">
+                    No skill-gap data yet — rank more jobs to populate this.
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Japanese Language ROI Card -->
+    <div class="stat-card">
+        <div class="stat-icon">🇯🇵</div>
+        <div class="stat-info" style="width: 100%;">
+            <span class="stat-label">Japanese Language ROI</span>
+            {% if insights.jp %}
+            <span class="stat-value">{{ insights.jp.locked_pct }}%</span>
+            <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: -0.4rem 0 0.6rem; line-height: 1.55;">
+                of your skill-relevant roles are locked behind Japanese.{% if insights.jp.unlock_pct %} Learning Japanese (JLPT N2/N3) would grow your reachable roles by <strong style="color: var(--brand-primary);">{{ insights.jp.unlock_pct }}%</strong>.{% endif %}
+            </p>
+            <div class="today-sub-stats">
+                <div class="sub-stat">
+                    <span class="sub-stat-val">{{ insights.jp.reachable }}</span>
+                    <span class="sub-stat-lbl">Reachable Now</span>
+                </div>
+                <div class="sub-stat">
+                    <span class="sub-stat-val">{{ insights.jp.locked }}</span>
+                    <span class="sub-stat-lbl">JP-Locked</span>
+                </div>
+                <div class="sub-stat">
+                    <span class="sub-stat-val">{{ insights.jp.jp_market_pct }}%</span>
+                    <span class="sub-stat-lbl">Market In JP</span>
+                </div>
+            </div>
+            {% else %}
+            <div style="font-size: 0.8125rem; color: var(--text-muted); font-style: italic; padding: 1rem 0;">
+                No data available.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
 <!-- Dashboard Main Workspace -->
 <main class="dashboard-grid">
     <!-- Left column: profiles list, profiles meta details, and parameters filter form -->
