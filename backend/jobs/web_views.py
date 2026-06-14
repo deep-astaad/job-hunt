@@ -179,28 +179,36 @@ def compute_growth_insights(profile):
     if rising or falling:
         insights["trends"] = {"rising": rising, "falling": falling}
 
-    # ---- Pass 3: Japanese ROI (via raw LLM tier) + JLPT-threshold simulation ----
+    # ---- Pass 3: Japanese ROI + JLPT-threshold simulation ----
     GOOD_TIERS = ["S", "A", "B"]
     # Roles you can pursue now: a genuine match that wasn't gated.
     reachable = JobRanking.objects.filter(
         profile_id=profile["id"], match_tier__in=GOOD_TIERS
     ).count()
-    # Roles the LLM rated a genuine match but the hard rule forced down to F.
-    downgraded = (
+    # Candidates for "locked": F-tier rankings on Japanese-required jobs.
+    f_jp_rankings = (
         JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier="F", llm_tier__in=GOOD_TIERS)
+        .filter(profile_id=profile["id"], match_tier="F")
+        .filter(Q(job__language="JP") | Q(job__jlpt_level__isnull=False))
         .select_related("job")
     )
     locked = 0
     jlpt_levels = Counter()  # required level among the JP-locked roles
-    for ranking in downgraded:
+    for ranking in f_jp_rankings:
         job = ranking.job
-        # Count only language-gated downgrades; the rule also downgrades for
-        # over-experience, which learning Japanese would not unlock.
-        if (job.language or "").upper() != "JP" and job.jlpt_level is None:
-            continue
-        locked += 1
-        jlpt_levels[job.jlpt_level or 2] += 1
+        if ranking.llm_tier in GOOD_TIERS:
+            # Accurate: the LLM rated this a match before the language gate hit it.
+            is_locked = True
+        elif ranking.llm_tier is None:
+            # Older ranking without a stored raw tier -> estimate via skill overlap.
+            stack = job.tech_stack or []
+            is_locked = bool({normalize_skill(t) for t in stack if t} & profile_skills)
+        else:
+            # LLM genuinely rated it C/F -> not a role you're losing to language.
+            is_locked = False
+        if is_locked:
+            locked += 1
+            jlpt_levels[job.jlpt_level or 2] += 1
 
     relevant_total = locked + reachable
     active_total = Job.objects.filter(is_active=True).count()
