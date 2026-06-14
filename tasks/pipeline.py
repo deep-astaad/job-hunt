@@ -406,53 +406,6 @@ def process_unprocessed_jobs_task(profile_ids=None):
     }
 
 
-@app.task(name='tasks.pipeline.rerank_all_jobs_task')
-def rerank_all_jobs_task(profile_ids=None):
-    """Re-rank EVERY formatted job, including already-ranked ones.
-
-    Unlike process_unprocessed_jobs_task (which only touches unranked jobs),
-    this re-runs ranking across the board so the raw `llm_tier` gets populated
-    on jobs that were ranked before that field existed. Costs OpenAI credits --
-    intended as a one-off backfill.
-    """
-    from jobs.models import Job
-    from tasks.ranking import rank_job_multi_profile
-    import redis
-    from config import CELERY_BROKER_URL
-
-    ranker_profiles = _load_profiles_for_ranking(profile_ids)
-    if not ranker_profiles:
-        logger.error("No profiles loaded for re-ranking.")
-        return {"status": "error", "message": "No profiles found"}
-
-    r = redis.Redis.from_url(CELERY_BROKER_URL)
-    dispatched = 0
-    for job in Job.objects.filter(is_formatted=True).iterator():
-        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
-            continue
-        job_data = {
-            "id": job.id,
-            "title": job.title,
-            "company": job.company,
-            "url": job.url,
-            "salary": job.salary,
-            "experience_required": job.experience_required,
-            "language": job.language,
-            "description": job.description,
-            "source": job.source,
-        }
-        rank_job_multi_profile.delay(
-            formatted_job_data=job_data,
-            profiles=ranker_profiles,
-            pipeline_run_id=None,
-            job_id=job.id,
-        )
-        dispatched += 1
-
-    logger.info(f"rerank_all_jobs_task dispatched {dispatched} jobs for re-ranking.")
-    return {"status": "success", "dispatched": dispatched}
-
-
 @app.task(name='tasks.pipeline.deactivate_stale_jobs')
 def deactivate_stale_jobs(days=30):
     """Mark jobs not seen in `days` days as inactive so they stop polluting stats.
