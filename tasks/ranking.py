@@ -98,8 +98,11 @@ def _apply_hard_rules_multi(rankings, job_data):
     exp_years = int(exp_match.group(1)) if exp_match else None
     is_experienced = exp_years is not None and exp_years > 4
 
-    if is_jp_required or is_experienced:
-        for r in rankings:
+    downgrade = is_jp_required or is_experienced
+    for r in rankings:
+        # Preserve the raw LLM tier before any hard-rule override.
+        r.setdefault("llm_tier", r["match_tier"])
+        if downgrade:
             r["match_tier"] = "F"
 
     return rankings
@@ -114,6 +117,7 @@ def _persist_rankings(job_id, rankings):
             "profile_id": r["profile_id"],
             "profile_title": r["profile_id"],
             "match_tier": r["match_tier"],
+            "llm_tier": r.get("llm_tier"),
             "rank": 0,
             "jd_summary": r["jd_summary"],
         })

@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from collections import Counter
 from datetime import date, timedelta
 from django.shortcuts import render
@@ -10,6 +9,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 from .models import Job, JobRanking
+from .parsers import normalize_skill
 
 def load_profiles():
     """Load candidate profiles from the workspace JSON file."""
@@ -32,58 +32,6 @@ def load_actor_configs():
         except Exception:
             pass
     return []
-
-
-def _norm_skill(value):
-    """Normalize a skill/tech name for case-insensitive comparison."""
-    return str(value).strip().lower()
-
-
-def _parse_salary_to_yen(text):
-    """Best-effort parse of a free-text salary into an estimated annual yen figure.
-
-    Handles ranges (averaged), Japanese 万 units, k/M suffixes, and rough USD->JPY.
-    Returns None when nothing usable is found.
-    """
-    if not text:
-        return None
-    s = str(text).lower().replace(",", "").replace("，", "")
-    nums = re.findall(r"\d+(?:\.\d+)?", s)
-    if not nums:
-        return None
-    vals = [float(n) for n in nums]
-    if "万" in s:
-        vals = [v * 10000 for v in vals]
-    elif "m" in s or "million" in s:
-        vals = [v * 1_000_000 for v in vals]
-    elif "k" in s:
-        vals = [v * 1000 for v in vals]
-    if "$" in s or "usd" in s:
-        vals = [v * 150 for v in vals]  # rough USD->JPY for comparability
-    rep = sum(vals) / len(vals)
-    if rep < 1000:  # likely hourly/garbage, not an annual figure
-        return None
-    return int(rep)
-
-
-def _required_jlpt_level(text):
-    """Infer the JLPT level a job demands as an int (1=N1 hardest .. 5=N5 easiest).
-
-    Returns None when no Japanese requirement is detectable.
-    """
-    if not text:
-        return None
-    s = str(text).lower()
-    explicit = re.findall(r"n\s*([1-5])", s)
-    if explicit:
-        return min(int(x) for x in explicit)  # hardest level mentioned
-    if any(k in s for k in ["native", "母語", "ネイティブ"]):
-        return 1
-    if any(k in s for k in ["business", "fluent", "ビジネス", "流暢"]):
-        return 2
-    if "japanese" in s or "日本語" in s:
-        return 3  # generic conversational assumption
-    return None
 
 
 def _median(values):
@@ -117,7 +65,7 @@ def compute_growth_insights(profile):
     if not profile:
         return insights
 
-    profile_skills = {_norm_skill(s) for s in profile.get("core_skills", []) if s}
+    profile_skills = {normalize_skill(s) for s in profile.get("core_skills", []) if s}
     today = date.today()
 
     # ---- Pass 1: profile matched roles (S/A/B/C) -> gap, unlock, salary, companies ----
@@ -139,7 +87,7 @@ def compute_growth_insights(profile):
         relevant_count += 1
         company_counter[job.company or "Unknown"] += 1
 
-        yen = _parse_salary_to_yen(job.salary)
+        yen = job.salary_yen
         if yen:
             overall_salaries.append(yen)
 
@@ -150,7 +98,7 @@ def compute_growth_insights(profile):
         for tech in stack:
             if not tech:
                 continue
-            key = _norm_skill(tech)
+            key = normalize_skill(tech)
             if key in seen:
                 continue
             seen.add(key)
@@ -213,7 +161,7 @@ def compute_growth_insights(profile):
         for tech in stack:
             if not tech:
                 continue
-            key = _norm_skill(tech)
+            key = normalize_skill(tech)
             if key in seen:
                 continue
             seen.add(key)
@@ -231,30 +179,32 @@ def compute_growth_insights(profile):
     if rising or falling:
         insights["trends"] = {"rising": rising, "falling": falling}
 
-    # ---- Pass 3: Japanese ROI + JLPT-threshold simulation ----
-    locked = reachable = jp_total = active_total = 0
-    jlpt_levels = Counter()  # required level among skill-relevant, JP-locked roles
-    for job in Job.objects.filter(is_active=True).values(
-        "tech_stack", "language", "title", "description"
-    ):
-        active_total += 1
-        is_jp = (job["language"] or "").upper() == "JP"
-        if is_jp:
-            jp_total += 1
-        stack = job["tech_stack"]
-        overlap = set()
-        if stack and isinstance(stack, list):
-            overlap = {_norm_skill(t) for t in stack if t} & profile_skills
-        if not overlap:
+    # ---- Pass 3: Japanese ROI (via raw LLM tier) + JLPT-threshold simulation ----
+    GOOD_TIERS = ["S", "A", "B"]
+    # Roles you can pursue now: a genuine match that wasn't gated.
+    reachable = JobRanking.objects.filter(
+        profile_id=profile["id"], match_tier__in=GOOD_TIERS
+    ).count()
+    # Roles the LLM rated a genuine match but the hard rule forced down to F.
+    downgraded = (
+        JobRanking.objects
+        .filter(profile_id=profile["id"], match_tier="F", llm_tier__in=GOOD_TIERS)
+        .select_related("job")
+    )
+    locked = 0
+    jlpt_levels = Counter()  # required level among the JP-locked roles
+    for ranking in downgraded:
+        job = ranking.job
+        # Count only language-gated downgrades; the rule also downgrades for
+        # over-experience, which learning Japanese would not unlock.
+        if (job.language or "").upper() != "JP" and job.jlpt_level is None:
             continue
-        if is_jp:
-            locked += 1
-            level = _required_jlpt_level(f"{job['title']} {job['description']}") or 2
-            jlpt_levels[level] += 1
-        else:
-            reachable += 1
+        locked += 1
+        jlpt_levels[job.jlpt_level or 2] += 1
 
     relevant_total = locked + reachable
+    active_total = Job.objects.filter(is_active=True).count()
+    jp_total = Job.objects.filter(is_active=True, language="JP").count()
     c = jlpt_levels
     insights["jp"] = {
         "locked": locked,

@@ -2,6 +2,8 @@ import hashlib
 
 from django.db import models
 
+from .parsers import parse_salary_to_yen, required_jlpt_level
+
 
 class Job(models.Model):
     SOURCE_CHOICES = [
@@ -26,6 +28,8 @@ class Job(models.Model):
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES, default="custom")
 
     salary = models.CharField(max_length=200, blank=True, default="")
+    salary_yen = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    jlpt_level = models.PositiveSmallIntegerField(null=True, blank=True)  # 1=N1 (hardest) .. 5=N5
     description = models.TextField(blank=True, default="")
     full_description = models.TextField(blank=True, default="")
     tech_stack = models.JSONField(null=True, blank=True)
@@ -55,6 +59,14 @@ class Job(models.Model):
     def save(self, *args, **kwargs):
         if not self.is_formatted:
             self.is_ranked = False
+        # Derive structured fields from the free-text inputs so analytics can
+        # rely on them instead of re-parsing at read time.
+        self.salary_yen = parse_salary_to_yen(self.salary)
+        text = f"{self.title} {self.description} {self.full_description}"
+        level = required_jlpt_level(text)
+        if level is None and (self.language or "").upper() == "JP":
+            level = 2  # JP-required but no explicit level -> assume business (N2)
+        self.jlpt_level = level
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -74,6 +86,8 @@ class JobRanking(models.Model):
     profile_id = models.CharField(max_length=100)
     profile_title = models.CharField(max_length=200, blank=True, default="")
     match_tier = models.CharField(max_length=2, choices=TIER_CHOICES)
+    # Raw tier the LLM assigned, before hard-rule downgrades (e.g. Japanese / over-experience).
+    llm_tier = models.CharField(max_length=2, choices=TIER_CHOICES, null=True, blank=True)
     rank = models.PositiveIntegerField()
     jd_summary = models.TextField(blank=True, default="")
 

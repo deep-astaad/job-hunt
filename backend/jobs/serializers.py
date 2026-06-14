@@ -6,7 +6,7 @@ class JobRankingSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobRanking
         fields = "__all__"
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "llm_tier"]
 
 
 class JobSerializer(serializers.ModelSerializer):
@@ -15,7 +15,7 @@ class JobSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
         fields = "__all__"
-        read_only_fields = ["id", "url_hash", "scraped_at", "updated_at"]
+        read_only_fields = ["id", "url_hash", "scraped_at", "updated_at", "salary_yen", "jlpt_level"]
 
 
 class JobListSerializer(serializers.ModelSerializer):

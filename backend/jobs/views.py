@@ -283,15 +283,18 @@ class JobRankingViewSet(viewsets.ModelViewSet):
                 continue
 
             try:
+                defaults = {
+                    "profile_title": rank_data.get("profile_title", ""),
+                    "match_tier": rank_data.get("match_tier", "C"),
+                    "rank": rank_data.get("rank", 0),
+                    "jd_summary": rank_data.get("jd_summary", ""),
+                }
+                if rank_data.get("llm_tier"):
+                    defaults["llm_tier"] = rank_data["llm_tier"]
                 obj, was_created = JobRanking.objects.update_or_create(
                     job=job,
                     profile_id=profile_id,
-                    defaults={
-                        "profile_title": rank_data.get("profile_title", ""),
-                        "match_tier": rank_data.get("match_tier", "C"),
-                        "rank": rank_data.get("rank", 0),
-                        "jd_summary": rank_data.get("jd_summary", ""),
-                    },
+                    defaults=defaults,
                 )
                 if was_created:
                     created += 1
