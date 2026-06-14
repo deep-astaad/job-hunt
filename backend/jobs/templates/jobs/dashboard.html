@@ -54,6 +54,7 @@
         display: flex;
         flex-direction: column;
         flex-grow: 1;
+        min-width: 0;
     }
 
     .stat-value {
@@ -673,6 +674,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 0.5rem;
         font-size: 0.8125rem;
     }
 
@@ -740,16 +742,27 @@
         padding: 0.2rem 0;
     }
 
-    .trend-row .tech-name {
+    /* Prevent long skill/company names from overflowing their card.
+       min-width:0 lets the flex item shrink so ellipsis can apply. */
+    .trend-row .tech-name,
+    .tech-progress-info .tech-name {
+        flex: 1 1 auto;
+        min-width: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
+    .trend-row .tech-count-pct,
+    .tech-progress-info .tech-count-pct,
+    .trend-delta {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
     .trend-delta {
         font-weight: 700;
         font-size: 0.75rem;
-        flex-shrink: 0;
     }
 
     .trend-up { color: #22c55e; }
