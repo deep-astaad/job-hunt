@@ -17,6 +17,30 @@ logger = logging.getLogger(__name__)
 POLL_BATCH_SIZE = 1000
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
 
+# Redis key holding the latest Apify quota/credit problem (shown on the dashboard).
+APIFY_QUOTA_ALERT_KEY = "apify:quota_alert"
+# Substrings in an Apify error that indicate the account is out of usage/credits.
+_QUOTA_ERROR_HINTS = (
+    "usage", "quota", "credit", "hard limit", "limit exceeded",
+    "monthly", "payment required", "402", "insufficient",
+)
+
+
+def _looks_like_quota_error(exc):
+    msg = str(exc).lower()
+    return any(hint in msg for hint in _QUOTA_ERROR_HINTS)
+
+
+def _flag_apify_quota_alert(r, actor_id, exc):
+    import json as _json
+    payload = _json.dumps({
+        "message": str(exc)[:300],
+        "actor_id": actor_id,
+        "at": datetime.utcnow().isoformat() + "Z",
+    })
+    # Auto-expire after a week so a one-off blip doesn't linger forever.
+    r.set(APIFY_QUOTA_ALERT_KEY, payload, ex=7 * 86400)
+
 
 def clean_and_save_item(raw_job, persister, source="custom"):
     title = (
@@ -189,6 +213,8 @@ def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id)
     except Exception as exc:
         logger.error(f"Failed to start actor {actor_id}: {exc}")
         r = redis.Redis.from_url(CELERY_BROKER_URL)
+        if _looks_like_quota_error(exc):
+            _flag_apify_quota_alert(r, actor_id, exc)
         active = r.decr(f"pipeline:{pipeline_run_id}:active_actors")
         in_flight_count = r.scard(f"pipeline:{pipeline_run_id}:in_flight")
         if active <= 0 and in_flight_count <= 0:
@@ -216,6 +242,8 @@ def run_pipeline(actor_configs, profile_ids):
     """Entry point: initialize run, setup redis state, dispatch actor triggers."""
     pipeline_run_id = str(uuid.uuid4())
     r = redis.Redis.from_url(CELERY_BROKER_URL)
+    # Assume the Apify key is healthy for this run; a quota failure below re-flags it.
+    r.delete(APIFY_QUOTA_ALERT_KEY)
     r.set(f"pipeline:{pipeline_run_id}:active_actors", len(actor_configs))
     r.set(f"pipeline:{pipeline_run_id}:total_jobs", 0)
     

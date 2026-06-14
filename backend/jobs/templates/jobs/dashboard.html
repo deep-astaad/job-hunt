@@ -861,6 +861,44 @@
         .trend-columns { grid-template-columns: 1fr; }
     }
 
+    /* ----- Apify quota / credits alert banner ----- */
+    .apify-alert {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.85rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        background: rgba(248, 113, 113, 0.08);
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        border-left: 4px solid #f87171;
+        border-radius: var(--radius-md);
+    }
+    .apify-alert .alert-icon { font-size: 1.4rem; line-height: 1.4; flex-shrink: 0; }
+    .apify-alert .alert-body { flex-grow: 1; min-width: 0; }
+    .apify-alert .alert-title {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 700;
+        color: #f87171;
+        margin-bottom: 0.25rem;
+    }
+    .apify-alert .alert-detail {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        word-break: break-word;
+    }
+    .apify-alert .alert-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; }
+    .apify-alert .alert-close {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.25rem;
+        line-height: 1;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .apify-alert .alert-close:hover { color: var(--text-primary); }
+
     /* ----- Click-to-expand insight modal ----- */
     .stat-card[data-expand-title] { cursor: pointer; }
 
@@ -934,6 +972,24 @@
 {% endblock %}
 
 {% block content %}
+{% if apify_alert %}
+<div class="apify-alert" id="apifyAlert" role="alert">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+        <div class="alert-title">Apify scraping stopped — quota or credits exhausted</div>
+        <div class="alert-detail">
+            The last run couldn't start an actor: “{{ apify_alert.message }}”.
+            New jobs won't be scraped until your Apify plan/credits are topped up.
+        </div>
+        <div class="alert-meta">
+            Actor: {{ apify_alert.actor_id }} · Detected: {{ apify_alert.at }}
+        </div>
+    </div>
+    <button type="button" class="alert-close" aria-label="Dismiss"
+            onclick="document.getElementById('apifyAlert').remove()">&times;</button>
+</div>
+{% endif %}
+
 <!-- Mobile toggle: analytics overview -->
 <button type="button" class="mobile-toggle" id="toggleOverviewBtn" aria-controls="overviewGroup" aria-expanded="true">
     <span>📊 Overview &amp; Insights</span>

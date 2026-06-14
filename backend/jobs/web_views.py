@@ -34,6 +34,28 @@ def load_actor_configs():
     return []
 
 
+def get_apify_alert():
+    """Return the latest Apify quota/credit problem from the last run, or None.
+
+    Set by the pipeline when an actor fails to start due to usage limits;
+    cleared at the start of every run, so it only shows after a failed run.
+    """
+    try:
+        import sys
+        import json as _json
+        root = str(settings.BASE_DIR.parent)
+        if root not in sys.path:
+            sys.path.append(root)
+        from config import get_redis_client
+        r = get_redis_client()
+        if not r:
+            return None
+        raw = r.get("apify:quota_alert")
+        return _json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
 def _median(values):
     if not values:
         return 0
@@ -464,6 +486,7 @@ def dashboard(request):
         },
         "filters": active_filters,
         "insights": insights,
+        "apify_alert": get_apify_alert(),
         "source_choices": Job.SOURCE_CHOICES,
         "language_choices": Job.LANGUAGE_CHOICES,
     }
