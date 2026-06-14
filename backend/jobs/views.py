@@ -36,7 +36,8 @@ class JobFilter(django_filters.FilterSet):
 
     class Meta:
         model = Job
-        fields = ["source", "is_active", "language", "company", "is_formatted", "url", "alert_sent"]
+        fields = ["source", "is_active", "language", "company", "is_formatted", "url",
+                  "alert_sent", "region", "country", "is_remote"]
 
     def __init__(self, data=None, *args, **kwargs):
         # Alias ?from=... and ?to=... to updated_at date lookups
@@ -109,6 +110,7 @@ class JobViewSet(viewsets.ModelViewSet):
                         "tech_stack": job_data.get("tech_stack"),
                         "language": job_data.get("language"),
                         "experience_required": job_data.get("experience_required", ""),
+                        "location": job_data.get("location", ""),
                         "is_formatted": job_data.get("is_formatted", False),
                         "raw_data": job_data.get("raw_data"),
                     },
@@ -291,6 +293,12 @@ class JobRankingViewSet(viewsets.ModelViewSet):
                 }
                 if rank_data.get("llm_tier"):
                     defaults["llm_tier"] = rank_data["llm_tier"]
+                if rank_data.get("deterministic_tier"):
+                    defaults["deterministic_tier"] = rank_data["deterministic_tier"]
+                if rank_data.get("match_score") is not None:
+                    defaults["match_score"] = rank_data["match_score"]
+                if rank_data.get("signals") is not None:
+                    defaults["signals"] = rank_data["signals"]
                 obj, was_created = JobRanking.objects.update_or_create(
                     job=job,
                     profile_id=profile_id,
@@ -347,12 +355,18 @@ class SettingsAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        from config import get_apify_api_token, get_openai_api_key, get_openai_model, get_openai_base_url
+        from config import (
+            get_apify_api_token, get_openai_api_key, get_openai_model, get_openai_base_url,
+            get_openai_fallback_base_url, get_openai_fallback_model, get_openai_fallback_api_key,
+        )
         return Response({
             "OPENAI_API_KEY": get_openai_api_key() or "",
             "OPENAI_BASE_URL": get_openai_base_url() or "https://api.openai.com/v1",
             "OPENAI_MODEL": get_openai_model() or "gpt-4o-mini",
-            "APIFY_API_TOKEN": get_apify_api_token() or ""
+            "APIFY_API_TOKEN": get_apify_api_token() or "",
+            "OPENAI_FALLBACK_BASE_URL": get_openai_fallback_base_url() or "",
+            "OPENAI_FALLBACK_MODEL": get_openai_fallback_model() or "",
+            "OPENAI_FALLBACK_API_KEY": get_openai_fallback_api_key() or "",
         })
 
     def post(self, request):
@@ -361,7 +375,10 @@ class SettingsAPIView(APIView):
             "OPENAI_API_KEY": data.get("OPENAI_API_KEY"),
             "OPENAI_BASE_URL": data.get("OPENAI_BASE_URL"),
             "OPENAI_MODEL": data.get("OPENAI_MODEL"),
-            "APIFY_API_TOKEN": data.get("APIFY_API_TOKEN")
+            "APIFY_API_TOKEN": data.get("APIFY_API_TOKEN"),
+            "OPENAI_FALLBACK_BASE_URL": data.get("OPENAI_FALLBACK_BASE_URL"),
+            "OPENAI_FALLBACK_MODEL": data.get("OPENAI_FALLBACK_MODEL"),
+            "OPENAI_FALLBACK_API_KEY": data.get("OPENAI_FALLBACK_API_KEY"),
         }
 
         valid_keys = {k: str(v) for k, v in keys_to_update.items() if v is not None}

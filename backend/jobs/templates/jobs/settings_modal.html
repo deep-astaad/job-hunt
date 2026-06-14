@@ -24,6 +24,24 @@
                 <label for="apifyApiToken" class="form-label">Apify API Token</label>
                 <input type="password" id="apifyApiToken" name="APIFY_API_TOKEN" class="form-control" placeholder="apify_api_..." autocomplete="off">
             </div>
+
+            <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--border-color, #333);">
+            <p style="font-size: 0.8rem; color: var(--text-muted, #888); margin-bottom: 0.75rem;">
+                Fallback LLM (used only if the primary provider errors). Leave Base URL blank to disable.
+                For a local Ollama: <code>http://&lt;host&gt;:11434/v1</code> + model e.g. <code>qwen3.5:4b</code>.
+            </p>
+            <div class="form-group">
+                <label for="openaiFallbackBaseUrl" class="form-label">Fallback Base URL</label>
+                <input type="text" id="openaiFallbackBaseUrl" name="OPENAI_FALLBACK_BASE_URL" class="form-control" placeholder="http://ollama:11434/v1" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="openaiFallbackModel" class="form-label">Fallback Model Name</label>
+                <input type="text" id="openaiFallbackModel" name="OPENAI_FALLBACK_MODEL" class="form-control" placeholder="qwen3.5:4b" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="openaiFallbackApiKey" class="form-label">Fallback API Key</label>
+                <input type="password" id="openaiFallbackApiKey" name="OPENAI_FALLBACK_API_KEY" class="form-control" placeholder="ollama" autocomplete="off">
+            </div>
         </form>
     </div>
     <div class="drawer-footer">

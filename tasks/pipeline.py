@@ -196,33 +196,59 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
 
 
 @app.task(bind=True, name='tasks.pipeline.start_actor')
-def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id):
-    """Starts the Apify actor and kicks off the async polling."""
+def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id,
+                fallback_actors=None):
+    """Starts the Apify actor and kicks off the async polling.
+
+    If the primary actor fails to start (quota exhausted, actor outage, bad
+    input), each entry in `fallback_actors` is tried in order before the run is
+    counted as a lost actor. This keeps a single dead actor from silently
+    dropping a whole source/location for the day.
+    """
     client = ApifyClient(get_apify_api_token())
-    try:
-        run = client.actor(actor_id).start(run_input=run_input)
-        run_id = run["id"]
-        dataset_id = run["defaultDatasetId"]
-        
-        poll_actor_dataset.delay(
-            run_id=run_id, dataset_id=dataset_id, actor_id=actor_id,
-            source=source, profile_ids=profile_ids, 
-            pipeline_run_id=pipeline_run_id, offset=0
-        )
-        print(f"   -> Started actor {actor_id} (run_id: {run_id}). Async polling dispatched.")
-    except Exception as exc:
-        logger.error(f"Failed to start actor {actor_id}: {exc}")
-        r = redis.Redis.from_url(CELERY_BROKER_URL)
-        if _looks_like_quota_error(exc):
-            _flag_apify_quota_alert(r, actor_id, exc)
-        active = r.decr(f"pipeline:{pipeline_run_id}:active_actors")
-        in_flight_count = r.scard(f"pipeline:{pipeline_run_id}:in_flight")
-        if active <= 0 and in_flight_count <= 0:
-            if r.set(f"pipeline:{pipeline_run_id}:summary_sent", "1", nx=True, ex=86400):
-                send_discord_summary.delay(pipeline_run_id)
-            r.delete(f"pipeline:{pipeline_run_id}:active_actors")
-            r.delete(f"pipeline:{pipeline_run_id}:in_flight")
-            r.delete(f"pipeline:{pipeline_run_id}:dispatched_at")
+
+    # Primary first, then any configured fallbacks.
+    candidates = [{"actor_id": actor_id, "input": run_input}]
+    for fb in (fallback_actors or []):
+        if fb and fb.get("actor_id"):
+            candidates.append({"actor_id": fb["actor_id"], "input": fb.get("input", run_input)})
+
+    last_exc = None
+    for attempt in candidates:
+        a_id = attempt["actor_id"]
+        try:
+            run = client.actor(a_id).start(run_input=attempt["input"])
+            run_id = run["id"]
+            dataset_id = run["defaultDatasetId"]
+
+            poll_actor_dataset.delay(
+                run_id=run_id, dataset_id=dataset_id, actor_id=a_id,
+                source=source, profile_ids=profile_ids,
+                pipeline_run_id=pipeline_run_id, offset=0
+            )
+            if a_id != actor_id:
+                logger.warning("actor_fallback_used", extra={
+                    "primary": actor_id, "fallback": a_id, "source": source,
+                })
+            print(f"   -> Started actor {a_id} (run_id: {run_id}). Async polling dispatched.")
+            return
+        except Exception as exc:
+            last_exc = exc
+            logger.error(f"Failed to start actor {a_id}: {exc}")
+
+    # All candidates (primary + fallbacks) failed -> count this actor as lost.
+    exc = last_exc
+    r = redis.Redis.from_url(CELERY_BROKER_URL)
+    if exc is not None and _looks_like_quota_error(exc):
+        _flag_apify_quota_alert(r, actor_id, exc)
+    active = r.decr(f"pipeline:{pipeline_run_id}:active_actors")
+    in_flight_count = r.scard(f"pipeline:{pipeline_run_id}:in_flight")
+    if active <= 0 and in_flight_count <= 0:
+        if r.set(f"pipeline:{pipeline_run_id}:summary_sent", "1", nx=True, ex=86400):
+            send_discord_summary.delay(pipeline_run_id)
+        r.delete(f"pipeline:{pipeline_run_id}:active_actors")
+        r.delete(f"pipeline:{pipeline_run_id}:in_flight")
+        r.delete(f"pipeline:{pipeline_run_id}:dispatched_at")
 
 
 @app.task(name='tasks.pipeline.send_discord_summary')
@@ -257,7 +283,8 @@ def run_pipeline(actor_configs, profile_ids):
             config["actor_id"], config["input"],
             source=config.get("source", "custom"),
             profile_ids=profile_ids,
-            pipeline_run_id=pipeline_run_id
+            pipeline_run_id=pipeline_run_id,
+            fallback_actors=config.get("fallback_actors"),
         )
 
 @app.task(name='tasks.pipeline.schedule_daily_scrapers')
@@ -415,9 +442,15 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "company": job.company,
             "url": job.url,
             "salary": job.salary,
+            "salary_yen": job.salary_yen,
             "experience_required": job.experience_required,
             "language": job.language,
             "description": job.description,
+            "full_description": job.full_description,
+            "tech_stack": job.tech_stack,
+            "location": job.location,
+            "region": job.region,
+            "is_remote": job.is_remote,
             "source": job.source,
         }
         rank_job_multi_profile.delay(

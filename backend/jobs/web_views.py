@@ -304,23 +304,31 @@ def dashboard(request):
         
     source_param = request.GET.get("source", "")
     lang_param = request.GET.get("language", "")
+    region_param = request.GET.get("region", "")
     date_param = request.GET.get("date", "today") # Default to today
     q_param = request.GET.get("q", "").strip()
-    
+
     # Base Queryset: Fetch rankings for this profile, select related Job to avoid N+1
     rankings_qs = JobRanking.objects.filter(profile_id=selected_profile_id).select_related("job")
-    
+
     # Filter by Tiers
     if tiers_list:
         rankings_qs = rankings_qs.filter(match_tier__in=tiers_list)
-        
+
     # Apply Job-level filters
     if source_param:
         rankings_qs = rankings_qs.filter(job__source=source_param)
-        
+
     if lang_param:
         rankings_qs = rankings_qs.filter(job__language=lang_param)
-        
+
+    # Location filter: "remote" is a special bucket; otherwise match the region.
+    if region_param:
+        if region_param == "remote":
+            rankings_qs = rankings_qs.filter(job__is_remote=True)
+        else:
+            rankings_qs = rankings_qs.filter(job__region=region_param)
+
     if date_param == "today":
         rankings_qs = rankings_qs.filter(job__scraped_at__date=date.today())
     elif date_param == "3days":
@@ -401,6 +409,7 @@ def dashboard(request):
         job = ranking.job
         job.match_tier = ranking.match_tier
         job.rank = ranking.rank
+        job.match_score = ranking.match_score
         job.jd_summary = ranking.jd_summary
         jobs.append(job)
 
@@ -459,6 +468,7 @@ def dashboard(request):
         "tiers": tiers_param,
         "source": source_param,
         "language": lang_param,
+        "region": region_param,
         "date": date_param,
         "q": q_param,
     }
@@ -489,8 +499,38 @@ def dashboard(request):
         "apify_alert": get_apify_alert(),
         "source_choices": Job.SOURCE_CHOICES,
         "language_choices": Job.LANGUAGE_CHOICES,
+        "region_choices": get_region_choices(),
     }
     return render(request, "jobs/dashboard.html", context)
+
+
+def get_region_choices():
+    """(value, label) region options for the dashboard filter, from locations.json.
+
+    Includes a synthetic 'remote' bucket. Falls back to whatever regions actually
+    exist on jobs if the locations config can't be loaded.
+    """
+    choices = [("remote", "🌐 Remote")]
+    seen = {"remote"}
+    try:
+        import sys
+        root = str(settings.BASE_DIR.parent)
+        if root not in sys.path:
+            sys.path.append(root)
+        from locations import all_locations
+        for cfg in all_locations().values():
+            region = cfg.get("region")
+            if region and region not in seen:
+                seen.add(region)
+                choices.append((region, region.replace("_", " ").title()))
+    except Exception:
+        for region in (
+            Job.objects.exclude(region="").values_list("region", flat=True).distinct()
+        ):
+            if region and region not in seen:
+                seen.add(region)
+                choices.append((region, region.replace("_", " ").title()))
+    return choices
 
 @require_POST
 def trigger_scrape(request):

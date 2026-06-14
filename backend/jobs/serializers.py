@@ -24,6 +24,7 @@ class JobListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "company", "url", "source", "salary",
             "language", "experience_required", "is_active", "is_ranked", "scraped_at",
+            "location", "region", "country", "is_remote",
         ]
 
 
@@ -36,6 +37,7 @@ class TodayRankedJobSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "company", "url", "source", "salary",
             "description", "language", "experience_required", "scraped_at",
+            "location", "region", "country", "is_remote",
             "ranking", "matched_profiles",
         ]
 
@@ -44,6 +46,7 @@ class TodayRankedJobSerializer(serializers.ModelSerializer):
         return {
             "match_tier": ranking.match_tier,
             "rank": ranking.rank,
+            "match_score": ranking.match_score,
             "jd_summary": ranking.jd_summary,
             "created_at": ranking.created_at,
         }

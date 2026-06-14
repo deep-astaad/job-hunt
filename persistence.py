@@ -60,6 +60,50 @@ def detect_job_language(job_dict):
     return lang
 
 
+_RAW_LOCATION_FIELDS = (
+    "location", "jobLocation", "formattedLocation", "locationName",
+    "place", "city", "addressLocality", "region", "country",
+)
+
+
+def detect_job_location(job_dict, raw_job=None):
+    """Best-effort free-text location for a job.
+
+    Checks the formatter output and common raw Apify location fields first, then
+    falls back to scanning title/description against known location aliases.
+    """
+    # 1. Explicit field on the formatted dict.
+    loc = str(job_dict.get("location") or "").strip()
+    if loc:
+        return loc[:300]
+
+    # 2. Common raw fields from the scraper payload.
+    raw = raw_job if raw_job is not None else (job_dict.get("raw_data") or {})
+    if isinstance(raw, dict):
+        for key in _RAW_LOCATION_FIELDS:
+            val = raw.get(key)
+            if isinstance(val, dict):
+                val = val.get("name") or val.get("city") or val.get("displayName")
+            if val and isinstance(val, str) and val.strip():
+                return val.strip()[:300]
+
+    # 3. Infer a city/region from the text.
+    try:
+        from locations import region_for_text
+        text = " ".join([
+            str(job_dict.get("title") or ""),
+            str(job_dict.get("description") or job_dict.get("full_description") or "")[:500],
+        ])
+        region, country, city = region_for_text(text)
+        if city:
+            return city
+        if country:
+            return country
+    except Exception:
+        pass
+    return ""
+
+
 class JobFormatter:
     """Processes each raw Apify job through gpt-4o-mini to format it as a Job model entry."""
 
@@ -75,17 +119,16 @@ class JobFormatter:
         return OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
 
     def format_job(self, raw_job):
-        """Send one raw job to gpt-4o-mini and return the formatted Job model object."""
-        response = self.client.chat.completions.create(
-            model=get_openai_model(),
+        """Send one raw job to the LLM and return the formatted Job model object."""
+        from llm import chat_completion
+        text = chat_completion(
             messages=[
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(raw_job, indent=2, default=str)},
             ],
             temperature=0.1,
             timeout=120,
-        )
-        text = response.choices[0].message.content.strip()
+        ).strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
         if text.endswith("```"):
@@ -93,6 +136,7 @@ class JobFormatter:
         result = json.loads(text.strip())
         if isinstance(result, dict):
             result["language"] = detect_job_language(result)
+            result["location"] = detect_job_location(result, raw_job)
         return result
 
     def format_all(self, raw_jobs):
@@ -120,6 +164,7 @@ class JobFormatter:
                 result.setdefault("tech_stack", [])
                 result.setdefault("language", "EN")
                 result["language"] = detect_job_language(result)
+                result["location"] = detect_job_location(result, raw)
                 result.setdefault("experience_required", "")
                 formatted.append(result)
             except Exception as e:
@@ -138,6 +183,7 @@ class JobFormatter:
                     "experience_required": "",
                 }
                 fallback_job["language"] = detect_job_language(fallback_job)
+                fallback_job["location"] = detect_job_location(fallback_job, raw)
                 formatted.append(fallback_job)
 
         print(f"   ✅ Formatted {len(formatted)} jobs.")

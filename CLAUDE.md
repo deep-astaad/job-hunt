@@ -10,7 +10,7 @@ An asynchronous pipeline that scrapes job listings (via Apify actors), formats a
 
 The repo is **two independent codebases**:
 
-- **Root** — the pipeline. Python at repo root (`tasks/`, `config.py`, `persistence.py`, `ranker.py`, `outputs.py`, `celery_app.py`) plus the Django app under `backend/`. All these run from the same Docker image, switched by `APP_MODE`.
+- **Root** — the pipeline. Python at repo root (`tasks/`, `config.py`, `persistence.py`, `ranker.py`, `matching.py`, `locations.py`, `llm.py`, `outputs.py`, `build_actor_configs.py`, `celery_app.py`) plus the Django app under `backend/`. All these run from the same Docker image, switched by `APP_MODE`.
 - **`japan-tech-scraper/`** — a standalone Apify actor (its own Docker image, deployed to Apify). It has its own `AGENTS.md`/`CLAUDE.md`; treat it as a separate project.
 
 ### One image, five roles (`entrypoint.sh` + `APP_MODE`)
@@ -43,13 +43,57 @@ Because Celery retries and re-deliveries can double-fire, every decrement/remova
 - **Immediate**: in `rank_job_multi_profile`, any S/A-tier result posts right away via `outputs.ExportHandler.post_single_job_to_discord`.
 - **Summary**: `send_discord_summary` fires once at full pipeline completion.
 
-### Ranking hard rules
+### Ranking: deterministic engine + LLM blend (`matching.py`)
 
-`_apply_hard_rules_multi` in `tasks/ranking.py` force-downgrades any job to **F** tier if it requires Japanese (`language` contains jp/japanese/jlpt) or > 4 years experience — applied after the LLM result, overriding it. `detect_job_language` in `persistence.py` infers `JP` from description/title keywords and CJK characters even when the source didn't label it.
+Ranking is **not** LLM-only. `tasks/ranking.py` sends the LLM the **full** job
+description + tech stack + location (previously it truncated to 200 chars), then
+fuses that with a deterministic, explainable engine:
+
+- **`matching.compute_match(profile, job, location_cfgs)`** scores a job/profile pair
+  0–100 across weighted signals — skill overlap (canonicalized via an alias map +
+  description vocab scan), title/role-family affinity, experience fit, language fit,
+  location fit, salary — and applies the **hard gates** (required non-English
+  language the candidate lacks, internships, experience > profile+2y, senior/lead
+  titles, out-of-target location). It returns `tier`, numeric `score`, `hard_fail`,
+  and a `signals` diagnostics dict.
+- **`matching.blend_with_llm(deterministic, llm_tier)`** fuses the two: a
+  deterministic hard-fail always wins (→F); otherwise blends 60% deterministic /
+  40% LLM into a final tier + score. This keeps ranking robust even when the LLM is
+  mocked, rate-limited, or a small local model.
+
+`_apply_matching_engine` in `tasks/ranking.py` runs this per profile and persists
+`match_tier`, `llm_tier` (raw), `deterministic_tier`, `match_score` (0–100, drives
+intra-tier `rank = 100 - score`), and `signals`. The old `_apply_hard_rules_multi`
+regex is gone; gates now live in `matching.py` and are **location-aware**.
+`detect_job_language`/`detect_job_location` in `persistence.py` infer language (JP
+from CJK/keywords) and a free-text location from raw scraper fields + text.
+
+### Target locations (`locations.json` + `locations.py`)
+
+`locations.json` defines selectable target regions (Japan/Tokyo, Remote, India,
+Europe, US, …) with aliases, LinkedIn geoIds, and Indeed country/location used for
+scraping. `active` lists live locations; each profile in `user-profiles.json` may
+narrow via `target_locations` (ids or `"all"`) and declares `languages`,
+`experience_years`, `min_salary_yen`. `Job` now stores `location`/`region`/
+`country`/`is_remote` (derived in `models.save()` via `parsers.parse_location_region`).
+The dashboard has a Location filter; the API `JobFilter` exposes `region`/`country`/
+`is_remote`. **`build_actor_configs.py`** generates `actor-config.json` from
+`locations.json` + a curated role list — re-run it after editing either.
+
+### Apify fallbacks & LLM fallback
+
+- Actor configs may carry `fallback_actors`; `tasks/pipeline.start_actor` tries the
+  primary then each fallback before counting an actor as lost (survives quota/outage).
+- `llm.chat_completion()` wraps the OpenAI call with an optional **fallback provider**
+  (e.g. local Ollama). Configure `OPENAI_FALLBACK_BASE_URL` / `_MODEL` / `_API_KEY`
+  via the settings modal or env; empty base URL = disabled (default), so existing
+  deployments are unchanged. Recommended local model for 6GB VRAM: `qwen3.5:4b`.
+  Note: wiring Ollama requires the worker to reach it on the network (it's on a
+  separate Docker network by default).
 
 ### Data model (`backend/jobs/models.py`)
 
-`Job` is deduplicated by `url_hash` (SHA-256 of url, unique) — bulk_create does `update_or_create` on it. Job lifecycle flags: `is_formatted` → `is_ranked` → `alert_sent`. Two invariants live in `save()`: a `Job` with `is_formatted=False` always resets `is_ranked=False`; saving a `JobRanking` flips its job's `is_ranked=True`. `JobRanking` is unique per `(job, profile_id)` with tiers S/A/B/C/F.
+`Job` is deduplicated by `url_hash` (SHA-256 of url, unique) — bulk_create does `update_or_create` on it. Job lifecycle flags: `is_formatted` → `is_ranked` → `alert_sent`. Two invariants live in `save()`: a `Job` with `is_formatted=False` always resets `is_ranked=False`; saving a `JobRanking` flips its job's `is_ranked=True`. `Job` also carries `location`/`region`/`country`/`is_remote` (region/country/remote derived in `save()`). `JobRanking` is unique per `(job, profile_id)` with tiers S/A/B/C/F, plus `llm_tier`, `deterministic_tier`, `match_score` (0–100), and `signals` (JSON diagnostics). Migrations follow an **idempotent MySQL DDL** pattern (see 0007/0008) so a half-applied migration self-heals.
 
 ### Dynamic config (`config.py`)
 
@@ -81,6 +125,21 @@ docker compose exec -w /app/backend django python manage.py test jobs.tests.JobM
 
 # Pipeline / Redis-logic tests (run from /app in the worker; need a live Redis)
 docker compose exec celery-worker python -m unittest scratch.test_pipeline
+
+# Matching engine + ranking-integration unit tests (pure Python, no DB/Redis/network)
+docker compose exec celery-worker python -m unittest scratch.test_matching
+docker compose exec celery-worker python -m unittest scratch.test_ranking_integration
+
+# Run anything WITHOUT the stack / without touching MySQL (host, uv):
+#   DJANGO_TEST_SQLITE=1 uses a throwaway sqlite DB. APP_MODE=celery-worker +
+#   dummy APIFY/OPENAI keys let config.py import. Used to test this branch in
+#   isolation from the live deployment (which mounts this repo via docker-compose).
+DJANGO_TEST_SQLITE=1 APP_MODE=celery-worker APIFY_API_TOKEN=x OPENAI_API_KEY=x \
+  uv run --project . python backend/manage.py test jobs   # (cd backend first)
+uv run python -m unittest scratch.test_matching
+
+# Regenerate actor-config.json from locations.json + role list
+python build_actor_configs.py            # --print to preview
 
 # Trigger the pipeline manually (instead of waiting for Beat)
 docker compose exec celery-worker python main.py

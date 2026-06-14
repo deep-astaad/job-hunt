@@ -11,39 +11,66 @@ from ranker import JobRankerAI
 logger = logging.getLogger(__name__)
 
 
+# Max chars of job description sent to the LLM. The old code truncated to 200,
+# which starved the model of almost all signal; the full JD is the richest input.
+_MAX_JD_CHARS = 4000
+
+
 def _rank_single_job_multi_profile(ranker, job_data, profiles, system_prompt):
-    """Send one job + all profiles to GPT in a single call. Returns markdown table."""
+    """Send one job + all profiles to GPT in a single call. Returns JSON text.
+
+    Unlike the original implementation this passes the FULL job context (full
+    description, tech stack, location) instead of a 200-char teaser, so the
+    LLM's tier reflects the actual role.
+    """
     title_company = f"{job_data.get('title', '?')} @ {job_data.get('company', '?')}"
     salary = job_data.get("salary", "") or ""
     exp = job_data.get("experience_required", "") or ""
     lang = job_data.get("language", "") or ""
-    summary = (job_data.get("description", "") or "")[:200]
+    location = job_data.get("location", "") or ""
+    tech_stack = job_data.get("tech_stack") or []
+    # Prefer the full description; fall back to the short one.
+    description = (job_data.get("full_description") or job_data.get("description") or "")[:_MAX_JD_CHARS]
     url = job_data.get("url", "")
 
+    # Only send the fields the model needs (keeps prompt small + cheap for local models).
+    slim_profiles = [
+        {
+            "id": p.get("id"),
+            "title": p.get("title"),
+            "experience": p.get("experience"),
+            "core_skills": p.get("core_skills", []),
+            "preferences": p.get("preferences", ""),
+        }
+        for p in profiles
+    ]
+
     user_content = (
-        f"CANDIDATE PROFILES:\n{json.dumps(profiles, indent=2)}\n\n"
+        f"CANDIDATE PROFILES:\n{json.dumps(slim_profiles, indent=2)}\n\n"
         f"JOB TO EVALUATE:\n"
         f"Title & Company: {title_company}\n"
+        f"Location: {location}\n"
         f"Salary Range: {salary}\n"
         f"Experience Required: {exp}\n"
         f"Language: {lang}\n"
-        f"JD Summary: {summary}\n"
+        f"Tech Stack: {', '.join(str(t) for t in tech_stack) if tech_stack else 'Unknown'}\n"
+        f"Full Job Description:\n{description}\n"
         f"URL: {url}\n\n"
-        f"Rank this single job against EACH profile independently.\n"
+        f"Rank this single job against EACH profile independently based on genuine "
+        f"role/skill fit.\n"
         f"Return a JSON object containing the 'rankings' array as specified in the instructions."
     )
 
-    response = ranker.client.chat.completions.create(
-        model=get_openai_model(),
+    from llm import chat_completion
+    return chat_completion(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
         temperature=0.2,
-        timeout=60,
-        response_format={"type": "json_object"}
+        timeout=120,
+        response_format={"type": "json_object"},
     )
-    return response.choices[0].message.content
 
 
 def _parse_rankings_json(json_text, profiles):
@@ -88,24 +115,43 @@ def _parse_rankings_json(json_text, profiles):
     return rankings
 
 
-def _apply_hard_rules_multi(rankings, job_data):
-    """Override tier to F for jobs requiring Japanese or >4 years experience."""
-    lang = (job_data.get("language", "") or "").lower()
-    exp_text = (job_data.get("experience_required", "") or "").lower()
+def _apply_matching_engine(llm_rankings, job_data, profiles):
+    """Fuse the LLM tiers with the deterministic matching engine.
 
-    is_jp_required = any(kw in lang for kw in ["jp", "japanese", "jlpt"])
-    exp_match = re.search(r"(\d+)", exp_text)
-    exp_years = int(exp_match.group(1)) if exp_match else None
-    is_experienced = exp_years is not None and exp_years > 4
+    For every profile we compute a deterministic, location/skill/experience-aware
+    match (matching.compute_match) and blend it with whatever tier the LLM gave
+    that profile. The deterministic layer enforces the hard gates (language,
+    seniority, experience, out-of-target location) and yields a numeric
+    match_score for intra-tier ordering. Returns one ranking dict per profile.
+    """
+    import matching
+    from locations import location_cfgs_for_profile
 
-    downgrade = is_jp_required or is_experienced
-    for r in rankings:
-        # Preserve the raw LLM tier before any hard-rule override.
-        r.setdefault("llm_tier", r["match_tier"])
-        if downgrade:
-            r["match_tier"] = "F"
+    llm_by_pid = {r.get("profile_id"): r for r in llm_rankings}
 
-    return rankings
+    out = []
+    for profile in profiles:
+        pid = profile.get("id")
+        llm = llm_by_pid.get(pid, {})
+        llm_tier = llm.get("match_tier")
+        summary = llm.get("jd_summary", "")
+
+        loc_cfgs = location_cfgs_for_profile(profile)
+        det = matching.compute_match(profile, job_data, loc_cfgs)
+        blended = matching.blend_with_llm(det, llm_tier)
+
+        out.append({
+            "profile_id": pid,
+            "match_tier": blended["final_tier"],
+            "llm_tier": blended["llm_tier"],
+            "deterministic_tier": det["tier"],
+            "match_score": int(round(blended["final_score"])),
+            "signals": det["signals"],
+            "jd_summary": summary,
+            # Lower rank sorts first; derive from score so best matches lead.
+            "rank": max(0, 100 - int(round(blended["final_score"]))),
+        })
+    return out
 
 
 def _persist_rankings(job_id, rankings):
@@ -118,7 +164,10 @@ def _persist_rankings(job_id, rankings):
             "profile_title": r["profile_id"],
             "match_tier": r["match_tier"],
             "llm_tier": r.get("llm_tier"),
-            "rank": 0,
+            "deterministic_tier": r.get("deterministic_tier"),
+            "match_score": r.get("match_score"),
+            "signals": r.get("signals"),
+            "rank": r.get("rank", 0),
             "jd_summary": r["jd_summary"],
         })
 
@@ -185,8 +234,8 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
             json_text = _rank_single_job_multi_profile(
                 ranker, formatted_job_data, profiles, system_prompt
             )
-        rankings = _parse_rankings_json(json_text, profiles)
-        rankings = _apply_hard_rules_multi(rankings, formatted_job_data)
+        llm_rankings = _parse_rankings_json(json_text, profiles)
+        rankings = _apply_matching_engine(llm_rankings, formatted_job_data, profiles)
 
         if rankings:
             _persist_rankings(effective_job_id, rankings)

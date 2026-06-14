@@ -461,6 +461,9 @@ window.settingsDrawer = {
             document.getElementById('openaiBaseUrl').value = data.OPENAI_BASE_URL || '';
             document.getElementById('openaiModel').value = data.OPENAI_MODEL || '';
             document.getElementById('apifyApiToken').value = data.APIFY_API_TOKEN || '';
+            document.getElementById('openaiFallbackBaseUrl').value = data.OPENAI_FALLBACK_BASE_URL || '';
+            document.getElementById('openaiFallbackModel').value = data.OPENAI_FALLBACK_MODEL || '';
+            document.getElementById('openaiFallbackApiKey').value = data.OPENAI_FALLBACK_API_KEY || '';
         } catch (err) {
             window.window.showToast(`Error loading settings: ${err.message}`, 'error');
         }
@@ -483,7 +486,10 @@ window.settingsDrawer = {
             OPENAI_API_KEY: document.getElementById('openaiApiKey').value,
             OPENAI_BASE_URL: document.getElementById('openaiBaseUrl').value,
             OPENAI_MODEL: document.getElementById('openaiModel').value,
-            APIFY_API_TOKEN: document.getElementById('apifyApiToken').value
+            APIFY_API_TOKEN: document.getElementById('apifyApiToken').value,
+            OPENAI_FALLBACK_BASE_URL: document.getElementById('openaiFallbackBaseUrl').value,
+            OPENAI_FALLBACK_MODEL: document.getElementById('openaiFallbackModel').value,
+            OPENAI_FALLBACK_API_KEY: document.getElementById('openaiFallbackApiKey').value
         };
 
         try {
