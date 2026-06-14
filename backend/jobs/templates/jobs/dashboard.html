@@ -791,10 +791,67 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
     }
+
+    /* ----- Mobile collapsible sections & responsive tuning ----- */
+    .mobile-toggle { display: none; }
+
+    @media (max-width: 768px) {
+        .mobile-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.85rem 1rem;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+        .mobile-toggle .chev {
+            color: var(--brand-primary);
+            transition: transform 0.25s ease;
+        }
+        .mobile-toggle.open .chev { transform: rotate(180deg); }
+        .collapsible.collapsed { display: none !important; }
+
+        /* Single-column, tighter layout on phones */
+        .stats-grid { grid-template-columns: 1fr; gap: 1rem; }
+        .stat-card { padding: 1.25rem; }
+        .stat-value { font-size: 1.9rem; }
+        .dashboard-grid { gap: 1rem; }
+        .meta-grid { grid-template-columns: 1fr; }
+        .job-card { padding: 1.15rem; }
+        .job-card:hover { transform: none; }
+        .job-title { font-size: 1.1rem; }
+        .job-details-row { gap: 0.6rem 1rem; }
+        .tier-checkboxes { grid-template-columns: repeat(3, 1fr); }
+
+        /* Touch-friendly controls */
+        .btn { min-height: 42px; }
+        .job-footer { flex-wrap: wrap; gap: 0.6rem; }
+        .job-footer .open-drawer-btn { width: 100%; }
+    }
+
+    @media (max-width: 380px) {
+        .trend-columns { grid-template-columns: 1fr; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
+<!-- Mobile toggle: analytics overview -->
+<button type="button" class="mobile-toggle" id="toggleOverviewBtn" aria-controls="overviewGroup" aria-expanded="true">
+    <span>📊 Overview &amp; Insights</span>
+    <span class="chev">▾</span>
+</button>
+
+<div class="collapsible" id="overviewGroup">
 <!-- Top Level Stats Summary Panel -->
 <section class="stats-grid" aria-label="Job aggregator statistics">
     <!-- Total Jobs Card -->
@@ -1028,10 +1085,18 @@
     {% endif %}
 </section>
 
+</div><!-- /#overviewGroup -->
+
+<!-- Mobile toggle: profiles & filters -->
+<button type="button" class="mobile-toggle" id="toggleFiltersBtn" aria-controls="sidebarSection" aria-expanded="true">
+    <span>🎯 Profiles &amp; Filters</span>
+    <span class="chev">▾</span>
+</button>
+
 <!-- Dashboard Main Workspace -->
 <main class="dashboard-grid">
     <!-- Left column: profiles list, profiles meta details, and parameters filter form -->
-    <div class="sidebar-section">
+    <div class="sidebar-section collapsible" id="sidebarSection">
         <!-- 1. Candidate Profiles switcher -->
         <section class="card" aria-label="Candidate Profiles selector">
             <h2 class="card-title">🎯 Candidate Profiles</h2>
@@ -1378,6 +1443,36 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+</script>
+
+<!-- Mobile collapsible sections (Overview/Insights & Profiles/Filters) -->
+<script>
+(function () {
+    const isMobile = window.matchMedia('(max-width: 768px)');
+
+    function setupCollapse(btnId, targetId) {
+        const btn = document.getElementById(btnId);
+        const target = document.getElementById(targetId);
+        if (!btn || !target) return;
+
+        // Collapse by default on phones so the jobs list is reachable immediately.
+        if (isMobile.matches) {
+            target.classList.add('collapsed');
+            btn.setAttribute('aria-expanded', 'false');
+        } else {
+            btn.classList.add('open');
+        }
+
+        btn.addEventListener('click', () => {
+            const collapsed = target.classList.toggle('collapsed');
+            btn.classList.toggle('open', !collapsed);
+            btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
+    }
+
+    setupCollapse('toggleOverviewBtn', 'overviewGroup');
+    setupCollapse('toggleFiltersBtn', 'sidebarSection');
+})();
 </script>
 
 <!-- Include the custom main JS asset -->
