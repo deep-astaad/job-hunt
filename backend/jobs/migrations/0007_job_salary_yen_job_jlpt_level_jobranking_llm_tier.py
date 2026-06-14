@@ -1,6 +1,32 @@
 from django.db import migrations, models
 
 
+def ensure_columns(apps, schema_editor):
+    """Add the new columns only if they don't already exist.
+
+    MySQL DDL is not transactional, so an earlier failed run of this migration
+    can leave the columns committed while the migration itself is unrecorded.
+    A plain AddField would then fail with 'Duplicate column name' on the next
+    deploy and crash the web container. Adding columns idempotently lets the
+    migration recover by itself, no manual --fake needed.
+    """
+    conn = schema_editor.connection
+
+    def columns(table):
+        with conn.cursor() as cursor:
+            return {d.name for d in conn.introspection.get_table_description(cursor, table)}
+
+    job_cols = columns("jobs_job")
+    if "salary_yen" not in job_cols:
+        schema_editor.execute("ALTER TABLE jobs_job ADD COLUMN salary_yen INT UNSIGNED NULL")
+    if "jlpt_level" not in job_cols:
+        schema_editor.execute("ALTER TABLE jobs_job ADD COLUMN jlpt_level SMALLINT UNSIGNED NULL")
+
+    rank_cols = columns("jobs_jobranking")
+    if "llm_tier" not in rank_cols:
+        schema_editor.execute("ALTER TABLE jobs_jobranking ADD COLUMN llm_tier VARCHAR(2) NULL")
+
+
 def populate_derived_fields(apps, schema_editor):
     """Backfill salary_yen/jlpt_level for jobs that existed before these columns.
 
@@ -32,25 +58,34 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='job',
-            name='salary_yen',
-            field=models.PositiveIntegerField(blank=True, db_index=True, null=True),
-        ),
-        migrations.AddField(
-            model_name='job',
-            name='jlpt_level',
-            field=models.PositiveSmallIntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name='jobranking',
-            name='llm_tier',
-            field=models.CharField(
-                blank=True,
-                choices=[('S', 'S Tier'), ('A', 'A Tier'), ('B', 'B Tier'), ('C', 'C Tier'), ('F', 'F Tier')],
-                max_length=2,
-                null=True,
-            ),
+        # Keep Django's model state in sync (AddField), but perform the actual
+        # schema change idempotently so a half-applied DB can self-heal.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name='job',
+                    name='salary_yen',
+                    field=models.PositiveIntegerField(blank=True, null=True),
+                ),
+                migrations.AddField(
+                    model_name='job',
+                    name='jlpt_level',
+                    field=models.PositiveSmallIntegerField(blank=True, null=True),
+                ),
+                migrations.AddField(
+                    model_name='jobranking',
+                    name='llm_tier',
+                    field=models.CharField(
+                        blank=True,
+                        choices=[('S', 'S Tier'), ('A', 'A Tier'), ('B', 'B Tier'), ('C', 'C Tier'), ('F', 'F Tier')],
+                        max_length=2,
+                        null=True,
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunPython(ensure_columns, migrations.RunPython.noop),
+            ],
         ),
         migrations.RunPython(populate_derived_fields, migrations.RunPython.noop),
     ]

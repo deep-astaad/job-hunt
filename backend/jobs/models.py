@@ -28,7 +28,7 @@ class Job(models.Model):
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES, default="custom")
 
     salary = models.CharField(max_length=200, blank=True, default="")
-    salary_yen = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    salary_yen = models.PositiveIntegerField(null=True, blank=True)
     jlpt_level = models.PositiveSmallIntegerField(null=True, blank=True)  # 1=N1 (hardest) .. 5=N5
     description = models.TextField(blank=True, default="")
     full_description = models.TextField(blank=True, default="")
