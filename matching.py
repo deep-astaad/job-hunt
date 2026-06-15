@@ -306,8 +306,8 @@ def location_match(job, location_cfgs):
     ])
 
     if not loc_text and not is_remote:
-        # Unknown location -> mild uncertainty, don't punish hard.
-        return 0.6, None, is_remote
+        # Unknown location → could be anywhere; modest penalty without hard-failing.
+        return 0.35, None, is_remote
 
     for cfg in location_cfgs:
         aliases = [a.lower() for a in cfg.get("aliases", [])]
@@ -335,7 +335,7 @@ _ROLE_FAMILIES = {
                 "software developer", "full stack", "fullstack"],
     "frontend": ["frontend", "front-end", "react", "vue", "angular", "ui engineer", "web developer"],
     "devops": ["devops", "sre", "site reliability", "infrastructure", "cloud",
-               "platform", "aws", "kubernetes", "systems engineer"],
+               "platform", "aws", "kubernetes", "software systems engineer"],
     "data": ["data engineer", "data scientist", "machine learning", "ml engineer",
              "ai engineer", "analytics"],
     "fullstack": ["full stack", "fullstack", "software engineer", "software developer"],
@@ -358,7 +358,8 @@ def title_affinity(profile, job):
     )
     j_fams = _families_for(job.get("title", ""))
     if not j_fams:
-        return 0.6  # unknown role family -> neutral
+        # No recognisable engineering/tech family in title → likely non-tech role; be skeptical.
+        return 0.3
     if p_fams & j_fams:
         return 1.0
     # Adjacent families (backend<->devops, backend<->fullstack) get partial credit.
@@ -396,7 +397,8 @@ def skill_overlap(profile, job):
     p_skills = _canon_set(profile.get("core_skills", []))
     j_skills = extract_job_skills(job)
     if not j_skills:
-        return 0.5, [], []  # unknown -> neutral
+        # No extractable skills at all → likely non-tech or missing data; be skeptical.
+        return 0.25, [], []
     matched = sorted(p_skills & j_skills)
     missing = sorted(j_skills - p_skills)
     if not p_skills:
@@ -441,7 +443,9 @@ def compute_match(profile, job, location_cfgs=None):
     profile_years = parse_profile_years(profile)
     req_years = parse_required_years(job.get("experience_required"))
     title = str(job.get("title") or "")
-    is_senior = bool(_SENIOR_TITLE_RE.search(title))
+    is_junior_title = bool(_JUNIOR_TITLE_RE.search(title))
+    # Junior/graduate marker overrides senior keyword (e.g. "Solutions Architect Graduate").
+    is_senior = bool(_SENIOR_TITLE_RE.search(title)) and not is_junior_title
     is_intern = bool(_INTERN_RE.search(title)) or "intern" in str(job.get("experience_required") or "").lower()
     if req_years is None:
         exp = 0.7 if not is_senior else 0.3
@@ -457,7 +461,7 @@ def compute_match(profile, job, location_cfgs=None):
             exp = 0.35
         else:
             exp = 0.1
-    if _JUNIOR_TITLE_RE.search(title) and not is_intern:
+    if is_junior_title and not is_intern:
         exp = min(1.0, exp + 0.1)
     if is_senior:
         exp = min(exp, 0.35)
