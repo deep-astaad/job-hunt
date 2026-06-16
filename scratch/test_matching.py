@@ -60,9 +60,28 @@ class ExperienceLanguageParsingTests(unittest.TestCase):
         self.assertTrue(hard)
 
     def test_optional_japanese_not_hard(self):
+        # "a plus" with no English-OK statement -> soft Japanese, not a hard gate.
         lang, hard = matching.detect_required_language(
-            {"description": "Japanese is a plus but not required, English OK."})
+            {"description": "Japanese is a plus, nice to have. We use modern tooling."})
         self.assertEqual(lang, "japanese")
+        self.assertFalse(hard)
+
+    def test_english_ok_clears_japanese_gate(self):
+        # An explicit English-OK statement means Japanese carries no weight at all,
+        # even on a JP-labelled job (the old code hard-failed these false-negatively).
+        lang, hard = matching.detect_required_language(
+            {"language": "JP",
+             "description": "Japanese is a plus but not required. English OK."})
+        self.assertFalse(hard)
+        self.assertNotEqual(lang, "japanese")
+
+    def test_jp_label_alone_is_not_a_hard_requirement(self):
+        # A job labelled JP only because of incidental CJK (¥ salary, company name)
+        # with an English description must not be hard-gated for Japanese.
+        lang, hard = matching.detect_required_language(
+            {"language": "JP",
+             "title": "Backend Engineer",
+             "description": "We build Python/Django services on AWS. Salary 8,000,000 yen."})
         self.assertFalse(hard)
 
     def test_candidate_languages(self):

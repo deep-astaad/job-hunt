@@ -99,6 +99,13 @@ _SKILL_VOCAB = {
     ".net",
 }
 
+# Tokens that are also ordinary English words ("go", "on the go"; "c"; "rust";
+# "ruby" as a name; "spark"/"swift" generic). Word-boundary scanning these in
+# free text produces false skills (a hotel "Dining Server" matched "go"). We
+# therefore only honour them from the structured `tech_stack`, not the text scan.
+_AMBIGUOUS_TEXT_TOKENS = {"go", "c", "rust", "ruby", "swift", "spark", "scala", "express", "rest"}
+_TEXT_SCAN_VOCAB = _SKILL_VOCAB - _AMBIGUOUS_TEXT_TOKENS
+
 
 def canonical_skill(name):
     """Normalize a single skill/tech string to its canonical token."""
@@ -131,7 +138,7 @@ def extract_job_skills(job):
     ]
     text = " ".join(text_parts).lower()
     if text.strip():
-        for vocab in _SKILL_VOCAB:
+        for vocab in _TEXT_SCAN_VOCAB:
             if " " in vocab or any(ch in vocab for ch in "+#./"):
                 # Phrase / symbol-bearing token: substring match is safe enough.
                 if vocab in text:
@@ -162,12 +169,13 @@ def parse_required_years(text):
     if not text:
         return None
     s = str(text).lower()
-    # "3+ years", "3-5 years", "minimum 3 years", "at least 3 yrs"
-    m = re.search(r"(\d+)\s*(?:\+|-|to|–)?\s*(?:\d+)?\s*\+?\s*(?:years?|yrs?)", s)
+    # "3+ years", "3-5 years", "minimum 3 years", "at least 3 yrs", "0.5 years".
+    # Decimals must be captured or "0.5 years" wrongly parses as 5.
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:\+|-|to|–)?\s*(?:\d+(?:\.\d+)?)?\s*\+?\s*(?:years?|yrs?)", s)
     if m:
-        return int(m.group(1))
-    m = re.search(r"(\d+)", s)
-    return int(m.group(1)) if m else None
+        return float(m.group(1))
+    m = re.search(r"(\d+(?:\.\d+)?)", s)
+    return float(m.group(1)) if m else None
 
 
 def parse_profile_years(profile):
@@ -221,6 +229,86 @@ def candidate_languages(profile):
     return langs
 
 
+# --- Japanese requirement detection (text-driven) --------------------------
+# The stored `language` label tags *any* job with CJK characters as "JP" (company
+# boilerplate, benefits, ¥ salary), which over-gated ~86% of the corpus as
+# "requires Japanese" — burying English-OK Tokyo roles. We instead infer the
+# Japanese demand from the text itself, precision-tuned against the live DB.
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
+
+
+def cjk_density(text):
+    """Fraction of characters that are Japanese kana / CJK ideographs (0..1).
+
+    A description written largely in Japanese implies the working language is
+    Japanese even when it states no explicit requirement.
+    """
+    if not text:
+        return 0.0
+    return len(_CJK_RE.findall(text)) / len(text)
+
+
+# Explicit hard Japanese requirement: 日本語必須 / JLPT N1-N2 / "business-level
+# (fluent/native/...) Japanese" / "Japanese ... required/mandatory".
+_JP_HARD_RE = re.compile(
+    r"日本語(?:能力)?(?:が|は|を|・|\s|：|:)*(?:必須|必要|ビジネス|ネイティブ|堪能|流暢)"
+    r"|日本語必須|ネイティブレベル|母語レベル"
+    r"|jlpt\s*[-– ]?\s*n?\s*[12]\b"
+    r"|\bn\s*[12]\b\s*(?:以上|レベル|level|相当|required)"
+    r"|(?:business[- ]?level|fluent|native|conversational|proficien\w+)\s+japanese"
+    r"|japanese[^.\n。!?]{0,30}(?:required|mandatory|fluent|native|business[- ]?level|proficien|必須)",
+    re.I,
+)
+# Soft signal: Japanese is "a plus / preferred / welcome", or a low JLPT level.
+_JP_SOFT_RE = re.compile(
+    r"japanese[^.\n。!?]{0,25}(?:plus|preferred|nice to have|welcome|advantage|beneficial|bonus|good to have|is an asset)"
+    r"|日本語[^。\n]{0,8}(?:尚可|歓迎|あれば|できれば)"
+    r"|jlpt\s*[-– ]?\s*n?\s*[345]\b|\bn\s*[345]\b\s*(?:以上|レベル|level)",
+    re.I,
+)
+# Explicit English-OK escape hatch (wins over the hard pattern above).
+_JP_ENGLISH_OK_RE = re.compile(
+    r"no japanese(?:\s+language)?(?:\s+skills?)?(?:\s+(?:is|are))?\s+(?:required|necessary|needed)"
+    r"|japanese[^.\n。!?]{0,30}(?:not required|not necessary|not needed|not mandatory|: ?not|：?なし|n/a|optional)"
+    r"|japanese level\s*[:：]?\s*(?:not required|n/a|none|optional|free|なし)"
+    r"|japanese\s+or\s+english|english\s+or\s+japanese"
+    r"|english[- ]?only|english\s+ok|no japanese ability|without japanese|no japanese required",
+    re.I,
+)
+# Bare JLPT shorthand "N1"/"N2" (counts only with Japanese/bilingual context).
+_JP_BARE_LEVEL_RE = re.compile(r"(?<![a-z0-9])n\s*[12](?![0-9])", re.I)
+
+_JP_DENSITY_HARD = 0.55  # JD overwhelmingly in Japanese -> working language is JP
+_JP_DENSITY_SOFT = 0.20
+
+
+def japanese_requirement(text, lang_field=""):
+    """Classify a job's Japanese-language demand as 'hard' | 'soft' | 'none'."""
+    low = text.lower()
+    lang_field = (lang_field or "").strip().upper()
+    if _JP_ENGLISH_OK_RE.search(low):
+        return "none"
+    if _JP_HARD_RE.search(text):
+        return "hard"
+    has_ctx = (
+        bool(_CJK_RE.search(text))
+        or "japanese" in low or "nihongo" in low or "jlpt" in low or "bilingual" in low
+    )
+    if _JP_BARE_LEVEL_RE.search(text) and (has_ctx or lang_field == "JP"):
+        return "hard"
+    d = cjk_density(text)
+    if d >= _JP_DENSITY_HARD:
+        return "hard"
+    if _JP_SOFT_RE.search(text):
+        return "soft"
+    if d >= _JP_DENSITY_SOFT and has_ctx:
+        return "soft"
+    # Labelled JP with some context but no explicit requirement -> soft, not hard.
+    if lang_field == "JP" and has_ctx:
+        return "soft"
+    return "none"
+
+
 def detect_required_language(job):
     """Return (language, is_hard_requirement) for the strongest non-English
     language a job appears to *require*. (None, False) if none / English only."""
@@ -229,18 +317,26 @@ def detect_required_language(job):
         str(job.get("title") or ""),
         str(job.get("description") or ""),
         str(job.get("full_description") or ""),
-    ]).lower()
+    ])
+    low = text.lower()
 
-    # Explicit structured signal from the formatter / detector.
-    if lang_field in ("jp", "japanese"):
-        return "japanese", _looks_required("japanese", text, default_required=True)
+    # Japanese: robust, text-driven (the JP label alone is not a requirement).
+    jp = japanese_requirement(text, lang_field)
+    if jp == "hard":
+        return "japanese", True
+    if jp == "soft":
+        return "japanese", False
+
     if lang_field in ("non-english", "non_english"):
         # Unknown which language, treat as a hard non-English gate.
         return "non-english", True
 
+    # Other non-English languages: explicit-phrase driven only.
     for canon, keywords in _NON_ENGLISH_LANG_KEYWORDS.items():
-        if any(kw in text for kw in keywords):
-            return canon, _looks_required(canon, text)
+        if canon == "japanese":
+            continue
+        if any(kw in low for kw in keywords):
+            return canon, _looks_required(canon, low)
     return None, False
 
 
@@ -329,16 +425,24 @@ def location_match(job, location_cfgs):
 # ---------------------------------------------------------------------------
 # Title affinity
 # ---------------------------------------------------------------------------
+# Keywords are matched against the job TITLE. Tokens must be specific enough that
+# they don't fire on non-engineering titles — bare "server" (hotel "Dining
+# Server"), "platform", "api", "go" were over-broad and are now qualified.
 _ROLE_FAMILIES = {
-    "backend": ["backend", "back-end", "server", "api", "platform", "python",
-                "django", "node", "golang", "go ", "java", "ruby", "php", "software engineer",
-                "software developer", "full stack", "fullstack"],
-    "frontend": ["frontend", "front-end", "react", "vue", "angular", "ui engineer", "web developer"],
-    "devops": ["devops", "sre", "site reliability", "infrastructure", "cloud",
-               "platform", "aws", "kubernetes", "software systems engineer"],
+    "backend": ["backend", "back-end", "back end", "server-side", "server engineer",
+                "api engineer", "api developer", "platform engineer", "python",
+                "django", "node.js", "nodejs", "golang", "java developer",
+                "java engineer", "ruby on rails", "php developer",
+                "software engineer", "software developer", "full stack", "fullstack"],
+    "frontend": ["frontend", "front-end", "front end", "react", "vue", "angular",
+                 "ui engineer", "web developer", "web engineer"],
+    "devops": ["devops", "dev ops", "sre", "site reliability", "infrastructure",
+               "cloud engineer", "cloud architect", "platform engineer",
+               "kubernetes", "software systems engineer"],
     "data": ["data engineer", "data scientist", "machine learning", "ml engineer",
-             "ai engineer", "analytics"],
-    "fullstack": ["full stack", "fullstack", "software engineer", "software developer"],
+             "ai engineer", "mlops", "analytics engineer"],
+    "fullstack": ["full stack", "fullstack", "full-stack", "software engineer",
+                  "software developer"],
     "mobile": ["ios", "android", "mobile", "flutter", "react native"],
 }
 
@@ -397,8 +501,10 @@ def skill_overlap(profile, job):
     p_skills = _canon_set(profile.get("core_skills", []))
     j_skills = extract_job_skills(job)
     if not j_skills:
-        # No extractable skills at all → likely non-tech or missing data; be skeptical.
-        return 0.25, [], []
+        # No extractable tech at all → almost always non-tech or an unparseable
+        # (e.g. Japanese-only) JD. Strong skepticism; the relevance cap in
+        # compute_match keeps these out of the top tiers.
+        return 0.1, [], []
     matched = sorted(p_skills & j_skills)
     missing = sorted(j_skills - p_skills)
     if not p_skills:
@@ -508,8 +614,10 @@ def compute_match(profile, job, location_cfgs=None):
         hard_fail, reason = True, f"requires {req_lang}"
     elif is_intern:
         hard_fail, reason = True, "internship"
-    elif req_years is not None and req_years > profile_years + 2:
-        hard_fail, reason = True, f"requires {req_years}y experience"
+    elif req_years is not None and req_years > profile_years + 3:
+        # >3y beyond the candidate is out of reach; a smaller gap is a "stretch"
+        # the soft experience signal already discounts (lands in C/B, not F).
+        hard_fail, reason = True, f"requires {req_years:g}y experience"
     elif is_senior:
         hard_fail, reason = True, "senior/lead role"
 
@@ -517,6 +625,12 @@ def compute_match(profile, job, location_cfgs=None):
     location_capped = False
     if not hard_fail and location_cfgs and loc <= 0.2 and not is_remote:
         location_capped = True
+
+    # Relevance cap: a job that matches neither the candidate's skills nor their
+    # role family is the wrong job, even if it's English + in-target + the right
+    # seniority. Without this such jobs floated to B purely on the default
+    # experience/language/location credit (e.g. a hotel "Dining Server" → A).
+    relevance_capped = not hard_fail and sk < 0.2 and ttl <= 0.3
 
     signals["matched_skills"] = matched
     signals["missing_skills"] = missing[:12]
@@ -529,6 +643,9 @@ def compute_match(profile, job, location_cfgs=None):
         if location_capped and TIER_ORDER.index(tier) < TIER_ORDER.index("C"):
             tier = "C"
             reason = "outside target locations"
+        if relevance_capped and TIER_ORDER.index(tier) < TIER_ORDER.index("C"):
+            tier = "C"
+            reason = reason or "off-target role (no skill/title match)"
 
     return {
         "score": round(score, 1),
