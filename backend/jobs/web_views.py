@@ -443,13 +443,15 @@ def dashboard(request):
     # Calculate tier counts for the selected profile
     tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
     if selected_profile_id == "all":
-        job_best_tiers = Job.objects.filter(is_active=True).annotate(
-            best_tier_int=Min(best_tier_case)
-        ).values("best_tier_int").annotate(count=Count("id"))
-        for item in job_best_tiers:
-            b = item["best_tier_int"]
-            if b in reverse_tier_map:
-                tiers_count[reverse_tier_map[b]] = item["count"]
+        rankings = JobRanking.objects.filter(job__is_active=True).values_list('job_id', 'match_tier')
+        best_tiers = {}
+        for job_id, tier in rankings:
+            t_val = tier_sort_map.get(tier, 99)
+            if job_id not in best_tiers or t_val < best_tiers[job_id]:
+                best_tiers[job_id] = t_val
+        for t_val in best_tiers.values():
+            if t_val in reverse_tier_map:
+                tiers_count[reverse_tier_map[t_val]] += 1
     else:
         by_tier_profile = list(
             JobRanking.objects.filter(profile_id=selected_profile_id)
@@ -465,15 +467,15 @@ def dashboard(request):
     # Calculate today's tier counts for the selected profile
     today_tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
     if selected_profile_id == "all":
-        today_best_tiers = Job.objects.filter(
-            is_active=True, scraped_at__date=date.today()
-        ).annotate(
-            best_tier_int=Min(best_tier_case)
-        ).values("best_tier_int").annotate(count=Count("id"))
-        for item in today_best_tiers:
-            b = item["best_tier_int"]
-            if b in reverse_tier_map:
-                today_tiers_count[reverse_tier_map[b]] = item["count"]
+        rankings_today = JobRanking.objects.filter(job__is_active=True, job__scraped_at__date=date.today()).values_list('job_id', 'match_tier')
+        best_tiers_today = {}
+        for job_id, tier in rankings_today:
+            t_val = tier_sort_map.get(tier, 99)
+            if job_id not in best_tiers_today or t_val < best_tiers_today[job_id]:
+                best_tiers_today[job_id] = t_val
+        for t_val in best_tiers_today.values():
+            if t_val in reverse_tier_map:
+                today_tiers_count[reverse_tier_map[t_val]] += 1
     else:
         by_tier_today = list(
             JobRanking.objects.filter(
