@@ -341,3 +341,135 @@ def scrape_green(limit=50):
             logger.error(f"Error scraping Green job {url}: {e}")
             
     return scraped_jobs
+
+
+def scrape_daijob(limit=50):
+    """Scrape recent jobs from Daijob."""
+    scraper = cloudscraper.create_scraper()
+    base_url = "https://www.daijob.com"
+    # Added kw=engineer to filter strictly for tech/engineering roles
+    jobs_url = f"{base_url}/en/jobs/search_result?target=category&num_pages=1&kw=engineer"
+    
+    logger.info(f"Fetching Daijob job list from {jobs_url}")
+    try:
+        resp = scraper.get(jobs_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to fetch Daijob list: {e}")
+        return []
+        
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    link_elements = soup.select('a')
+    
+    job_urls = []
+    for a in link_elements:
+        href = a.get('href', '')
+        if '/en/jobs/detail/' in href:
+            full_url = urljoin(base_url, href)
+            if full_url not in job_urls:
+                job_urls.append(full_url)
+                
+    if limit:
+        job_urls = job_urls[:limit]
+        
+    logger.info(f"Found {len(job_urls)} jobs on Daijob to scrape.")
+    
+    scraped_jobs = []
+    for i, url in enumerate(job_urls):
+        try:
+            logger.info(f"Scraping Daijob [{i+1}/{len(job_urls)}]: {url}")
+            detail_resp = scraper.get(url, timeout=30)
+            detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
+            
+            title_el = detail_soup.find('h1') or detail_soup.select_one('.job_title')
+            title = title_el.text.strip() if title_el else "Unknown Title"
+            
+            company_el = detail_soup.select_one('.company_name') or detail_soup.find('h2')
+            company = company_el.text.strip() if company_el else "Unknown Company"
+            
+            tags = []
+            
+            desc_el = detail_soup.select_one('.job_detail_box, main, article, body')
+            description = desc_el.get_text(separator='\n', strip=True) if desc_el else "No description"
+            
+            scraped_jobs.append({
+                "title": title,
+                "company": company,
+                "url": url,
+                "tech_stack": tags,
+                "full_description": description,
+                "description": description[:500],
+                "salary": "",
+                "source": "daijob"
+            })
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error scraping Daijob job {url}: {e}")
+            
+    return scraped_jobs
+
+
+def scrape_wantedly(limit=50):
+    """Scrape recent projects/jobs from Wantedly."""
+    scraper = cloudscraper.create_scraper()
+    base_url = "https://www.wantedly.com"
+    # occupations[]=1 specifically filters for IT/Web Engineering
+    jobs_url = f"{base_url}/projects?type=mixed&page=1&occupations%5B%5D=1"
+    
+    logger.info(f"Fetching Wantedly job list from {jobs_url}")
+    try:
+        resp = scraper.get(jobs_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to fetch Wantedly list: {e}")
+        return []
+        
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    link_elements = soup.select('a')
+    
+    job_urls = []
+    for a in link_elements:
+        href = a.get('href', '')
+        if '/projects/' in href and any(char.isdigit() for char in href.split('/')[-1].split('?')[0]):
+            full_url = urljoin(base_url, href)
+            if full_url not in job_urls:
+                job_urls.append(full_url)
+                
+    if limit:
+        job_urls = job_urls[:limit]
+        
+    logger.info(f"Found {len(job_urls)} jobs on Wantedly to scrape.")
+    
+    scraped_jobs = []
+    for i, url in enumerate(job_urls):
+        try:
+            logger.info(f"Scraping Wantedly [{i+1}/{len(job_urls)}]: {url}")
+            detail_resp = scraper.get(url, timeout=30)
+            detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
+            
+            title_el = detail_soup.find('h1')
+            title = title_el.text.strip() if title_el else "Unknown Title"
+            
+            company_el = detail_soup.select_one('.company-name') or detail_soup.select_one('a[href^="/companies/"]')
+            company = company_el.text.strip() if company_el else "Unknown Company"
+            
+            tags = [a.text.strip() for a in detail_soup.select('a[href*="/projects?skills"]')]
+            
+            desc_el = detail_soup.select_one('.project-detail, article, main, body')
+            description = desc_el.get_text(separator='\n', strip=True) if desc_el else "No description"
+            
+            scraped_jobs.append({
+                "title": title,
+                "company": company,
+                "url": url,
+                "tech_stack": tags,
+                "full_description": description,
+                "description": description[:500],
+                "salary": "",
+                "source": "wantedly"
+            })
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error scraping Wantedly job {url}: {e}")
+            
+    return scraped_jobs

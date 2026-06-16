@@ -17,7 +17,9 @@ from local_scrapers import (
     scrape_tokyo_dev,
     scrape_gaijinpot,
     scrape_careercross,
-    scrape_green
+    scrape_green,
+    scrape_daijob,
+    scrape_wantedly
 )
 
 logger = logging.getLogger(__name__)
@@ -302,6 +304,16 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
         all_jobs.extend(scrape_green(limit=50))
     except Exception as e:
         logger.error(f"Green scraper failed: {e}")
+        
+    try:
+        all_jobs.extend(scrape_daijob(limit=50))
+    except Exception as e:
+        logger.error(f"Daijob scraper failed: {e}")
+        
+    try:
+        all_jobs.extend(scrape_wantedly(limit=50))
+    except Exception as e:
+        logger.error(f"Wantedly scraper failed: {e}")
         
     persister = DjangoPersistence()
     ranker_profiles = _load_profiles_for_ranking(profile_ids)
