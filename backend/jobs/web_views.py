@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import date, timedelta
 from django.shortcuts import render
 from django.conf import settings
-from django.db.models import Q, Case, When, Value, IntegerField, Count
+from django.db.models import Q, Case, When, Value, IntegerField, Count, Min
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
