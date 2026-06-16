@@ -12,7 +12,13 @@ from apify_client import ApifyClient
 from apify_client._errors import ApifyApiError
 from requests.exceptions import RequestException
 
-from local_scrapers import scrape_japan_dev, scrape_tokyo_dev
+from local_scrapers import (
+    scrape_japan_dev,
+    scrape_tokyo_dev,
+    scrape_gaijinpot,
+    scrape_careercross,
+    scrape_green
+)
 
 logger = logging.getLogger(__name__)
 
@@ -268,8 +274,8 @@ def run_pipeline(actor_configs, profile_ids):
 
 @app.task(bind=True, name='tasks.pipeline.run_local_scrapers')
 def run_local_scrapers(self, profile_ids, pipeline_run_id):
-    """Runs local python scrapers (Japan-Dev, Tokyo-Dev) synchronously within Celery task."""
-    logger.info("Starting local scrapers for Japan-Dev and Tokyo-Dev...")
+    """Runs local python scrapers synchronously within Celery task."""
+    logger.info("Starting local scrapers for all supported job boards...")
     all_jobs = []
     
     try:
@@ -281,6 +287,21 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
         all_jobs.extend(scrape_tokyo_dev(limit=50))
     except Exception as e:
         logger.error(f"Tokyo-Dev scraper failed: {e}")
+        
+    try:
+        all_jobs.extend(scrape_gaijinpot(limit=50))
+    except Exception as e:
+        logger.error(f"GaijinPot scraper failed: {e}")
+        
+    try:
+        all_jobs.extend(scrape_careercross(limit=50))
+    except Exception as e:
+        logger.error(f"CareerCross scraper failed: {e}")
+        
+    try:
+        all_jobs.extend(scrape_green(limit=50))
+    except Exception as e:
+        logger.error(f"Green scraper failed: {e}")
         
     persister = DjangoPersistence()
     ranker_profiles = _load_profiles_for_ranking(profile_ids)

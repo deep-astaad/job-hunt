@@ -140,3 +140,204 @@ def scrape_japan_dev(limit=50):
             logger.error(f"Error scraping Japan-Dev job {url}: {e}")
             
     return scraped_jobs
+
+
+def scrape_gaijinpot(limit=50):
+    """Scrape recent IT jobs from GaijinPot."""
+    scraper = cloudscraper.create_scraper()
+    base_url = "https://jobs.gaijinpot.com"
+    jobs_url = f"{base_url}/job/index/category/17/lang/en"
+    
+    logger.info(f"Fetching GaijinPot job list from {jobs_url}")
+    try:
+        resp = scraper.get(jobs_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to fetch GaijinPot list: {e}")
+        return []
+        
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    link_elements = soup.select('a[href^="/en/job/"]')
+    
+    # Filter and deduplicate
+    job_urls = []
+    for a in link_elements:
+        href = a.get('href', '')
+        # Check if the href contains an ID (e.g., /en/job/123456)
+        parts = href.split('/')
+        if len(parts) >= 4 and parts[3].split('?')[0].isdigit():
+            full_url = urljoin(base_url, href)
+            if full_url not in job_urls:
+                job_urls.append(full_url)
+                
+    if limit:
+        job_urls = job_urls[:limit]
+        
+    logger.info(f"Found {len(job_urls)} jobs on GaijinPot to scrape.")
+    
+    scraped_jobs = []
+    for i, url in enumerate(job_urls):
+        try:
+            logger.info(f"Scraping GaijinPot [{i+1}/{len(job_urls)}]: {url}")
+            detail_resp = scraper.get(url, timeout=30)
+            detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
+            
+            title_el = detail_soup.find('h1')
+            title = title_el.text.strip() if title_el else "Unknown Title"
+            
+            company_el = detail_soup.select_one('.company-name') or detail_soup.find('h2')
+            company = company_el.text.strip() if company_el else "Unknown Company"
+            
+            # Gaijinpot doesn't have standard tech stack tags, so we leave it empty for LLM to extract
+            tags = []
+            
+            desc_el = detail_soup.select_one('.job-description, .job-details, main, article')
+            description = desc_el.get_text(separator='\n', strip=True) if desc_el else "No description"
+            
+            scraped_jobs.append({
+                "title": title,
+                "company": company,
+                "url": url,
+                "tech_stack": tags,
+                "full_description": description,
+                "description": description[:500],
+                "salary": "",
+                "source": "gaijinpot"
+            })
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error scraping GaijinPot job {url}: {e}")
+            
+    return scraped_jobs
+
+
+def scrape_careercross(limit=50):
+    """Scrape recent IT jobs from CareerCross."""
+    scraper = cloudscraper.create_scraper()
+    base_url = "https://www.careercross.com"
+    jobs_url = f"{base_url}/en/job-search/result?search%5Bjob_category_ids%5D%5B%5D=1"
+    
+    logger.info(f"Fetching CareerCross job list from {jobs_url}")
+    try:
+        resp = scraper.get(jobs_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to fetch CareerCross list: {e}")
+        return []
+        
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    link_elements = soup.select('a[href*="/en/job/"]')
+    
+    job_urls = []
+    for a in link_elements:
+        href = a.get('href', '')
+        if 'viewed-user' in href:
+            continue
+        if any(char.isdigit() for char in href.split('/')[-1]):
+            full_url = urljoin(base_url, href)
+            if full_url not in job_urls:
+                job_urls.append(full_url)
+                
+    if limit:
+        job_urls = job_urls[:limit]
+        
+    logger.info(f"Found {len(job_urls)} jobs on CareerCross to scrape.")
+    
+    scraped_jobs = []
+    for i, url in enumerate(job_urls):
+        try:
+            logger.info(f"Scraping CareerCross [{i+1}/{len(job_urls)}]: {url}")
+            detail_resp = scraper.get(url, timeout=30)
+            detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
+            
+            title_el = detail_soup.find('h1')
+            title = title_el.text.strip() if title_el else "Unknown Title"
+            
+            company_el = detail_soup.select_one('.company-name')
+            company = company_el.text.strip() if company_el else "Unknown Company"
+            
+            tags = []
+            
+            desc_el = detail_soup.select_one('.job-details, .job-description, .panel-body, article, main')
+            description = desc_el.get_text(separator='\n', strip=True) if desc_el else "No description"
+            
+            scraped_jobs.append({
+                "title": title,
+                "company": company,
+                "url": url,
+                "tech_stack": tags,
+                "full_description": description,
+                "description": description[:500],
+                "salary": "",
+                "source": "careercross"
+            })
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error scraping CareerCross job {url}: {e}")
+            
+    return scraped_jobs
+
+
+def scrape_green(limit=50):
+    """Scrape recent IT jobs from Green."""
+    scraper = cloudscraper.create_scraper()
+    base_url = "https://www.green-japan.com"
+    jobs_url = f"{base_url}/search_key"
+    
+    logger.info(f"Fetching Green job list from {jobs_url}")
+    try:
+        resp = scraper.get(jobs_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to fetch Green list: {e}")
+        return []
+        
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    link_elements = soup.select('a[href*="/job/"]')
+    
+    job_urls = []
+    for a in link_elements:
+        href = a.get('href', '')
+        if '/job/' in href and any(char.isdigit() for char in href.split('/')[-1]):
+            full_url = urljoin(base_url, href)
+            if full_url not in job_urls:
+                job_urls.append(full_url)
+                
+    if limit:
+        job_urls = job_urls[:limit]
+        
+    logger.info(f"Found {len(job_urls)} jobs on Green to scrape.")
+    
+    scraped_jobs = []
+    for i, url in enumerate(job_urls):
+        try:
+            logger.info(f"Scraping Green [{i+1}/{len(job_urls)}]: {url}")
+            detail_resp = scraper.get(url, timeout=30)
+            detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
+            
+            title_el = detail_soup.select_one('.job-title') or detail_soup.find('h2')
+            title = title_el.text.strip() if title_el else "Unknown Title"
+            
+            company_el = detail_soup.select_one('.company-name') or detail_soup.find('h1')
+            company = company_el.text.strip() if company_el else "Unknown Company"
+            
+            tags = [a.text.strip() for a in detail_soup.select('a[href*="/skill/"]')]
+            
+            desc_el = detail_soup.select_one('.job-detail, .job-offer-detail, main, article')
+            description = desc_el.get_text(separator='\n', strip=True) if desc_el else "No description"
+            
+            scraped_jobs.append({
+                "title": title,
+                "company": company,
+                "url": url,
+                "tech_stack": tags,
+                "full_description": description,
+                "description": description[:500],
+                "salary": "",
+                "source": "green"
+            })
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error scraping Green job {url}: {e}")
+            
+    return scraped_jobs
