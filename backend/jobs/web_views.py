@@ -256,6 +256,7 @@ def compute_growth_insights(profile):
 def dashboard(request):
     """Render the main jobs dashboard and filter results."""
     profiles = load_profiles()
+    profiles.insert(0, {"id": "all", "title": "All Profiles (Combined)"})
     
     # 1. Retrieve stats
     total_jobs = Job.objects.count()
@@ -309,60 +310,60 @@ def dashboard(request):
     q_param = request.GET.get("q", "").strip()
 
     # Base Queryset: Fetch rankings for this profile, select related Job to avoid N+1
-    rankings_qs = JobRanking.objects.filter(profile_id=selected_profile_id).select_related("job")
-
-    # Filter by Tiers
-    if tiers_list:
-        rankings_qs = rankings_qs.filter(match_tier__in=tiers_list)
-
-    # Apply Job-level filters
-    if source_param:
-        rankings_qs = rankings_qs.filter(job__source=source_param)
-
-    if lang_param:
-        rankings_qs = rankings_qs.filter(job__language=lang_param)
-
-    # Location filter: "remote" is a special bucket; otherwise match the region.
-    if region_param:
-        if region_param == "remote":
-            rankings_qs = rankings_qs.filter(job__is_remote=True)
-        else:
-            rankings_qs = rankings_qs.filter(job__region=region_param)
-
-    if date_param == "today":
-        rankings_qs = rankings_qs.filter(job__scraped_at__date=date.today())
-    elif date_param == "3days":
-        rankings_qs = rankings_qs.filter(job__scraped_at__date__gte=date.today() - timedelta(days=3))
-    elif date_param == "7days":
-        rankings_qs = rankings_qs.filter(job__scraped_at__date__gte=date.today() - timedelta(days=7))
-        
-    if q_param:
-        rankings_qs = rankings_qs.filter(
-            Q(job__title__icontains=q_param) |
-            Q(job__company__icontains=q_param) |
-            Q(job__description__icontains=q_param)
-        )
-        
-    # Custom sorting (S, A, B, C, F then Rank)
-    tier_order = Case(
-        When(match_tier="S", then=Value(0)),
-        When(match_tier="A", then=Value(1)),
-        When(match_tier="B", then=Value(2)),
-        When(match_tier="C", then=Value(3)),
-        When(match_tier="F", then=Value(4)),
+    tier_sort_map = {"S": 0, "A": 1, "B": 2, "C": 3, "F": 4}
+    
+    best_tier_case = Case(
+        *[When(rankings__match_tier=t, then=Value(i)) for t, i in tier_sort_map.items()],
         default=Value(99),
         output_field=IntegerField(),
     )
     
-    rankings_qs = rankings_qs.annotate(tier_val=tier_order).order_by("tier_val", "rank")
+    if selected_profile_id == "all":
+        base_qs = Job.objects.filter(is_active=True).annotate(tier_val=Min(best_tier_case))
+    else:
+        base_qs = Job.objects.filter(is_active=True, rankings__profile_id=selected_profile_id).annotate(tier_val=Min(best_tier_case))
+
+    # Filter by Tiers
+    if tiers_list:
+        allowed_tier_vals = [tier_sort_map[t] for t in tiers_list if t in tier_sort_map]
+        base_qs = base_qs.filter(tier_val__in=allowed_tier_vals)
+
+    # Apply Job-level filters
+    if source_param:
+        base_qs = base_qs.filter(source=source_param)
+
+    if lang_param:
+        base_qs = base_qs.filter(language=lang_param)
+
+    # Location filter: "remote" is a special bucket; otherwise match the region.
+    if region_param:
+        if region_param == "remote":
+            base_qs = base_qs.filter(is_remote=True)
+        else:
+            base_qs = base_qs.filter(region=region_param)
+
+    if date_param == "today":
+        base_qs = base_qs.filter(scraped_at__date=date.today())
+    elif date_param == "3days":
+        base_qs = base_qs.filter(scraped_at__date__gte=date.today() - timedelta(days=3))
+    elif date_param == "7days":
+        base_qs = base_qs.filter(scraped_at__date__gte=date.today() - timedelta(days=7))
+        
+    if q_param:
+        base_qs = base_qs.filter(
+            Q(title__icontains=q_param) |
+            Q(company__icontains=q_param) |
+            Q(description__icontains=q_param)
+        )
+        
+    base_qs = base_qs.order_by("tier_val", "-scraped_at")
     
     # Calculate total matches first (from the unpaginated QuerySet)
-    total_matches = rankings_qs.count()
+    total_matches = base_qs.count()
 
     # Calculate trending tech stack from all matching jobs before slicing
     tech_counter = Counter()
-    for ranking in rankings_qs:
-        job_tech_stack = ranking.job.tech_stack
+    for job_tech_stack in base_qs.values_list("tech_stack", flat=True):
         if job_tech_stack and isinstance(job_tech_stack, list):
             for tech in job_tech_stack:
                 if tech:
@@ -400,18 +401,33 @@ def dashboard(request):
 
     start = (page - 1) * page_size
     end = start + page_size
-    paginated_rankings = rankings_qs[start:end]
+    paginated_jobs = list(base_qs[start:end])
     has_more = end < total_matches
 
-    # Extract paginated jobs and attach ranking fields for the template
+    # Extract paginated jobs and attach pseudo ranking fields for the template
     jobs = []
-    for ranking in paginated_rankings:
-        job = ranking.job
-        job.match_tier = ranking.match_tier
-        job.rank = ranking.rank
-        job.match_score = ranking.match_score
-        job.jd_summary = ranking.jd_summary
-        jobs.append(job)
+    if paginated_jobs:
+        job_ids = [j.id for j in paginated_jobs]
+        rankings_qs_fetch = JobRanking.objects.filter(job_id__in=job_ids)
+        if selected_profile_id != "all":
+            rankings_qs_fetch = rankings_qs_fetch.filter(profile_id=selected_profile_id)
+            
+        rankings_by_job = {}
+        for r in rankings_qs_fetch:
+            rankings_by_job.setdefault(r.job_id, []).append(r)
+            
+        for job in paginated_jobs:
+            job_rankings = rankings_by_job.get(job.id, [])
+            if not job_rankings:
+                continue
+            
+            # Find the best ranking among job_rankings
+            best_r = min(job_rankings, key=lambda r: tier_sort_map.get(r.match_tier, 99))
+            job.match_tier = best_r.match_tier
+            job.rank = best_r.rank
+            job.match_score = best_r.match_score
+            job.jd_summary = best_r.jd_summary
+            jobs.append(job)
 
     # Handle AJAX requests for infinite scroll
     if request.GET.get("ajax") == "1":
@@ -422,27 +438,43 @@ def dashboard(request):
             "has_more": has_more
         })
 
+    reverse_tier_map = {0: "S", 1: "A", 2: "B", 3: "C", 4: "F"}
+
     # Calculate tier counts for the selected profile
-    by_tier_profile = []
-    if selected_profile_id:
+    tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
+    if selected_profile_id == "all":
+        job_best_tiers = Job.objects.filter(is_active=True).annotate(
+            best_tier_int=Min(best_tier_case)
+        ).values("best_tier_int").annotate(count=Count("id"))
+        for item in job_best_tiers:
+            b = item["best_tier_int"]
+            if b in reverse_tier_map:
+                tiers_count[reverse_tier_map[b]] = item["count"]
+    else:
         by_tier_profile = list(
             JobRanking.objects.filter(profile_id=selected_profile_id)
             .values("match_tier")
             .annotate(count=Count("id"))
             .order_by("match_tier")
         )
-    else:
-        by_tier_profile = by_tier
-
-    tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
-    for item in by_tier_profile:
-        t = item["match_tier"]
-        if t in tiers_count:
-            tiers_count[t] = item["count"]
+        for item in by_tier_profile:
+            t = item["match_tier"]
+            if t in tiers_count:
+                tiers_count[t] = item["count"]
 
     # Calculate today's tier counts for the selected profile
-    by_tier_today = []
-    if selected_profile_id:
+    today_tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
+    if selected_profile_id == "all":
+        today_best_tiers = Job.objects.filter(
+            is_active=True, scraped_at__date=date.today()
+        ).annotate(
+            best_tier_int=Min(best_tier_case)
+        ).values("best_tier_int").annotate(count=Count("id"))
+        for item in today_best_tiers:
+            b = item["best_tier_int"]
+            if b in reverse_tier_map:
+                today_tiers_count[reverse_tier_map[b]] = item["count"]
+    else:
         by_tier_today = list(
             JobRanking.objects.filter(
                 profile_id=selected_profile_id,
@@ -452,12 +484,10 @@ def dashboard(request):
             .annotate(count=Count("id"))
             .order_by("match_tier")
         )
-
-    today_tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
-    for item in by_tier_today:
-        t = item["match_tier"]
-        if t in today_tiers_count:
-            today_tiers_count[t] = item["count"]
+        for item in by_tier_today:
+            t = item["match_tier"]
+            if t in today_tiers_count:
+                today_tiers_count[t] = item["count"]
 
     # Career-growth insights (skill gap + Japanese ROI) for the selected profile
     insights = compute_growth_insights(selected_profile)

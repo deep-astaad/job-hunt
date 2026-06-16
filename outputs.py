@@ -67,11 +67,33 @@ class ExportHandler:
             return
 
         color_map = {"S": 3066993, "A": 3447003}
+        
+        # Fetch today's tier stats to provide a summary
+        tier_counts = {"S": 0, "A": 0, "B": 0, "C": 0, "F": 0}
+        try:
+            stats_resp = requests.get(f"{DJANGO_API_URL}/api/jobs/today-all-rankings/", timeout=30)
+            if stats_resp.status_code == 200:
+                stats_data = stats_resp.json().get("results", [])
+                tier_order = {"S": 0, "A": 1, "B": 2, "C": 3, "F": 4}
+                for job_stat in stats_data:
+                    rankings = job_stat.get("rankings", [])
+                    if profile_id:
+                        rankings = [r for r in rankings if r.get("profile_id") == profile_id]
+                    if rankings:
+                        best_ranking = min(rankings, key=lambda r: tier_order.get(r.get("match_tier", "F"), 99))
+                        best_tier = best_ranking.get("match_tier", "F")
+                        if best_tier in tier_counts:
+                            tier_counts[best_tier] += 1
+        except Exception as e:
+            print(f"⚠️ Failed to fetch today's stats for Discord summary: {e}")
 
         # Header message
         header = f"🔔 **Today's Top-Ranked Jobs** ({data['date']})"
         if profile_id:
             header += f"\n🎯 Profile: `{profile_id}`"
+            
+        summary_str = " | ".join([f"**{t}:** {tier_counts[t]}" for t in ["S", "A", "B", "C", "F"]])
+        header += f"\n📊 **Summary:** {summary_str}"
         header += f"\n{'-'*40}"
         requests.post(DISCORD_WEBHOOK_URL, json={"content": header})
 
