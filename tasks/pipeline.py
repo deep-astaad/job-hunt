@@ -12,6 +12,8 @@ from apify_client import ApifyClient
 from apify_client._errors import ApifyApiError
 from requests.exceptions import RequestException
 
+from local_scrapers import scrape_japan_dev, scrape_tokyo_dev
+
 logger = logging.getLogger(__name__)
 
 POLL_BATCH_SIZE = 1000
@@ -244,10 +246,11 @@ def run_pipeline(actor_configs, profile_ids):
     r = redis.Redis.from_url(CELERY_BROKER_URL)
     # Assume the Apify key is healthy for this run; a quota failure below re-flags it.
     r.delete(APIFY_QUOTA_ALERT_KEY)
-    r.set(f"pipeline:{pipeline_run_id}:active_actors", len(actor_configs))
+    # +1 active actor for the local scrapers task
+    r.set(f"pipeline:{pipeline_run_id}:active_actors", len(actor_configs) + 1)
     r.set(f"pipeline:{pipeline_run_id}:total_jobs", 0)
     
-    print(f"Booting Pipeline Run ID: {pipeline_run_id} for {len(actor_configs)} actors...")
+    print(f"Booting Pipeline Run ID: {pipeline_run_id} for {len(actor_configs)} apify actors + 1 local scraper...")
     
     # Schedule reconciliation task to run in 60 seconds
     check_pipeline_completion.apply_async(args=[pipeline_run_id], countdown=60)
@@ -259,6 +262,79 @@ def run_pipeline(actor_configs, profile_ids):
             profile_ids=profile_ids,
             pipeline_run_id=pipeline_run_id
         )
+        
+    # Trigger local scrapers
+    run_local_scrapers.delay(profile_ids, pipeline_run_id)
+
+@app.task(bind=True, name='tasks.pipeline.run_local_scrapers')
+def run_local_scrapers(self, profile_ids, pipeline_run_id):
+    """Runs local python scrapers (Japan-Dev, Tokyo-Dev) synchronously within Celery task."""
+    logger.info("Starting local scrapers for Japan-Dev and Tokyo-Dev...")
+    all_jobs = []
+    
+    try:
+        all_jobs.extend(scrape_japan_dev(limit=50))
+    except Exception as e:
+        logger.error(f"Japan-Dev scraper failed: {e}")
+        
+    try:
+        all_jobs.extend(scrape_tokyo_dev(limit=50))
+    except Exception as e:
+        logger.error(f"Tokyo-Dev scraper failed: {e}")
+        
+    persister = DjangoPersistence()
+    ranker_profiles = _load_profiles_for_ranking(profile_ids)
+    r = redis.Redis.from_url(CELERY_BROKER_URL)
+    
+    for item in all_jobs:
+        try:
+            source = item.get("source", "custom")
+            job_dict, save_result = clean_and_save_item(item, persister, source=source)
+            db_job = persister._fetch_job_by_url(job_dict.get("url", ""))
+            if not db_job:
+                continue
+                
+            if db_job.get("is_formatted"):
+                continue
+                
+            if not r.set(f"job_processing_lock:{db_job['id']}", "1", nx=True, ex=3600):
+                continue
+                
+            job_data = {
+                "id": db_job["id"],
+                "title": job_dict.get("title", "Unknown"),
+                "company": job_dict.get("company", "Unknown"),
+                "url": job_dict.get("url", ""),
+                "source": job_dict.get("source", source),
+                "raw_data": job_dict.get("raw_data", {}),
+            }
+            
+            r.sadd(f"pipeline:{pipeline_run_id}:in_flight", db_job["id"])
+            r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", db_job["id"], time.time())
+            r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
+            
+            from tasks.formatting import format_and_persist_job
+            from tasks.ranking import rank_job_multi_profile
+            
+            chain(
+                format_and_persist_job.s(job_data),
+                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]),
+            ).apply_async()
+            
+        except Exception as exc:
+            logger.error("item_dispatch_failed", extra={"error": str(exc)})
+            
+    # Mark local scrapers as finished
+    active = r.decr(f"pipeline:{pipeline_run_id}:active_actors")
+    logger.info(f"Local scrapers finished. Active actors remaining: {active}")
+    
+    in_flight_count = r.scard(f"pipeline:{pipeline_run_id}:in_flight")
+    if active <= 0 and in_flight_count <= 0:
+        if r.set(f"pipeline:{pipeline_run_id}:summary_sent", "1", nx=True, ex=86400):
+            send_discord_summary.delay(pipeline_run_id)
+        r.delete(f"pipeline:{pipeline_run_id}:active_actors")
+        r.delete(f"pipeline:{pipeline_run_id}:in_flight")
+        r.delete(f"pipeline:{pipeline_run_id}:dispatched_at")
 
 @app.task(name='tasks.pipeline.schedule_daily_scrapers')
 def schedule_daily_scrapers():

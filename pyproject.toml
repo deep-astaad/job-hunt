@@ -10,6 +10,7 @@ dependencies = [
     "anyio==4.13.0",
     "apify-client>=1.6",
     "apify-shared==1.1.2",
+    "beautifulsoup4>=4.12",
     "certifi==2026.5.20",
     "cloudscraper>=1.2.71",
     "colorama==0.4.6",
