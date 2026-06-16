@@ -59,3 +59,50 @@ def required_jlpt_level(text):
     if "japanese" in s or "日本語" in s:
         return 3  # generic conversational assumption
     return None
+
+
+# ---------------------------------------------------------------------------
+# Location
+# ---------------------------------------------------------------------------
+# Compact keyword -> (region, country, city) map mirroring locations.json so
+# models.save() can derive structured location fields without depending on the
+# repo-root locations module being importable. Keep in sync with locations.json.
+_REGION_KEYWORDS = [
+    # (keywords, region, country, city)
+    (["tokyo", "東京", "yokohama", "kanto"], "japan", "JP", "Tokyo"),
+    (["osaka", "kyoto", "japan", "日本"], "japan", "JP", ""),
+    (["bangalore", "bengaluru", "hyderabad", "pune", "gurgaon", "noida",
+      "mumbai", "delhi", "india"], "india", "IN", ""),
+    (["berlin", "munich", "hamburg", "germany", "deutschland"], "europe", "DE", ""),
+    (["amsterdam", "rotterdam", "utrecht", "netherlands", "holland"], "europe", "NL", ""),
+    (["london", "manchester", "united kingdom", "england", " uk "], "europe", "GB", ""),
+    (["paris", "france"], "europe", "FR", ""),
+    (["dublin", "ireland"], "europe", "IE", ""),
+    (["singapore"], "apac", "SG", "Singapore"),
+    (["san francisco", "new york", "seattle", "austin", "united states",
+      " usa", "u.s.", " us "], "north_america", "US", ""),
+    (["toronto", "vancouver", "canada"], "north_america", "CA", ""),
+]
+
+_REMOTE_RE = re.compile(
+    r"\b(remote|work from home|wfh|fully remote|work from anywhere|distributed team)\b",
+    re.I,
+)
+
+
+def parse_location_region(text):
+    """Best-effort (region, country, city) from free-text. Empty strings if unknown."""
+    if not text:
+        return "", "", ""
+    s = f" {str(text).lower()} "
+    for keywords, region, country, city in _REGION_KEYWORDS:
+        if any(kw in s for kw in keywords):
+            return region, country, city
+    return "", "", ""
+
+
+def detect_remote_text(text):
+    """True if the text indicates a remote-friendly role."""
+    if not text:
+        return False
+    return bool(_REMOTE_RE.search(str(text)))

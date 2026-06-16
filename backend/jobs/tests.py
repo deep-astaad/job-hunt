@@ -112,12 +112,16 @@ class CeleryTaskTests(TestCase):
             is_ranked=True,
         )
 
+    @patch("redis.Redis.from_url")
     @patch("tasks.pipeline._load_profiles_for_ranking")
     @patch("celery.chain")
     @patch("tasks.ranking.rank_job_multi_profile.delay")
-    def test_process_unprocessed_jobs_task(self, mock_rank_delay, mock_chain, mock_load_profiles):
+    def test_process_unprocessed_jobs_task(self, mock_rank_delay, mock_chain,
+                                           mock_load_profiles, mock_redis_from_url):
         mock_load_profiles.return_value = [{"id": "profile_1"}]
-        
+        # Isolate from any real Redis: the per-job dedup lock always "acquires".
+        mock_redis_from_url.return_value.set.return_value = True
+
         from tasks.pipeline import process_unprocessed_jobs_task
         
         result = process_unprocessed_jobs_task()
@@ -259,5 +263,75 @@ class DashboardInfiniteScrollTests(TestCase):
         # The HTML should contain 5 job cards
         self.assertEqual(data["html"].count("class=\"job-card"), 5)
 
+
+class LocationAndScoringTests(TestCase):
+    """Covers the new location fields, region filter, and ranking score plumbing."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_job_bulk_create_accepts_location_and_derives_region(self):
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[{
+                "url": "https://co.example/jp1",
+                "title": "Backend Engineer",
+                "company": "Acme",
+                "location": "Tokyo, Japan",
+                "is_formatted": True,
+            }],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+        job = Job.objects.get(url="https://co.example/jp1")
+        self.assertEqual(job.location, "Tokyo, Japan")
+        self.assertEqual(job.region, "japan")
+        self.assertEqual(job.country, "JP")
+
+    def test_remote_is_detected_on_save(self):
+        job = Job.objects.create(
+            title="Backend Engineer (Fully Remote)", company="Acme",
+            url="https://co.example/r1", url_hash="rh1",
+            description="Work from home, distributed team.",
+        )
+        self.assertTrue(job.is_remote)
+
+    def test_ranking_bulk_create_persists_score_fields(self):
+        job = Job.objects.create(
+            title="Backend Engineer", company="Acme",
+            url="https://co.example/s1", url_hash="sh1", is_formatted=True,
+        )
+        resp = self.client.post(
+            reverse("jobranking-bulk-create"),
+            data=[{
+                "job_id": job.id, "profile_id": "p1", "match_tier": "A",
+                "llm_tier": "S", "deterministic_tier": "A", "match_score": 77,
+                "signals": {"skill": 0.9}, "rank": 23, "jd_summary": "x",
+            }],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+        r = JobRanking.objects.get(job=job, profile_id="p1")
+        self.assertEqual(r.match_score, 77)
+        self.assertEqual(r.deterministic_tier, "A")
+        self.assertEqual(r.signals, {"skill": 0.9})
+
+    def test_dashboard_region_filter_renders(self):
+        job = Job.objects.create(
+            title="Backend Engineer", company="Acme",
+            url="https://co.example/d1", url_hash="dh1",
+            is_formatted=True, location="Tokyo, Japan",
+        )
+        JobRanking.objects.create(
+            job=job, profile_id="backend_platform_engineer", match_tier="A",
+            match_score=80, rank=20,
+        )
+        resp = self.client.get(
+            reverse("jobs_web:dashboard")
+            + "?profile_id=backend_platform_engineer&region=japan&tiers=all&date=all"
+        )
+        self.assertEqual(resp.status_code, 200)
+        # Score badge is rendered on the card.
+        self.assertContains(resp, "/100")
 
 

@@ -3,6 +3,10 @@
     "id": "backend_platform_engineer",
     "title": "Backend Platform Engineer / Software Development Engineer",
     "experience": "2.5 years",
+    "experience_years": 2.5,
+    "languages": ["English"],
+    "target_locations": ["japan_tokyo", "remote_global"],
+    "min_salary_yen": 4000000,
     "core_skills": [
       "Python",
       "Django",
@@ -31,6 +35,10 @@
     "id": "cloud_devops_architect",
     "title": "Cloud Platform Engineer / AWS Solutions Architect",
     "experience": "1.5 years | AWS Certified Solutions Architect – Associate (SAA) & AWS Certified SysOps Administrator – Associate (SOA)",
+    "experience_years": 1.5,
+    "languages": ["English"],
+    "target_locations": ["japan_tokyo", "remote_global"],
+    "min_salary_yen": 4000000,
     "core_skills": [
       "AWS",
       "Solutions Architecture",
@@ -58,6 +66,10 @@
     "id": "niraj_matere",
     "title": "Software Engineer (Full-Stack & AI)",
     "experience": "2+ years",
+    "experience_years": 2.0,
+    "languages": ["English"],
+    "target_locations": ["japan_tokyo", "remote_global", "india_bangalore"],
+    "min_salary_yen": 3500000,
     "core_skills": [
       "Python",
       "JavaScript",

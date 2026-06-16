@@ -2,8 +2,8 @@
     <div class="job-header">
         <div class="job-meta-top">
             <span class="badge badge-{{ job.match_tier|lower }}">{{ job.match_tier }} Tier</span>
-            {% if job.rank > 0 %}
-            <span class="rank-indicator">#{{ job.rank }}</span>
+            {% if job.match_score is not None %}
+            <span class="rank-indicator" title="Blended match score (0-100)">{{ job.match_score }}/100</span>
             {% endif %}
             <span class="job-company">{{ job.company }}</span>
             <span class="job-source-tag">{{ job.get_source_display }}</span>
@@ -21,6 +21,15 @@
         {% if job.language %}
         <div class="detail-item">
             <span class="icon">🌐</span> {{ job.get_language_display }}
+        </div>
+        {% endif %}
+        {% if job.is_remote %}
+        <div class="detail-item">
+            <span class="icon">🏠</span> Remote
+        </div>
+        {% elif job.location %}
+        <div class="detail-item">
+            <span class="icon">📍</span> {{ job.location }}
         </div>
         {% endif %}
         {% if job.experience_required %}

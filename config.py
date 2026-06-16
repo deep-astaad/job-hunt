@@ -38,6 +38,20 @@ def get_openai_base_url():
 def get_openai_model():
     return get_dynamic_setting("OPENAI_MODEL", "gpt-4o-mini")
 
+
+# --- Fallback LLM provider (e.g. a local Ollama instance) ---
+# Used only when the primary provider errors out. Empty base_url => disabled, so
+# existing deployments behave exactly as before until explicitly configured.
+def get_openai_fallback_base_url():
+    return get_dynamic_setting("OPENAI_FALLBACK_BASE_URL", "https://openrouter.ai/api/v1")
+
+def get_openai_fallback_api_key():
+    # Ollama ignores the key but the OpenAI client requires a non-empty string.
+    return get_dynamic_setting("OPENAI_FALLBACK_API_KEY", "ollama")
+
+def get_openai_fallback_model():
+    return get_dynamic_setting("OPENAI_FALLBACK_MODEL", "qwen3.5:4b")
+
 def set_dynamic_settings(settings_dict):
     r = get_redis_client()
     if r:

@@ -7,7 +7,7 @@ import json
 import logging
 import time
 import requests
-from persistence import JobFormatter, DjangoPersistence, normalize_url
+from persistence import JobFormatter, DjangoPersistence, normalize_url, detect_job_location
 from ranker import JobRankerAI
 from outputs import ExportHandler
 from config import DJANGO_API_URL, get_openai_model
@@ -72,6 +72,7 @@ def format_jobs(jobs):
             result.setdefault("tech_stack", [])
             result.setdefault("language", "EN")
             result["language"] = detect_job_language(result)
+            result["location"] = detect_job_location(result, raw_data)
             result.setdefault("experience_required", "")
             if raw_data:
                 result["raw_data"] = raw_data
@@ -93,71 +94,37 @@ def rank_jobs(jobs, profiles, system_prompt):
         print("No jobs to rank.")
         return 0
 
-    persister = DjangoPersistence()
     ranked = 0
 
-    print(f"\nRanking {len(jobs)} jobs against {len(profiles)} profiles...")
+    # Reuse the live pipeline's ranking path so backfill stays consistent with it:
+    # full-context LLM call + deterministic matching engine + blended score.
+    from tasks.ranking import (
+        _rank_single_job_multi_profile,
+        _parse_rankings_json,
+        _apply_matching_engine,
+        _persist_rankings,
+    )
+
+    ranker = JobRankerAI()
+    for profile in profiles:
+        profile["experience_years"] = profile.get(
+            "experience_years", ranker._parse_experience_years(profile.get("experience", ""))
+        )
+
+    print(f"\nRanking {len(jobs)} jobs against {len(profiles)} profiles (full-context + engine)...")
     for i, job in enumerate(jobs):
-        for profile in profiles:
-            pid = profile.get("id", "unknown")
-            try:
-                ranker = JobRankerAI()
-
-                title_company = f"{job.get('title', '?')} @ {job.get('company', '?')}"
-                salary = job.get("salary", "") or ""
-                exp = job.get("experience_required", "") or ""
-                lang = job.get("language", "") or ""
-                summary = (job.get("description", "") or "")[:200]
-                url = job.get("url", "")
-
-                header = "| Rank | Match Tier (S/A/B/C/F) | Job Title & Company | Salary Range | Exp. Req | Language (EN/JP) | JD Summary | URL |"
-                separator = "|------|------------------------|---------------------|--------------|----------|-------------------|------------|-----|"
-                row = f"| 1 | ? | {title_company} | {salary} | {exp} | {lang} | {summary} | [{title_company[:30]}]({url}) |"
-                single_job_table = f"{header}\n{separator}\n{row}"
-
-                user_content = (
-                    f"CANDIDATE PROFILE:\n{json.dumps(profile, indent=2)}\n\n"
-                    f"Rank this single job and return the table with the Match Tier filled in.\n\n"
-                    f"{single_job_table}"
-                )
-
-                response = ranker.client.chat.completions.create(
-                    model=get_openai_model(),
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content},
-                    ],
-                    temperature=0.2,
-                )
-                table = response.choices[0].message.content.strip()
-                if table.startswith("```"):
-                    table = table.split("\n", 1)[1]
-                if table.endswith("```"):
-                    table = table.rsplit("```", 1)[0]
-
-                rows = ranker._parse_ranking_table(table.strip())
-                rows = ranker._apply_hard_rules(rows)
-
-                if rows:
-                    tier = rows[0][1] if len(rows[0]) > 1 else "C"
-                    jd_summary = rows[0][6] if len(rows[0]) > 6 else ""
-                    requests.post(
-                        f"{DJANGO_API_URL}/api/rankings/bulk_create/",
-                        json=[{
-                            "job_id": job["id"],
-                            "profile_id": pid,
-                            "profile_title": profile.get("title", pid),
-                            "match_tier": tier.upper(),
-                            "rank": 0,
-                            "jd_summary": jd_summary,
-                        }],
-                        timeout=10,
-                    )
-                    ranked += 1
-                    print(f"  [{i+1}/{len(jobs)}] {pid}: {tier.upper()} — {job.get('title', '?')[:40]}")
-            except Exception as e:
-                print(f"  [{i+1}/{len(jobs)}] {pid} failed: {job.get('title', '?')[:40]} — {e}")
-            time.sleep(GPT_DELAY)
+        try:
+            json_text = _rank_single_job_multi_profile(ranker, job, profiles, system_prompt)
+            llm_rankings = _parse_rankings_json(json_text, profiles)
+            rankings = _apply_matching_engine(llm_rankings, job, profiles)
+            if rankings:
+                _persist_rankings(job["id"], rankings)
+                ranked += len(rankings)
+                tiers = ", ".join(f"{r['profile_id']}:{r['match_tier']}({r['match_score']})" for r in rankings)
+                print(f"  [{i+1}/{len(jobs)}] {job.get('title', '?')[:40]} -> {tiers}")
+        except Exception as e:
+            print(f"  [{i+1}/{len(jobs)}] failed: {job.get('title', '?')[:40]} — {e}")
+        time.sleep(GPT_DELAY)
 
     print(f"Ranked {ranked} job-profile pairs.")
     return ranked

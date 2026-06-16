@@ -33,7 +33,8 @@ RETURN ONLY A VALID JSON OBJECT WITH THESE EXACT KEYS:
   "full_description": "",
   "tech_stack": [],
   "language": "",
-  "experience_required": ""
+  "experience_required": "",
+  "location": ""
 }
 
 DO NOT:
@@ -46,6 +47,23 @@ DO NOT:
 ━━━━━━━━━━━━━━━━━━━━
 FIELD EXTRACTION RULES
 ━━━━━━━━━━━━━━━━━━━━
+
+## 0. location
+EXTRACT:
+- The job's work location: city and/or country (e.g. "Tokyo, Japan", "Berlin, Germany", "Bengaluru, India")
+- If the role is remote, return "Remote" (optionally with region, e.g. "Remote (Japan)")
+
+LOOK THROUGH POSSIBLE FIELDS LIKE:
+- location
+- jobLocation
+- formattedLocation
+- city / region / country
+- addressLocality
+- text mentions of where the role is based
+
+RETURN:
+- A concise human-readable location string, or "" if truly unknown
+- DO NOT invent a location
 
 ## 1. title
 EXTRACT:
