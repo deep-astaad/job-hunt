@@ -71,7 +71,7 @@ def _fmt_yen(value):
     return f"¥{value / 1_000_000:.1f}M"
 
 
-def compute_growth_insights(profile):
+def compute_growth_insights(profile, all_profiles=None):
     """Career-growth analytics for a candidate profile.
 
     1. Skill gap (+ what each gap skill could lift) -- a directed study list.
@@ -87,15 +87,43 @@ def compute_growth_insights(profile):
     if not profile:
         return insights
 
-    profile_skills = {normalize_skill(s) for s in profile.get("core_skills", []) if s}
+    is_all = (profile.get("id") == "all")
+
+    if is_all and all_profiles:
+        profile_skills = set()
+        for p in all_profiles:
+            if p.get("id") != "all":
+                profile_skills.update(normalize_skill(s) for s in p.get("core_skills", []) if s)
+    else:
+        profile_skills = {normalize_skill(s) for s in profile.get("core_skills", []) if s}
+        
     today = date.today()
 
     # ---- Pass 1: profile matched roles (S/A/B/C) -> gap, unlock, salary, companies ----
-    relevant = (
-        JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier__in=["S", "A", "B", "C"], job__is_active=True)
-        .select_related("job")
-    )
+    ALL_TIERS = ["S", "A", "B", "C"]
+    
+    if is_all:
+        all_rankings = JobRanking.objects.filter(
+            match_tier__in=ALL_TIERS, job__is_active=True
+        ).select_related("job")
+        
+        job_to_best_ranking = {}
+        tier_sort = {"S": 0, "A": 1, "B": 2, "C": 3, "F": 4}
+        for r in all_rankings:
+            job_id = r.job_id
+            if job_id not in job_to_best_ranking:
+                job_to_best_ranking[job_id] = r
+            else:
+                if tier_sort.get(r.match_tier, 99) < tier_sort.get(job_to_best_ranking[job_id].match_tier, 99):
+                    job_to_best_ranking[job_id] = r
+        relevant = list(job_to_best_ranking.values())
+    else:
+        relevant = (
+            JobRanking.objects
+            .filter(profile_id=profile["id"], match_tier__in=ALL_TIERS, job__is_active=True)
+            .select_related("job")
+        )
+        
     gap_counter = Counter()
     unlock_counter = Counter()   # gap skill -> # of non-S matched roles needing it
     unlock_samples = {}          # gap skill -> ["Title @ Company", ...]
@@ -203,34 +231,69 @@ def compute_growth_insights(profile):
 
     # ---- Pass 3: Japanese ROI + JLPT-threshold simulation ----
     GOOD_TIERS = ["S", "A", "B"]
-    # Roles you can pursue now: a genuine match that wasn't gated.
-    reachable = JobRanking.objects.filter(
-        profile_id=profile["id"], match_tier__in=GOOD_TIERS, job__is_active=True
-    ).count()
-    # Candidates for "locked": F-tier rankings on Japanese-required jobs.
-    f_jp_rankings = (
-        JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier="F", job__is_active=True)
-        .filter(Q(job__language="JP") | Q(job__jlpt_level__isnull=False))
-        .select_related("job")
-    )
+    
     locked = 0
     jlpt_levels = Counter()  # required level among the JP-locked roles
-    for ranking in f_jp_rankings:
-        job = ranking.job
-        if ranking.llm_tier in GOOD_TIERS:
-            # Accurate: the LLM rated this a match before the language gate hit it.
-            is_locked = True
-        elif ranking.llm_tier is None:
-            # Older ranking without a stored raw tier -> estimate via skill overlap.
-            stack = job.tech_stack or []
-            is_locked = bool({normalize_skill(t) for t in stack if t} & profile_skills)
-        else:
-            # LLM genuinely rated it C/F -> not a role you're losing to language.
+    
+    if is_all:
+        reachable_job_ids = {
+            r["job_id"] for r in JobRanking.objects.filter(match_tier__in=GOOD_TIERS, job__is_active=True).values("job_id")
+        }
+        reachable = len(reachable_job_ids)
+
+        f_jp_qs = (
+            JobRanking.objects
+            .filter(match_tier="F", job__is_active=True)
+            .filter(Q(job__language="JP") | Q(job__jlpt_level__isnull=False))
+            .select_related("job")
+        )
+        job_rankings_map = {}
+        for r in f_jp_qs:
+            if r.job_id not in reachable_job_ids:
+                job_rankings_map.setdefault(r.job_id, []).append(r)
+
+        for job_id, rankings in job_rankings_map.items():
             is_locked = False
-        if is_locked:
-            locked += 1
-            jlpt_levels[job.jlpt_level or 2] += 1
+            job = rankings[0].job
+            for ranking in rankings:
+                if ranking.llm_tier in GOOD_TIERS:
+                    is_locked = True
+                    break
+                elif ranking.llm_tier is None:
+                    stack = job.tech_stack or []
+                    if bool({normalize_skill(t) for t in stack if t} & profile_skills):
+                        is_locked = True
+                        break
+            if is_locked:
+                locked += 1
+                jlpt_levels[job.jlpt_level or 2] += 1
+    else:
+        # Roles you can pursue now: a genuine match that wasn't gated.
+        reachable = JobRanking.objects.filter(
+            profile_id=profile["id"], match_tier__in=GOOD_TIERS, job__is_active=True
+        ).count()
+        # Candidates for "locked": F-tier rankings on Japanese-required jobs.
+        f_jp_rankings = (
+            JobRanking.objects
+            .filter(profile_id=profile["id"], match_tier="F", job__is_active=True)
+            .filter(Q(job__language="JP") | Q(job__jlpt_level__isnull=False))
+            .select_related("job")
+        )
+        for ranking in f_jp_rankings:
+            job = ranking.job
+            if ranking.llm_tier in GOOD_TIERS:
+                # Accurate: the LLM rated this a match before the language gate hit it.
+                is_locked = True
+            elif ranking.llm_tier is None:
+                # Older ranking without a stored raw tier -> estimate via skill overlap.
+                stack = job.tech_stack or []
+                is_locked = bool({normalize_skill(t) for t in stack if t} & profile_skills)
+            else:
+                # LLM genuinely rated it C/F -> not a role you're losing to language.
+                is_locked = False
+            if is_locked:
+                locked += 1
+                jlpt_levels[job.jlpt_level or 2] += 1
 
     relevant_total = locked + reachable
     active_total = Job.objects.filter(is_active=True).count()
@@ -492,7 +555,7 @@ def dashboard(request):
                 today_tiers_count[t] = item["count"]
 
     # Career-growth insights (skill gap + Japanese ROI) for the selected profile
-    insights = compute_growth_insights(selected_profile)
+    insights = compute_growth_insights(selected_profile, all_profiles=profiles)
 
     # Compile filters for context
     active_filters = {

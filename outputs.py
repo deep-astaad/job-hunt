@@ -1,18 +1,30 @@
 import requests
 from datetime import datetime
-from config import DISCORD_WEBHOOK_URL, DISCORD_TOP_N_JOBS, DJANGO_API_URL
+from config import DISCORD_WEBHOOK_URL, DISCORD_WEBHOOK_URL_REMOTE, DISCORD_TOP_N_JOBS, DJANGO_API_URL
+from locations import region_for_text
 
 class ExportHandler:
     @classmethod
     def post_single_job_to_discord(cls, job_data, s_a_rankings):
-        """Send a single job to Discord if it has S/A rankings."""
-        if not DISCORD_WEBHOOK_URL:
-            return
-
+        """Send a single job to Discord based on location and tier."""
         color_map = {"S": 3066993, "A": 3447003}
         best_tier = "A"
         if any(r["match_tier"] == "S" for r in s_a_rankings):
             best_tier = "S"
+
+        region, _, _ = region_for_text(job_data.get("location", ""))
+        is_japan = region == "japan"
+
+        target_webhook = None
+        if is_japan:
+            if DISCORD_WEBHOOK_URL:
+                target_webhook = DISCORD_WEBHOOK_URL
+        else:
+            if best_tier == "S" and DISCORD_WEBHOOK_URL_REMOTE:
+                target_webhook = DISCORD_WEBHOOK_URL_REMOTE
+
+        if not target_webhook:
+            return
 
         matched_profiles = ", ".join(r["profile_id"] for r in s_a_rankings)
         jd_summary = s_a_rankings[0]["jd_summary"] if s_a_rankings else "—"
@@ -34,15 +46,15 @@ class ExportHandler:
         }
 
         try:
-            requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=10)
+            requests.post(target_webhook, json={"embeds": [embed]}, timeout=10)
         except requests.RequestException as e:
             print(f"⚠️ Failed to send job {job_data.get('id')} to Discord: {e}")
 
     @classmethod
     def post_tiered_jobs_from_api(cls, profile_id=None):
         """Fetch S/A ranked jobs from the today-ranked API and send to Discord."""
-        if not DISCORD_WEBHOOK_URL:
-            print("⚠️ Skipping Discord: DISCORD_WEBHOOK_URL not set.")
+        if not DISCORD_WEBHOOK_URL and not DISCORD_WEBHOOK_URL_REMOTE:
+            print("⚠️ Skipping Discord: No DISCORD_WEBHOOK_URL set.")
             return
 
         params = {"tiers": "S,A", "alert_sent": "False"}
@@ -95,10 +107,10 @@ class ExportHandler:
         summary_str = " | ".join([f"**{t}:** {tier_counts[t]}" for t in ["S", "A", "B", "C", "F"]])
         header += f"\n📊 **Summary:** {summary_str}"
         header += f"\n{'-'*40}"
-        requests.post(DISCORD_WEBHOOK_URL, json={"content": header})
-
         # Send embeds in batches of 10
-        embeds_batch = []
+        japan_embeds = []
+        remote_embeds = []
+
         for job in jobs[:DISCORD_TOP_N_JOBS]:
             ranking = job.get("ranking", {})
             tier = ranking.get("match_tier", "")
@@ -122,14 +134,35 @@ class ExportHandler:
                 ],
                 "footer": {"text": f"Auto-ranked by AI | {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
             }
-            embeds_batch.append(embed)
 
-            if len(embeds_batch) == 10:
-                requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds_batch})
-                embeds_batch = []
+            region, _, _ = region_for_text(job.get("location", ""))
+            if region == "japan":
+                japan_embeds.append(embed)
+            else:
+                if tier == "S":
+                    remote_embeds.append(embed)
 
-        if embeds_batch:
-            requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds_batch})
+        def _send_batches(webhook_url, embeds):
+            if not webhook_url:
+                return
+            batch = []
+            for e in embeds:
+                batch.append(e)
+                if len(batch) == 10:
+                    requests.post(webhook_url, json={"embeds": batch})
+                    batch = []
+            if batch:
+                requests.post(webhook_url, json={"embeds": batch})
+
+        if DISCORD_WEBHOOK_URL:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": header})
+            _send_batches(DISCORD_WEBHOOK_URL, japan_embeds)
+            
+        if DISCORD_WEBHOOK_URL_REMOTE:
+            # Optionally send the summary header to the remote channel too, or a modified one
+            remote_header = f"🔔 **Today's Top-Ranked Remote/Other Jobs (S Tier Only)** ({data['date']})"
+            requests.post(DISCORD_WEBHOOK_URL_REMOTE, json={"content": remote_header})
+            _send_batches(DISCORD_WEBHOOK_URL_REMOTE, remote_embeds)
 
         # Mark alerts as sent
         job_ids = [job.get("id") for job in jobs[:DISCORD_TOP_N_JOBS] if job.get("id")]
