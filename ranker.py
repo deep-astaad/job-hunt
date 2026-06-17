@@ -1,14 +1,16 @@
 import json
 import re
 from openai import OpenAI
-from config import get_openai_api_key, get_openai_base_url
+from config import get_openai_api_keys, get_openai_base_url
 
 
 class JobRankerAI:
 
     @property
     def client(self):
-        return OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
+        import random
+        keys = get_openai_api_keys()
+        return OpenAI(api_key=random.choice(keys) if keys else None, base_url=get_openai_base_url())
 
     def _read_file(self, filepath):
         import os

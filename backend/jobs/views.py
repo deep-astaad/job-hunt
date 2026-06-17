@@ -356,29 +356,29 @@ class SettingsAPIView(APIView):
 
     def get(self, request):
         from config import (
-            get_apify_api_token, get_openai_api_key, get_openai_model, get_openai_base_url,
-            get_openai_fallback_base_url, get_openai_fallback_model, get_openai_fallback_api_key,
+            get_apify_api_token, get_openai_model, get_openai_base_url,
+            get_openai_api_keys,
         )
         return Response({
-            "OPENAI_API_KEY": get_openai_api_key() or "",
             "OPENAI_BASE_URL": get_openai_base_url() or "https://api.openai.com/v1",
             "OPENAI_MODEL": get_openai_model() or "gpt-4o-mini",
             "APIFY_API_TOKEN": get_apify_api_token() or "",
-            "OPENAI_FALLBACK_BASE_URL": get_openai_fallback_base_url() or "",
-            "OPENAI_FALLBACK_MODEL": get_openai_fallback_model() or "",
-            "OPENAI_FALLBACK_API_KEY": get_openai_fallback_api_key() or "",
+            "OPENAI_API_KEYS": get_openai_api_keys() or [],
         })
 
     def post(self, request):
         data = request.data
+        api_keys = data.get("OPENAI_API_KEYS")
+        if isinstance(api_keys, list):
+            api_keys_str = ",".join([k.strip() for k in api_keys if k.strip()])
+        else:
+            api_keys_str = api_keys
+
         keys_to_update = {
-            "OPENAI_API_KEY": data.get("OPENAI_API_KEY"),
             "OPENAI_BASE_URL": data.get("OPENAI_BASE_URL"),
             "OPENAI_MODEL": data.get("OPENAI_MODEL"),
             "APIFY_API_TOKEN": data.get("APIFY_API_TOKEN"),
-            "OPENAI_FALLBACK_BASE_URL": data.get("OPENAI_FALLBACK_BASE_URL"),
-            "OPENAI_FALLBACK_MODEL": data.get("OPENAI_FALLBACK_MODEL"),
-            "OPENAI_FALLBACK_API_KEY": data.get("OPENAI_FALLBACK_API_KEY"),
+            "OPENAI_API_KEYS": api_keys_str,
         }
 
         valid_keys = {k: str(v) for k, v in keys_to_update.items() if v is not None}

@@ -439,6 +439,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+window.addApiKeyInput = function(value = '') {
+    const container = document.getElementById('apiKeysContainer');
+    if (!container) return;
+    
+    const div = document.createElement('div');
+    div.style.display = 'flex';
+    div.style.gap = '0.5rem';
+    div.style.marginBottom = '0.5rem';
+    
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.className = 'form-control api-key-input';
+    input.placeholder = 'sk-...';
+    input.value = value;
+    input.autocomplete = 'off';
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-secondary btn-sm';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.onclick = function() { div.remove(); };
+    
+    div.appendChild(input);
+    div.appendChild(removeBtn);
+    container.appendChild(div);
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('addApiKeyBtn')?.addEventListener('click', () => {
+        window.addApiKeyInput('');
+    });
+});
+
 // --- Settings Drawer logic ---
 window.settingsDrawer = {
     overlay: document.getElementById('settingsDrawerOverlay'),
@@ -457,13 +490,19 @@ window.settingsDrawer = {
             if (!resp.ok) throw new Error('Failed to load settings');
             const data = await resp.json();
 
-            document.getElementById('openaiApiKey').value = data.OPENAI_API_KEY || '';
             document.getElementById('openaiBaseUrl').value = data.OPENAI_BASE_URL || '';
             document.getElementById('openaiModel').value = data.OPENAI_MODEL || '';
             document.getElementById('apifyApiToken').value = data.APIFY_API_TOKEN || '';
-            document.getElementById('openaiFallbackBaseUrl').value = data.OPENAI_FALLBACK_BASE_URL || '';
-            document.getElementById('openaiFallbackModel').value = data.OPENAI_FALLBACK_MODEL || '';
-            document.getElementById('openaiFallbackApiKey').value = data.OPENAI_FALLBACK_API_KEY || '';
+            const container = document.getElementById('apiKeysContainer');
+            if (container) {
+                container.innerHTML = '';
+                const keys = data.OPENAI_API_KEYS || [];
+                if (keys.length === 0) {
+                    window.addApiKeyInput('');
+                } else {
+                    keys.forEach(key => window.addApiKeyInput(key));
+                }
+            }
         } catch (err) {
             window.window.showToast(`Error loading settings: ${err.message}`, 'error');
         }
@@ -483,13 +522,10 @@ window.settingsDrawer = {
         btn.disabled = true;
 
         const formData = {
-            OPENAI_API_KEY: document.getElementById('openaiApiKey').value,
             OPENAI_BASE_URL: document.getElementById('openaiBaseUrl').value,
             OPENAI_MODEL: document.getElementById('openaiModel').value,
             APIFY_API_TOKEN: document.getElementById('apifyApiToken').value,
-            OPENAI_FALLBACK_BASE_URL: document.getElementById('openaiFallbackBaseUrl').value,
-            OPENAI_FALLBACK_MODEL: document.getElementById('openaiFallbackModel').value,
-            OPENAI_FALLBACK_API_KEY: document.getElementById('openaiFallbackApiKey').value
+            OPENAI_API_KEYS: Array.from(document.querySelectorAll('.api-key-input')).map(input => input.value).filter(val => val.trim() !== '')
         };
 
         try {

@@ -16,12 +16,9 @@ import logging
 from openai import OpenAI
 
 from config import (
-    get_openai_api_key,
+    get_openai_api_keys,
     get_openai_base_url,
     get_openai_model,
-    get_openai_fallback_api_key,
-    get_openai_fallback_base_url,
-    get_openai_fallback_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,23 +33,31 @@ def _call(client, model, messages, temperature, timeout, response_format):
 
 
 def chat_completion(messages, temperature=0.2, timeout=120, response_format=None):
-    """Run a chat completion with automatic fallback. Returns the content string."""
-    primary_client = OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
-    try:
-        return _call(primary_client, get_openai_model(), messages,
-                     temperature, timeout, response_format)
-    except Exception as primary_exc:
-        fb_base = get_openai_fallback_base_url()
-        if not fb_base:
-            raise
-        logger.warning("llm_primary_failed_trying_fallback", extra={
-            "error": str(primary_exc), "fallback_base_url": fb_base,
-        })
-        fb_client = OpenAI(api_key=get_openai_fallback_api_key(), base_url=fb_base)
+    """Run a chat completion randomly picking an API key from the pool, with up to 3 retries."""
+    api_keys = get_openai_api_keys()
+    if not api_keys:
+        raise ValueError("No OpenAI API keys configured.")
+        
+    base_url = get_openai_base_url()
+    model = get_openai_model()
+    
+    import random
+    import time
+
+    last_exc = None
+    for attempt in range(3):
+        api_key = random.choice(api_keys)
+        client = OpenAI(api_key=api_key, base_url=base_url)
         try:
-            return _call(fb_client, get_openai_fallback_model(), messages,
-                         temperature, timeout, response_format)
-        except Exception as fb_exc:
-            logger.error("llm_fallback_also_failed", extra={"error": str(fb_exc)})
-            # Surface the original (primary) error to preserve existing retry logic.
-            raise primary_exc
+            if attempt > 0:
+                logger.info("llm_trying_again", extra={"attempt": attempt + 1})
+            return _call(client, model, messages, temperature, timeout, response_format)
+        except Exception as exc:
+            logger.warning("llm_call_failed", extra={"error": str(exc), "attempt": attempt + 1})
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(1)
+            continue
+            
+    logger.error("llm_all_attempts_failed", extra={"last_error": str(last_exc)})
+    raise last_exc

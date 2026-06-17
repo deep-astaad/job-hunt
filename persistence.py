@@ -3,7 +3,7 @@ import re
 from urllib.parse import urlparse, urlunparse
 import requests
 from openai import OpenAI
-from config import get_openai_api_key, get_openai_base_url, get_openai_model, DJANGO_API_URL
+from config import get_openai_api_keys, get_openai_base_url, get_openai_model, DJANGO_API_URL
 
 
 def normalize_url(url):
@@ -116,7 +116,9 @@ class JobFormatter:
 
     @property
     def client(self):
-        return OpenAI(api_key=get_openai_api_key(), base_url=get_openai_base_url())
+        import random
+        keys = get_openai_api_keys()
+        return OpenAI(api_key=random.choice(keys) if keys else None, base_url=get_openai_base_url())
 
     def format_job(self, raw_job):
         """Send one raw job to the LLM and return the formatted Job model object."""
