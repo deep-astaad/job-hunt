@@ -69,8 +69,10 @@ def set_dynamic_settings(settings_dict):
             return False
     return False
 
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_URL_DEFAULT = os.getenv("DISCORD_WEBHOOK_URL_DEFAULT", os.getenv("DISCORD_WEBHOOK_URL"))
+DISCORD_WEBHOOK_URL_JAPAN = os.getenv("DISCORD_WEBHOOK_URL_JAPAN", os.getenv("DISCORD_WEBHOOK_URL"))
 DISCORD_WEBHOOK_URL_REMOTE = os.getenv("DISCORD_WEBHOOK_URL_REMOTE")
+DISCORD_WEBHOOK_URL_INDIA = os.getenv("DISCORD_WEBHOOK_URL_INDIA")
 DISCORD_TOP_N_JOBS = int(os.getenv("DISCORD_TOP_N_JOBS", "20"))
 DJANGO_API_URL = os.getenv("DJANGO_API_URL", "http://localhost:8000")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
