@@ -107,7 +107,7 @@ def _load_profiles_for_ranking(profile_ids):
 
 
 @app.task(bind=True, name='tasks.pipeline.poll_actor_dataset', max_retries=1000)
-def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, pipeline_run_id, offset):
+def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, pipeline_run_id, offset, location=None):
     """Async polling: fetches a batch of items, dispatches format/rank, and retries if more items exist or actor is running."""
     client = ApifyClient(get_apify_api_token())
     persister = DjangoPersistence()
@@ -159,9 +159,11 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                 from tasks.formatting import format_and_persist_job
                 from tasks.ranking import rank_job_multi_profile
                 
+                job_priority = 9 if location == "japan_tokyo" else 5
+                
                 chain(
-                    format_and_persist_job.s(job_data),
-                    rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]),
+                    format_and_persist_job.s(job_data).set(priority=job_priority),
+                    rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]).set(priority=job_priority),
                 ).apply_async()
                 
             except Exception as exc:
@@ -207,7 +209,7 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
 
 @app.task(bind=True, name='tasks.pipeline.start_actor')
 def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id,
-                fallback_actors=None):
+                fallback_actors=None, location=None):
     """Starts the Apify actor and kicks off the async polling.
 
     If the primary actor fails to start (quota exhausted, actor outage, bad
@@ -234,7 +236,7 @@ def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id,
             poll_actor_dataset.delay(
                 run_id=run_id, dataset_id=dataset_id, actor_id=a_id,
                 source=source, profile_ids=profile_ids,
-                pipeline_run_id=pipeline_run_id, offset=0
+                pipeline_run_id=pipeline_run_id, offset=0, location=location
             )
             if a_id != actor_id:
                 logger.warning("actor_fallback_used", extra={
@@ -296,6 +298,7 @@ def run_pipeline(actor_configs, profile_ids):
             profile_ids=profile_ids,
             pipeline_run_id=pipeline_run_id,
             fallback_actors=config.get("fallback_actors"),
+            location=config.get("location"),
         )
         
     # Trigger local scrapers
@@ -376,9 +379,11 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
             from tasks.formatting import format_and_persist_job
             from tasks.ranking import rank_job_multi_profile
             
+            job_priority = 9  # Local scrapers are all Japan-based
+            
             chain(
-                format_and_persist_job.s(job_data),
-                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]),
+                format_and_persist_job.s(job_data).set(priority=job_priority),
+                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]).set(priority=job_priority),
             ).apply_async()
             
         except Exception as exc:
@@ -521,6 +526,13 @@ def process_unprocessed_jobs_task(profile_ids=None):
     from config import CELERY_BROKER_URL
     r = redis.Redis.from_url(CELERY_BROKER_URL)
 
+    def get_job_priority(job):
+        if job.source in ["japan_dev", "tokyo_dev", "gaijinpot", "careercross", "green", "daijob", "wantedly"]:
+            return 9
+        if job.location and ("japan" in job.location.lower() or "tokyo" in job.location.lower()):
+            return 9
+        return 5
+
     # 4. Dispatch format + rank chain for unformatted jobs
     for job in unformatted_jobs:
         # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
@@ -535,9 +547,10 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "source": job.source,
             "raw_data": job.raw_data,
         }
+        job_priority = get_job_priority(job)
         chain(
-            format_and_persist_job.s(job_data),
-            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
+            format_and_persist_job.s(job_data).set(priority=job_priority),
+            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id).set(priority=job_priority),
         ).apply_async()
 
     # 5. Dispatch rank directly for unranked jobs
@@ -562,11 +575,15 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "is_remote": job.is_remote,
             "source": job.source,
         }
-        rank_job_multi_profile.delay(
-            formatted_job_data=job_data,
-            profiles=ranker_profiles,
-            pipeline_run_id=None,
-            job_id=job.id
+        job_priority = get_job_priority(job)
+        rank_job_multi_profile.apply_async(
+            kwargs={
+                "formatted_job_data": job_data,
+                "profiles": ranker_profiles,
+                "pipeline_run_id": None,
+                "job_id": job.id
+            },
+            priority=job_priority
         )
 
     return {

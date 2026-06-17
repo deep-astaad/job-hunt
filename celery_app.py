@@ -40,6 +40,11 @@ app.config_from_object({
         'tasks.formatting.format_and_persist_job': {'queue': 'formatting'},
         'tasks.ranking.rank_job_multi_profile': {'queue': 'ranking'},
     },
+    'broker_transport_options': {
+        'priority_steps': list(range(10)),
+        'queue_order_strategy': 'priority',
+    },
+    'task_default_priority': 5,
 })
 
 # Explicitly import task modules to register tasks with the worker.
