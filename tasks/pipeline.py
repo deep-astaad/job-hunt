@@ -5,7 +5,7 @@ from datetime import datetime
 from celery import chain
 from celery_app import app
 from persistence import DjangoPersistence
-from config import get_apify_api_token, CELERY_BROKER_URL, DISCORD_WEBHOOK_URL
+from config import get_apify_api_token, CELERY_BROKER_URL
 import redis
 import requests as req
 from apify_client import ApifyClient
