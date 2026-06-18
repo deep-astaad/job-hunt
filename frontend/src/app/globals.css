@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html, body {
+    @apply bg-base text-ink-primary font-sans antialiased;
+    overflow-x: hidden;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { @apply bg-base-surface; }
+  ::-webkit-scrollbar-thumb { background: #D4D0CA; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #B8B4AD; }
+}
+
+@layer utilities {
+  .text-brand-gradient {
+    background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Tier left-border accent helpers */
+  .tier-accent-s { border-left-color: #D97706; }
+  .tier-accent-a { border-left-color: #059669; }
+  .tier-accent-b { border-left-color: #7C3AED; }
+  .tier-accent-c { border-left-color: #9CA3AF; }
+  .tier-accent-f { border-left-color: #DC2626; }
+}

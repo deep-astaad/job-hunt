@@ -1,0 +1,91 @@
+import type {
+  BrowseItem,
+  BrowseFilters,
+  DashboardPayload,
+  PaginatedResponse,
+  ProfilesResponse,
+  ApifyAlert,
+} from "./types";
+import { proxyUrl } from "./utils";
+
+async function djFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = proxyUrl(path);
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers as Record<string, string>),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ── Browse ────────────────────────────────────────────────────────────────
+
+export async function fetchBrowsePage(
+  filters: BrowseFilters,
+  page: number,
+  pageSize = 25
+): Promise<PaginatedResponse<BrowseItem>> {
+  const p = new URLSearchParams();
+  if (filters.profileId) p.set("profile_id", filters.profileId);
+  if (filters.tiers.length) p.set("tiers", filters.tiers.join(","));
+  if (filters.source) p.set("source", filters.source);
+  if (filters.language) p.set("language", filters.language);
+  if (filters.location) p.set("location", filters.location);
+  if (filters.remote) p.set("remote", filters.remote);
+  p.set("date", filters.date);
+  if (filters.q) p.set("q", filters.q);
+  p.set("page", String(page));
+  p.set("page_size", String(pageSize));
+  return djFetch<PaginatedResponse<BrowseItem>>(`/browse/?${p.toString()}`);
+}
+
+export async function fetchJobDetail(jobId: number) {
+  return djFetch<Record<string, unknown>>(`/jobs/${jobId}/`);
+}
+
+// ── Rankings ──────────────────────────────────────────────────────────────
+
+export async function patchRanking(
+  rankingId: number,
+  data: { match_tier?: string; rank?: number }
+) {
+  return djFetch(`/rankings/${rankingId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Profiles + choices ────────────────────────────────────────────────────
+
+export async function fetchProfiles(): Promise<ProfilesResponse> {
+  return djFetch<ProfilesResponse>("/profiles/");
+}
+
+// ── Dashboard / insights ──────────────────────────────────────────────────
+
+export async function fetchDashboard(profileId: string): Promise<DashboardPayload> {
+  return djFetch<DashboardPayload>(`/dashboard/?profile_id=${encodeURIComponent(profileId)}`);
+}
+
+export async function fetchDashboardAlert(): Promise<{ alert: ApifyAlert | null }> {
+  return djFetch<{ alert: ApifyAlert | null }>("/dashboard/alert/");
+}
+
+// ── Pipeline actions ──────────────────────────────────────────────────────
+
+export async function triggerScrape(source?: string) {
+  return djFetch("/pipeline/trigger-scrape/", {
+    method: "POST",
+    body: JSON.stringify({ source: source || "" }),
+  });
+}
+
+export async function triggerProcessing() {
+  return djFetch("/pipeline/trigger-processing/", { method: "POST" });
+}

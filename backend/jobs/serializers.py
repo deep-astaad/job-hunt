@@ -56,3 +56,29 @@ class TodayRankedJobSerializer(serializers.ModelSerializer):
             {"profile_id": r.profile_id, "profile_title": r.profile_title}
             for r in obj._matched_rankings
         ]
+
+
+class JobInlineSerializer(serializers.ModelSerializer):
+    """Compact job representation embedded inside a browse ranking row."""
+
+    class Meta:
+        model = Job
+        fields = [
+            "id", "title", "company", "url", "source",
+            "salary", "salary_yen", "language", "experience_required",
+            "description", "tech_stack", "scraped_at", "jlpt_level",
+            "location", "region", "country", "is_remote",
+        ]
+
+
+class JobRankingBrowseSerializer(serializers.ModelSerializer):
+    """Ranking row with the full job object nested — used by BrowseView."""
+
+    job = JobInlineSerializer(read_only=True)
+
+    class Meta:
+        model = JobRanking
+        fields = [
+            "id", "profile_id", "match_tier", "llm_tier",
+            "rank", "match_score", "jd_summary", "created_at", "job",
+        ]
