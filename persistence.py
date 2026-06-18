@@ -1,15 +1,33 @@
 import json
 import re
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 import requests
 from openai import OpenAI
 from config import get_openai_api_keys, get_openai_base_url, get_openai_model, DJANGO_API_URL
 
 
 def normalize_url(url):
-    """Normalize URL for comparison: strip query params and fragments."""
+    """Normalize URL for comparison: strip query params and fragments (keeping jk for Indeed)."""
+    if not url:
+        return ""
     parsed = urlparse(url)
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+    netloc = parsed.netloc.lower()
+    path = parsed.path
+    
+    # Strip trailing slash from path for consistency, but keep if it's just "/"
+    if path.endswith("/") and len(path) > 1:
+        path = path[:-1]
+        
+    query_params = dict(parse_qsl(parsed.query))
+    
+    # Keep only essential query parameters depending on domain
+    keep_params = {}
+    if "indeed.com" in netloc or "indeed.co.jp" in netloc:
+        if "jk" in query_params:
+            keep_params["jk"] = query_params["jk"]
+            
+    new_query = urlencode(keep_params) if keep_params else ""
+    return urlunparse((parsed.scheme, netloc, path, "", new_query, ""))
 
 def detect_job_language(job_dict):
     """Detect and normalize language choice based on content and language field."""

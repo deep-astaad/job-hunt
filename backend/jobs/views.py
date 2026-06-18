@@ -14,6 +14,7 @@ from .serializers import (
     JobRankingSerializer,
     TodayRankedJobSerializer,
 )
+from .parsers import normalize_url
 
 
 class TodayRankedJobFilter(django_filters.FilterSet):
@@ -94,13 +95,14 @@ class JobViewSet(viewsets.ModelViewSet):
                 errors.append({"error": "url is required", "data": job_data})
                 continue
 
-            url_hash = hashlib.sha256(url.encode()).hexdigest()
+            normalized_url = normalize_url(url)
+            url_hash = hashlib.sha256(normalized_url.encode()).hexdigest()
 
             try:
                 obj, was_created = Job.objects.update_or_create(
                     url_hash=url_hash,
                     defaults={
-                        "url": url,
+                        "url": normalized_url,
                         "title": job_data.get("title", "Unknown"),
                         "company": job_data.get("company", "Unknown"),
                         "source": job_data.get("source", "custom"),

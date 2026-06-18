@@ -115,8 +115,8 @@ class CeleryTaskTests(TestCase):
     @patch("redis.Redis.from_url")
     @patch("tasks.pipeline._load_profiles_for_ranking")
     @patch("celery.chain")
-    @patch("tasks.ranking.rank_job_multi_profile.delay")
-    def test_process_unprocessed_jobs_task(self, mock_rank_delay, mock_chain,
+    @patch("tasks.ranking.rank_job_multi_profile.apply_async")
+    def test_process_unprocessed_jobs_task(self, mock_rank_apply_async, mock_chain,
                                            mock_load_profiles, mock_redis_from_url):
         mock_load_profiles.return_value = [{"id": "profile_1"}]
         # Isolate from any real Redis: the per-job dedup lock always "acquires".
@@ -133,7 +133,7 @@ class CeleryTaskTests(TestCase):
         mock_chain.assert_called_once()
         
         # Verify rank task was called directly for unranked job
-        mock_rank_delay.assert_called_once()
+        mock_rank_apply_async.assert_called_once()
 
 
 class JobStatsTests(TestCase):
