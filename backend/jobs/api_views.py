@@ -3,7 +3,7 @@ import json
 import os
 from datetime import date, timedelta
 
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, F, IntegerField, Subquery, OuterRef, Value, When
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -50,10 +50,27 @@ class BrowseView(APIView):
         date_param = request.query_params.get("date", "today")
         q = request.query_params.get("q", "").strip()
 
-        qs = JobRanking.objects.select_related("job").filter(job__is_active=True)
+        if profile_id == "all":
+            # Deduplicate: one row per job, best tier across all profiles.
+            # Correlated subquery returns the id of the best ranking for each job_id.
+            best_id_sq = JobRanking.objects.filter(
+                job_id=OuterRef("job_id")
+            ).annotate(
+                _tv=Case(
+                    *[When(match_tier=t, then=Value(i)) for t, i in TIER_SORT.items()],
+                    default=Value(99),
+                    output_field=IntegerField(),
+                )
+            ).order_by("_tv", "rank").values("id")[:1]
 
-        if profile_id:
-            qs = qs.filter(profile_id=profile_id)
+            qs = JobRanking.objects.select_related("job").filter(
+                job__is_active=True,
+                id=Subquery(best_id_sq),
+            )
+        else:
+            qs = JobRanking.objects.select_related("job").filter(job__is_active=True)
+            if profile_id:
+                qs = qs.filter(profile_id=profile_id)
 
         if tiers_param:
             tiers = [t.strip().upper() for t in tiers_param.split(",") if t.strip()]
@@ -119,6 +136,7 @@ class ProfilesView(APIView):
 
     def get(self, request):
         profiles = _load_profiles()
+        profiles = [{"id": "all", "title": "All Profiles (Combined)"}] + profiles
         # Distinct non-empty regions from DB for the location filter
         region_choices = (
             Job.objects.filter(region__gt="")

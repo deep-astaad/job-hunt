@@ -42,10 +42,10 @@ export interface PaginatedResponse<T> {
 export interface Profile {
   id: string;
   title: string;
-  experience: string;
-  core_skills: string[];
-  language_requirements: string;
-  preferences: string;
+  experience?: string;
+  core_skills?: string[];
+  language_requirements?: string;
+  preferences?: string;
 }
 
 export interface Choice {

@@ -89,3 +89,23 @@ export async function triggerScrape(source?: string) {
 export async function triggerProcessing() {
   return djFetch("/pipeline/trigger-processing/", { method: "POST" });
 }
+
+// ── Settings (admin only) ─────────────────────────────────────────────────
+
+export interface AppSettings {
+  OPENAI_BASE_URL: string;
+  OPENAI_MODEL: string;
+  APIFY_API_TOKEN: string;
+  OPENAI_API_KEYS: string[];
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  return djFetch<AppSettings>("/settings/");
+}
+
+export async function saveSettings(data: Partial<AppSettings>): Promise<{ status: string; message: string }> {
+  return djFetch("/settings/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}

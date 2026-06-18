@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Briefcase, BarChart2, X, Settings, ExternalLink,
+  Briefcase, BarChart2, X, Settings,
   AlertTriangle, Play, RefreshCw, Search,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +14,7 @@ import { useProfile } from "@/lib/profile-context";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useApifyAlert } from "@/hooks/useInsights";
 import { useFilters } from "@/lib/filter-context";
+import { SettingsModal } from "./SettingsModal";
 import type { Tier } from "@/lib/types";
 
 interface Props {
@@ -40,6 +41,7 @@ export function Sidebar({ isOpen, onClose }: Props) {
   const { data: alertData } = useApifyAlert();
   const { filters, updateFilters } = useFilters();
   const [pending, setPending] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [localQ, setLocalQ] = useState(filters.q);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -337,13 +339,16 @@ export function Sidebar({ isOpen, onClose }: Props) {
             <RefreshCw className="w-3 h-3" />Rank
           </button>
         </div>
-        <a href="/admin/" target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-2.5 px-3 py-2 rounded-md text-xs text-ink-muted hover:text-ink-primary hover:bg-base-hover transition-colors">
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs text-ink-muted hover:text-ink-primary hover:bg-base-hover transition-colors"
+        >
           <Settings className="w-3.5 h-3.5 shrink-0" />
-          <span>Django Admin</span>
-          <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
-        </a>
+          <span>Settings</span>
+        </button>
       </div>
+
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </aside>
   );
 }
