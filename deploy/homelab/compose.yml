@@ -40,7 +40,8 @@ services:
       MYSQL_PASSWORD: ${JOBHUNT_MYSQL_PASSWORD}
       DJANGO_SECRET_KEY: ${JOBHUNT_DJANGO_SECRET_KEY}
       DJANGO_DEBUG: "True"
-      DJANGO_ALLOWED_HOSTS: ${JOBHUNT_HOST},django,localhost
+      # frontend container + internal names
+      DJANGO_ALLOWED_HOSTS: ${JOBHUNT_HOST},django,frontend,localhost
       DJANGO_CSRF_TRUSTED_ORIGINS: https://${JOBHUNT_HOST}
       APIFY_API_TOKEN: ${JOBHUNT_APIFY_API_TOKEN}
       OPENAI_API_KEY: ${JOBHUNT_OPENAI_API_KEY}
@@ -55,11 +56,14 @@ services:
       - com.centurylinklabs.watchtower.enable=true
       - traefik.enable=true
       - traefik.docker.network=traefik
-      - traefik.http.routers.jobhunt.rule=Host(`${JOBHUNT_HOST}`)
-      - traefik.http.routers.jobhunt.entrypoints=websecure
-      - traefik.http.routers.jobhunt.tls.certresolver=cloudflare
-      - traefik.http.routers.jobhunt.middlewares=secure-headers@docker,errpages@docker
-      - traefik.http.services.jobhunt.loadbalancer.server.port=8000
+      # Serve /admin/ directly from Django (Django admin UI + static files)
+      - traefik.http.routers.jobhunt-admin.rule=Host(`${JOBHUNT_HOST}`) && PathPrefix(`/admin/`)
+      - traefik.http.routers.jobhunt-admin.entrypoints=websecure
+      - traefik.http.routers.jobhunt-admin.tls.certresolver=cloudflare
+      - traefik.http.routers.jobhunt-admin.middlewares=secure-headers@docker,errpages@docker
+      - traefik.http.routers.jobhunt-admin.priority=10
+      - traefik.http.services.jobhunt-django.loadbalancer.server.port=8000
+      - traefik.http.routers.jobhunt-admin.service=jobhunt-django
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/jobs/stats/')"]
       interval: 15s
@@ -68,6 +72,33 @@ services:
       start_period: 30s
     depends_on:
       mysql:
+        condition: service_healthy
+
+  frontend:
+    image: ${JOBHUNT_FRONTEND_IMAGE}:${JOBHUNT_FRONTEND_TAG}
+    container_name: jobhunt-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Call Django directly on the internal network — never through Traefik/Authelia
+      BACKEND_INTERNAL_URL: http://django:8000
+    networks:
+      - default
+      - traefik
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      # Catch-all for the host — all non-/admin/ traffic lands here
+      - traefik.http.routers.jobhunt.rule=Host(`${JOBHUNT_HOST}`)
+      - traefik.http.routers.jobhunt.entrypoints=websecure
+      - traefik.http.routers.jobhunt.tls.certresolver=cloudflare
+      - traefik.http.routers.jobhunt.middlewares=secure-headers@docker,errpages@docker
+      - traefik.http.routers.jobhunt.priority=1
+      - traefik.http.services.jobhunt-frontend.loadbalancer.server.port=3000
+      - traefik.http.routers.jobhunt.service=jobhunt-frontend
+    depends_on:
+      django:
         condition: service_healthy
 
   celery-worker:

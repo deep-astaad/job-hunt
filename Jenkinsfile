@@ -7,19 +7,36 @@ pipeline {
   }
 
   environment {
-    IMAGE_NAME = 'ghcr.io/harsh-upadhayay/job-hunt'
+    IMAGE_NAME    = 'ghcr.io/harsh-upadhayay/job-hunt'
+    FRONTEND_IMAGE = 'ghcr.io/harsh-upadhayay/job-hunt-frontend'
   }
 
   stages {
-    stage('Build image') {
-      steps {
-        sh '''
-          set -eu
-          docker build \
-            --tag "$IMAGE_NAME:$GIT_COMMIT" \
-            --tag "$IMAGE_NAME:main" \
-            .
-        '''
+    stage('Build images') {
+      parallel {
+        stage('Backend') {
+          steps {
+            sh '''
+              set -eu
+              docker build \
+                --tag "$IMAGE_NAME:$GIT_COMMIT" \
+                --tag "$IMAGE_NAME:main" \
+                .
+            '''
+          }
+        }
+        stage('Frontend') {
+          steps {
+            sh '''
+              set -eu
+              docker build \
+                --target runner \
+                --tag "$FRONTEND_IMAGE:$GIT_COMMIT" \
+                --tag "$FRONTEND_IMAGE:main" \
+                frontend/
+            '''
+          }
+        }
       }
     }
 
@@ -37,7 +54,7 @@ pipeline {
       }
     }
 
-    stage('Publish image') {
+    stage('Publish images') {
       when {
         expression {
           env.BRANCH_NAME == 'main' || env.GIT_BRANCH == 'main' || env.GIT_BRANCH == 'origin/main'
@@ -54,6 +71,8 @@ pipeline {
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker push "$IMAGE_NAME:$GIT_COMMIT"
             docker push "$IMAGE_NAME:main"
+            docker push "$FRONTEND_IMAGE:$GIT_COMMIT"
+            docker push "$FRONTEND_IMAGE:main"
             docker logout ghcr.io
           '''
         }
