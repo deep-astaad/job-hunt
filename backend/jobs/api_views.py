@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from django.db.models import Case, F, IntegerField, Subquery, OuterRef, Value, When
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -22,6 +23,8 @@ TIER_SORT = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
 
 
 class BrowseView(APIView):
+    permission_classes = [IsAuthenticated]
+
     """
     Paginated rankings + nested job for the Browse page.
 
@@ -132,6 +135,8 @@ def _load_profiles():
 
 
 class ProfilesView(APIView):
+    permission_classes = [IsAuthenticated]
+
     """Return profiles list + available filter choices."""
 
     def get(self, request):
@@ -153,6 +158,8 @@ class ProfilesView(APIView):
 
 
 class DashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
     """
     Cached analytics dashboard payload.
     GET /api/dashboard/?profile_id=<id>
@@ -171,6 +178,8 @@ class DashboardView(APIView):
 
 
 class DashboardAlertView(APIView):
+    permission_classes = [IsAuthenticated]
+
     """Return current Apify quota alert (if any)."""
 
     def get(self, request):

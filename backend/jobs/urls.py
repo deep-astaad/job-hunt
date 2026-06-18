@@ -1,6 +1,6 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
-from .views import JobViewSet, JobRankingViewSet, SettingsAPIView
+from .views import JobViewSet, JobRankingViewSet, SettingsAPIView, AuthMeView, AuthLoginView, AuthLogoutView
 from .api_views import (
     BrowseView,
     ProfilesView,
@@ -15,6 +15,9 @@ router.register(r"jobs", JobViewSet)
 router.register(r"rankings", JobRankingViewSet)
 
 urlpatterns = router.urls + [
+    path("auth/me/", AuthMeView.as_view(), name="auth-me"),
+    path("auth/login/", AuthLoginView.as_view(), name="auth-login"),
+    path("auth/logout/", AuthLogoutView.as_view(), name="auth-logout"),
     path("settings/", SettingsAPIView.as_view(), name="settings-api"),
     # New endpoints for Next.js frontend
     path("browse/", BrowseView.as_view(), name="browse"),

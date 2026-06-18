@@ -1,11 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { Sidebar } from "./Sidebar";
+import { useAuth } from "@/lib/auth-context";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (!isLoading && user && !user.authenticated && pathname !== "/login") {
+      router.replace("/login");
+    }
+  }, [isLoading, user, pathname, router]);
+
+  // Login page renders itself without the shell
+  if (pathname === "/login") return <>{children}</>;
+
+  if (isLoading || !user || !user.authenticated) {
+    return <div className="min-h-screen bg-base" />;
+  }
 
   return (
     <div className="flex h-screen bg-base overflow-hidden">

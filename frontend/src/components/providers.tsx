@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import { queryClient } from "@/lib/query";
 import { ProfileProvider } from "@/lib/profile-context";
 import { FilterProvider } from "@/lib/filter-context";
+import { AuthProvider } from "@/lib/auth-context";
 
 function FilterSkeleton() {
   return <div className="min-h-screen bg-base" />;
@@ -14,13 +15,15 @@ function FilterSkeleton() {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ProfileProvider>
-        <Suspense fallback={<FilterSkeleton />}>
-          <FilterProvider>
-            {children}
-          </FilterProvider>
-        </Suspense>
-      </ProfileProvider>
+      <AuthProvider>
+        <ProfileProvider>
+          <Suspense fallback={<FilterSkeleton />}>
+            <FilterProvider>
+              {children}
+            </FilterProvider>
+          </Suspense>
+        </ProfileProvider>
+      </AuthProvider>
       <Toaster
         theme="light"
         position="bottom-right"

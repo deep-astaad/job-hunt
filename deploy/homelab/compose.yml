@@ -58,7 +58,7 @@ services:
       - traefik.http.routers.jobhunt.rule=Host(`${JOBHUNT_HOST}`)
       - traefik.http.routers.jobhunt.entrypoints=websecure
       - traefik.http.routers.jobhunt.tls.certresolver=cloudflare
-      - traefik.http.routers.jobhunt.middlewares=authelia-fa-jobhunt,secure-headers@docker,errpages@docker
+      - traefik.http.routers.jobhunt.middlewares=secure-headers@docker,errpages@docker
       - traefik.http.services.jobhunt.loadbalancer.server.port=8000
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/jobs/stats/')"]

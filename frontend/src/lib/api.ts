@@ -5,6 +5,7 @@ import type {
   PaginatedResponse,
   ProfilesResponse,
   ApifyAlert,
+  AuthUser,
 } from "./types";
 import { proxyUrl } from "./utils";
 
@@ -88,6 +89,23 @@ export async function triggerScrape(source?: string) {
 
 export async function triggerProcessing() {
   return djFetch("/pipeline/trigger-processing/", { method: "POST" });
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+
+export async function fetchMe(): Promise<AuthUser> {
+  return djFetch<AuthUser>("/auth/me/");
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  return djFetch<AuthUser>("/auth/login/", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  await djFetch("/auth/logout/", { method: "POST" });
 }
 
 // ── Settings (admin only) ─────────────────────────────────────────────────

@@ -1,5 +1,9 @@
 export type Tier = "S" | "A" | "B" | "C" | "F";
 
+export type AuthUser =
+  | { authenticated: true; username: string; is_staff: boolean }
+  | { authenticated: false };
+
 export interface JobInline {
   id: number;
   title: string;

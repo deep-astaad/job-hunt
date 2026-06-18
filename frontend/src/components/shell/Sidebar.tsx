@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Briefcase, BarChart2, X, Settings,
+  Briefcase, BarChart2, X, Settings, LogOut,
   AlertTriangle, Play, RefreshCw, Search,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +15,8 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useApifyAlert } from "@/hooks/useInsights";
 import { useFilters } from "@/lib/filter-context";
 import { SettingsModal } from "./SettingsModal";
+import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
 import type { Tier } from "@/lib/types";
 
 interface Props {
@@ -42,6 +44,8 @@ export function Sidebar({ isOpen, onClose }: Props) {
   const { filters, updateFilters } = useFilters();
   const [pending, setPending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { signOut } = useAuth();
+  const router = useRouter();
 
   const [localQ, setLocalQ] = useState(filters.q);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -339,13 +343,22 @@ export function Sidebar({ isOpen, onClose }: Props) {
             <RefreshCw className="w-3 h-3" />Rank
           </button>
         </div>
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs text-ink-muted hover:text-ink-primary hover:bg-base-hover transition-colors"
-        >
-          <Settings className="w-3.5 h-3.5 shrink-0" />
-          <span>Settings</span>
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md text-xs text-ink-muted hover:text-ink-primary hover:bg-base-hover transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5 shrink-0" />
+            <span>Settings</span>
+          </button>
+          <button
+            onClick={async () => { await signOut(); router.replace("/login"); }}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-md text-xs text-ink-muted hover:text-red-600 hover:bg-red-50 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />

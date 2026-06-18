@@ -349,9 +349,51 @@ class JobRankingViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+from django.contrib.auth import authenticate, login, logout
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, AllowAny
+
+
+class AuthMeView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        if request.user.is_authenticated:
+            return Response({
+                "authenticated": True,
+                "username": request.user.username,
+                "is_staff": request.user.is_staff,
+            })
+        return Response({"authenticated": False})
+
+
+class AuthLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = request.data.get("username", "").strip()
+        password = request.data.get("password", "")
+        if not username or not password:
+            return Response({"error": "Username and password required."}, status=400)
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            return Response({"error": "Invalid credentials."}, status=401)
+        login(request, user)
+        return Response({
+            "authenticated": True,
+            "username": user.username,
+            "is_staff": user.is_staff,
+        })
+
+
+class AuthLogoutView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        logout(request)
+        return Response({"authenticated": False})
+
 
 class SettingsAPIView(APIView):
     permission_classes = [IsAdminUser]
