@@ -18,7 +18,7 @@ urlpatterns = router.urls + [
     path("auth/me/", AuthMeView.as_view(), name="auth-me"),
     path("auth/login/", AuthLoginView.as_view(), name="auth-login"),
     path("auth/logout/", AuthLogoutView.as_view(), name="auth-logout"),
-    path("settings/", SettingsAPIView.as_view(), name="settings-api"),
+    path("auth/settings/", SettingsAPIView.as_view(), name="settings-api"),
     # New endpoints for Next.js frontend
     path("browse/", BrowseView.as_view(), name="browse"),
     path("profiles/", ProfilesView.as_view(), name="profiles"),

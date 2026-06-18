@@ -118,11 +118,11 @@ export interface AppSettings {
 }
 
 export async function fetchSettings(): Promise<AppSettings> {
-  return djFetch<AppSettings>("/settings/");
+  return djFetch<AppSettings>("/auth/settings/");
 }
 
 export async function saveSettings(data: Partial<AppSettings>): Promise<{ status: string; message: string }> {
-  return djFetch("/settings/", {
+  return djFetch("/auth/settings/", {
     method: "POST",
     body: JSON.stringify(data),
   });
