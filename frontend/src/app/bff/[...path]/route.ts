@@ -49,7 +49,7 @@ async function handler(req: NextRequest, ctx: Context) {
       redirect: "manual",
     });
   } catch (err) {
-    console.error("[proxy] fetch error:", err);
+    console.error("[bff] fetch error:", err);
     return NextResponse.json({ error: "Backend unreachable" }, { status: 502 });
   }
 

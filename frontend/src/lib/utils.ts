@@ -6,12 +6,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/v2";
+export const BASE_PATH = "";
 
-/** Build a URL to the Next.js proxy (same-origin, no CORS). */
+/** Build a URL to the BFF proxy (same-origin, no CORS). */
 export function proxyUrl(path: string): string {
-  // path should start with /
-  return `${BASE_PATH}/api/proxy${path}`;
+  return `/bff${path}`;
 }
 
 export const TIER_LABELS: Record<Tier, string> = {
