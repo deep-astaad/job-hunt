@@ -105,4 +105,15 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
+    # Session auth without DRF's CSRF enforcement (the SPA talks to Django via a
+    # same-origin BFF and can't carry a CSRF token); SameSite=Lax cookies guard
+    # against cross-site POSTs instead.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "jobs.authentication.CsrfExemptSessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+    ],
 }
+
+# Session cookie hardening — SameSite=Lax is our CSRF mitigation now.
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_HTTPONLY = True
