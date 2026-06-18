@@ -12,15 +12,17 @@ class ExportHandler:
         if any(r["match_tier"] == "S" for r in s_a_rankings):
             best_tier = "S"
 
+        region = str(job_data.get("region", "")).lower()
         loc = str(job_data.get("location", "")).lower()
-        region, _, _ = region_for_text(loc)
+        if not region:
+            region, _, _ = region_for_text(loc)
 
         target_webhook = None
         if region == "japan":
             target_webhook = DISCORD_WEBHOOK_URL_JAPAN
         elif region == "india":
             target_webhook = DISCORD_WEBHOOK_URL_INDIA
-        elif "remote" in loc:
+        elif job_data.get("is_remote") or "remote" in loc:
             if best_tier == "S":
                 target_webhook = DISCORD_WEBHOOK_URL_REMOTE
         else:
@@ -141,13 +143,16 @@ class ExportHandler:
                 "footer": {"text": f"Auto-ranked by AI | {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
             }
 
+            region = str(job.get("region", "")).lower()
             loc = str(job.get("location", "")).lower()
-            region, _, _ = region_for_text(loc)
+            if not region:
+                region, _, _ = region_for_text(loc)
+
             if region == "japan":
                 japan_embeds.append(embed)
             elif region == "india":
                 india_embeds.append(embed)
-            elif "remote" in loc:
+            elif job.get("is_remote") or "remote" in loc:
                 if tier == "S":
                     remote_embeds.append(embed)
             else:

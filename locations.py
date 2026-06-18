@@ -91,6 +91,7 @@ def region_for_text(text):
     """
     if not text:
         return "", "", ""
+    import re
     blob = str(text).lower()
     for cfg in all_locations().values():
         # "remote" is a work arrangement, not a place; detect_remote() handles it.
@@ -99,6 +100,8 @@ def region_for_text(text):
             continue
         for alias in cfg.get("aliases", []) + [cfg.get("city", ""), cfg.get("country", "")]:
             alias = str(alias or "").strip().lower()
-            if alias and alias in blob:
-                return cfg.get("region", ""), cfg.get("country", ""), cfg.get("city", "")
+            if alias:
+                pattern = r'\b' + re.escape(alias) + r'\b'
+                if re.search(pattern, blob):
+                    return cfg.get("region", ""), cfg.get("country", ""), cfg.get("city", "")
     return "", "", ""
