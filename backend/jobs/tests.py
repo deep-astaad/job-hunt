@@ -288,6 +288,82 @@ class LocationAndScoringTests(TestCase):
         self.assertEqual(job.region, "japan")
         self.assertEqual(job.country, "JP")
 
+    def test_bulk_create_restub_does_not_wipe_formatted_job(self):
+        """A blank re-scrape stub must not overwrite formatted data or reset
+        is_formatted/is_ranked (C2): that would force a costly re-format/re-rank."""
+        import hashlib as _hashlib
+        from .parsers import normalize_url as _norm
+        url1 = "https://co.example/dedup1"
+        hash1 = _hashlib.sha256(_norm(url1).encode()).hexdigest()
+        # Job already scraped, formatted, and ranked on a prior run.
+        job = Job.objects.create(
+            title="Backend Engineer", company="Acme",
+            url=_norm(url1), url_hash=hash1,
+            description="Real formatted description.",
+            full_description="Full formatted JD.",
+            tech_stack=["Python", "Django"],
+            language="EN", experience_required="3+ years",
+            is_formatted=True,
+        )
+        JobRanking.objects.create(
+            job=job, profile_id="p1", match_tier="A", match_score=80, rank=10,
+        )
+        job.refresh_from_db()
+        self.assertTrue(job.is_ranked)
+
+        # The poller re-sends a blank stub for the same URL.
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[{
+                "url": "https://co.example/dedup1",
+                "title": "Backend Engineer",
+                "company": "Acme",
+                "source": "linkedin",
+                "description": "",
+                "full_description": "",
+                "tech_stack": None,
+            }],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+
+        job.refresh_from_db()
+        self.assertEqual(job.description, "Real formatted description.")
+        self.assertEqual(job.full_description, "Full formatted JD.")
+        self.assertEqual(job.tech_stack, ["Python", "Django"])
+        self.assertTrue(job.is_formatted)
+        self.assertTrue(job.is_ranked)
+
+    def test_bulk_create_formatted_payload_still_updates(self):
+        """The formatter's bulk_create fallback (real data, is_formatted=True)
+        must still update a previously-stubbed row."""
+        import hashlib as _hashlib
+        from .parsers import normalize_url as _norm
+        url2 = "https://co.example/dedup2"
+        hash2 = _hashlib.sha256(_norm(url2).encode()).hexdigest()
+        Job.objects.create(
+            title="Backend Engineer", company="Acme",
+            url=_norm(url2), url_hash=hash2,
+            description="", is_formatted=False,
+        )
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[{
+                "url": "https://co.example/dedup2",
+                "title": "Backend Engineer",
+                "company": "Acme",
+                "description": "Now formatted.",
+                "tech_stack": ["Go"],
+                "is_formatted": True,
+            }],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+        job = Job.objects.get(url="https://co.example/dedup2")
+        self.assertEqual(job.description, "Now formatted.")
+        self.assertEqual(job.tech_stack, ["Go"])
+        self.assertTrue(job.is_formatted)
+
     def test_remote_is_detected_on_save(self):
         job = Job.objects.create(
             title="Backend Engineer (Fully Remote)", company="Acme",
