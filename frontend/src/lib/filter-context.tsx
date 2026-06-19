@@ -10,16 +10,16 @@ function defaultFilters(profileId: string, params: URLSearchParams): BrowseFilte
   const tiersParam = params.get("tiers");
   const tiers: Tier[] = tiersParam
     ? (tiersParam.split(",").filter((t) => ALL_TIERS.includes(t as Tier)) as Tier[])
-    : ["S", "A", "B"];
+    : ["S", "A"];
 
   return {
     profileId,
     tiers,
     source: params.get("source") ?? "",
     language: params.get("language") ?? "",
-    location: params.get("location") ?? "",
+    location: params.get("location") ?? "japan",
     remote: (params.get("remote") as BrowseFilters["remote"]) ?? "",
-    date: (params.get("date") as BrowseFilters["date"]) ?? "all",
+    date: (params.get("date") as BrowseFilters["date"]) ?? "today",
     q: params.get("q") ?? "",
     page: 1,
   };
@@ -33,12 +33,12 @@ interface FilterContextValue {
 const FilterContext = createContext<FilterContextValue>({
   filters: {
     profileId: "",
-    tiers: ["S", "A", "B"],
+    tiers: ["S", "A"],
     source: "",
     language: "",
-    location: "",
+    location: "japan",
     remote: "",
-    date: "all",
+    date: "today",
     q: "",
     page: 1,
   },

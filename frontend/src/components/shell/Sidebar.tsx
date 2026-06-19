@@ -14,7 +14,6 @@ import { useProfile } from "@/lib/profile-context";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useApifyAlert } from "@/hooks/useInsights";
 import { useFilters } from "@/lib/filter-context";
-import { SettingsModal } from "./SettingsModal";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import type { Tier } from "@/lib/types";
@@ -22,6 +21,7 @@ import type { Tier } from "@/lib/types";
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  onOpenSettings: () => void;
 }
 
 const DATE_OPTS = [
@@ -36,14 +36,13 @@ const NAV = [
   { href: "/insights", label: "Insights", icon: BarChart2 },
 ];
 
-export function Sidebar({ isOpen, onClose }: Props) {
+export function Sidebar({ isOpen, onClose, onOpenSettings }: Props) {
   const pathname = usePathname();
   const { profileId, setProfileId } = useProfile();
   const { data: profilesData } = useProfiles();
   const { data: alertData } = useApifyAlert();
   const { filters, updateFilters } = useFilters();
   const [pending, setPending] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const { signOut } = useAuth();
   const router = useRouter();
 
@@ -345,7 +344,7 @@ export function Sidebar({ isOpen, onClose }: Props) {
         </div>
         <div className="flex gap-1.5">
           <button
-            onClick={() => setSettingsOpen(true)}
+            onClick={onOpenSettings}
             className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md text-xs text-ink-muted hover:text-ink-primary hover:bg-base-hover transition-colors"
           >
             <Settings className="w-3.5 h-3.5 shrink-0" />
@@ -361,7 +360,6 @@ export function Sidebar({ isOpen, onClose }: Props) {
         </div>
       </div>
 
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </aside>
   );
 }
