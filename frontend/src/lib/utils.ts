@@ -8,9 +8,14 @@ export function cn(...inputs: ClassValue[]) {
 
 export const BASE_PATH = "";
 
-/** Build a URL to the BFF proxy (same-origin, no CORS). */
+/** Build a URL to the BFF proxy (same-origin, no CORS).
+ * Strips any trailing slash on the path part so requests match Next.js's
+ * canonical (trailingSlash: false) form and avoid a 308 redirect on every
+ * call. The BFF route re-appends the slash Django expects. */
 export function proxyUrl(path: string): string {
-  return `/bff${path}`;
+  const [p, q] = path.split("?");
+  const clean = p.replace(/\/+$/, "");
+  return `/bff${clean}${q ? `?${q}` : ""}`;
 }
 
 export const TIER_LABELS: Record<Tier, string> = {

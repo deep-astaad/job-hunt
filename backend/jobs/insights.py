@@ -30,8 +30,16 @@ def _fmt_yen(value):
     return f"¥{value / 1_000_000:.1f}M"
 
 
+TIERS = ["S", "A", "B", "C", "F"]
+
+
+def _is_aggregate(profile_id):
+    """'all' (or no id) means combine across every profile rather than filter to one."""
+    return not profile_id or profile_id == "all"
+
+
 def compute_stats(profile_id=None):
-    """Overall counts + per-profile tier breakdown + today sub-stats."""
+    """Overall counts + tier breakdown (per-profile, or aggregated for 'all') + today sub-stats."""
     today = date.today()
 
     total_jobs = Job.objects.count()
@@ -48,24 +56,27 @@ def compute_stats(profile_id=None):
         JobRanking.objects.values("match_tier").annotate(count=Count("id")).order_by("match_tier")
     )
 
-    tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
-    today_tiers_count = {t: 0 for t in ["S", "A", "B", "C", "F"]}
+    tiers_count = {t: 0 for t in TIERS}
+    today_tiers_count = {t: 0 for t in TIERS}
 
-    if profile_id:
-        for row in JobRanking.objects.filter(profile_id=profile_id).values("match_tier").annotate(count=Count("id")):
-            t = row["match_tier"]
-            if t in tiers_count:
-                tiers_count[t] = row["count"]
+    # For a single profile, filter to it; for 'all', aggregate across every ranking.
+    tier_qs = JobRanking.objects.all()
+    if not _is_aggregate(profile_id):
+        tier_qs = tier_qs.filter(profile_id=profile_id)
 
-        for row in (
-            JobRanking.objects
-            .filter(profile_id=profile_id, job__scraped_at__date=today)
-            .values("match_tier")
-            .annotate(count=Count("id"))
-        ):
-            t = row["match_tier"]
-            if t in today_tiers_count:
-                today_tiers_count[t] = row["count"]
+    for row in tier_qs.values("match_tier").annotate(count=Count("id")):
+        t = row["match_tier"]
+        if t in tiers_count:
+            tiers_count[t] = row["count"]
+
+    for row in (
+        tier_qs.filter(job__scraped_at__date=today)
+        .values("match_tier")
+        .annotate(count=Count("id"))
+    ):
+        t = row["match_tier"]
+        if t in today_tiers_count:
+            today_tiers_count[t] = row["count"]
 
     return {
         "total": total_jobs,
@@ -84,23 +95,21 @@ def compute_trending_tech(profile_id=None, tiers=None):
     """Top 8 tech stack items from filtered rankings (or all active jobs as fallback)."""
     tech_counter = Counter()
 
-    if profile_id:
-        qs = JobRanking.objects.filter(profile_id=profile_id).select_related("job")
+    # values_list pulls only the tech_stack column — never the heavy
+    # description / full_description / raw_data fields that select_related drags in.
+    if not _is_aggregate(profile_id):
+        qs = JobRanking.objects.filter(profile_id=profile_id)
         if tiers:
             qs = qs.filter(match_tier__in=tiers)
-        for ranking in qs:
-            stack = ranking.job.tech_stack
-            if stack and isinstance(stack, list):
-                for tech in stack:
-                    if tech:
-                        tech_counter[tech.strip()] += 1
+        stacks = qs.values_list("job__tech_stack", flat=True)
     else:
-        for job in Job.objects.filter(is_active=True).only("tech_stack"):
-            stack = job.tech_stack
-            if stack and isinstance(stack, list):
-                for tech in stack:
-                    if tech:
-                        tech_counter[tech.strip()] += 1
+        stacks = Job.objects.filter(is_active=True).values_list("tech_stack", flat=True)
+
+    for stack in stacks:
+        if stack and isinstance(stack, list):
+            for tech in stack:
+                if tech:
+                    tech_counter[tech.strip()] += 1
 
     total = sum(tech_counter.values()) or 1
     result = []
@@ -113,10 +122,16 @@ def compute_trending_tech(profile_id=None, tiers=None):
     return result
 
 
-def compute_growth_insights(profile):
+def compute_growth_insights(profile, profile_id=None, all_profiles=None):
     """
-    Career-growth analytics for a candidate profile.
-    Returns: skill_gap, jp ROI, market trends, salary bands, company signals.
+    Career-growth analytics. For a single candidate profile it returns
+    skill_gap + Japanese ROI (both profile-specific) plus market trends, salary
+    bands and company signals. When ``profile`` is None the caller asked for the
+    combined 'all profiles' view: skill_gap / jp are skipped (they need a
+    profile's skills) and the rest is aggregated across every ranking.
+
+    ``all_profiles`` is accepted for backwards-compat with the legacy template
+    view and is otherwise unused.
     """
     insights = {
         "skill_gap": [],
@@ -126,18 +141,25 @@ def compute_growth_insights(profile):
         "salary": None,
         "companies": [],
     }
-    if not profile:
-        return insights
 
-    profile_skills = {normalize_skill(s) for s in profile.get("core_skills", []) if s}
+    aggregate = profile is None
+    if profile_id is None and profile:
+        profile_id = profile.get("id")
+    profile_skills = {normalize_skill(s) for s in (profile or {}).get("core_skills", []) if s}
     today = date.today()
 
-    # ---- Pass 1: profile matched roles ----
-    relevant = (
-        JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier__in=["S", "A", "B", "C"], job__is_active=True)
-        .select_related("job")
+    # ---- Pass 1: matched roles (one profile, or all of them) ----
+    # .values() fetches only the columns we touch, avoiding the multi-MB
+    # description / raw_data payloads that select_related("job") would load per row.
+    relevant = JobRanking.objects.filter(
+        match_tier__in=["S", "A", "B", "C"], job__is_active=True
     )
+    if not aggregate:
+        relevant = relevant.filter(profile_id=profile_id)
+    relevant = relevant.values(
+        "match_tier", "job__company", "job__salary_yen", "job__tech_stack", "job__title"
+    )
+
     gap_counter = Counter()
     unlock_counter = Counter()
     unlock_samples = {}
@@ -146,16 +168,15 @@ def compute_growth_insights(profile):
     overall_salaries = []
     relevant_count = 0
 
-    for ranking in relevant:
-        job = ranking.job
+    for row in relevant:
         relevant_count += 1
-        company_counter[job.company or "Unknown"] += 1
+        company_counter[row["job__company"] or "Unknown"] += 1
 
-        yen = job.salary_yen
+        yen = row["job__salary_yen"]
         if yen:
             overall_salaries.append(yen)
 
-        stack = job.tech_stack
+        stack = row["job__tech_stack"]
         if not (stack and isinstance(stack, list)):
             continue
         seen = set()
@@ -168,14 +189,15 @@ def compute_growth_insights(profile):
             seen.add(key)
             if yen:
                 skill_salary.setdefault(tech.strip(), []).append(yen)
-            if key in profile_skills:
+            # skill_gap is meaningless without a profile's skills to diff against.
+            if aggregate or key in profile_skills:
                 continue
             gap_counter[tech.strip()] += 1
-            if ranking.match_tier != "S":
+            if row["match_tier"] != "S":
                 unlock_counter[tech.strip()] += 1
                 samples = unlock_samples.setdefault(tech.strip(), [])
                 if len(samples) < 3:
-                    samples.append(f"{job.title} @ {job.company}")
+                    samples.append(f"{row['job__title']} @ {row['job__company']}")
 
     insights["skill_gap_job_count"] = relevant_count
     for name, count in gap_counter.most_common(8):
@@ -246,31 +268,34 @@ def compute_growth_insights(profile):
     if rising or falling:
         insights["trends"] = {"rising": rising, "falling": falling}
 
-    # ---- Pass 3: Japanese ROI ----
+    # ---- Pass 3: Japanese ROI (profile-specific; skipped for the 'all' view) ----
+    if aggregate:
+        return insights
+
     GOOD_TIERS = ["S", "A", "B"]
     reachable = JobRanking.objects.filter(
-        profile_id=profile["id"], match_tier__in=GOOD_TIERS, job__is_active=True
+        profile_id=profile_id, match_tier__in=GOOD_TIERS, job__is_active=True
     ).count()
     f_jp_rankings = (
         JobRanking.objects
-        .filter(profile_id=profile["id"], match_tier="F", job__is_active=True)
+        .filter(profile_id=profile_id, match_tier="F", job__is_active=True)
         .filter(Q(job__language="JP") | Q(job__jlpt_level__isnull=False))
-        .select_related("job")
+        .values("llm_tier", "job__tech_stack", "job__jlpt_level")
     )
     locked = 0
     jlpt_levels = Counter()
-    for ranking in f_jp_rankings:
-        job = ranking.job
-        if ranking.llm_tier in GOOD_TIERS:
+    for row in f_jp_rankings:
+        llm_tier = row["llm_tier"]
+        if llm_tier in GOOD_TIERS:
             is_locked = True
-        elif ranking.llm_tier is None:
-            stack = job.tech_stack or []
+        elif llm_tier is None:
+            stack = row["job__tech_stack"] or []
             is_locked = bool({normalize_skill(t) for t in stack if t} & profile_skills)
         else:
             is_locked = False
         if is_locked:
             locked += 1
-            jlpt_levels[job.jlpt_level or 2] += 1
+            jlpt_levels[row["job__jlpt_level"] or 2] += 1
 
     relevant_total = locked + reachable
     active_total = Job.objects.filter(is_active=True).count()
@@ -319,7 +344,7 @@ def get_cached_dashboard(profile_id: str, profiles: list):
     profile = next((p for p in profiles if p.get("id") == profile_id), None)
     stats = compute_stats(profile_id)
     trending = compute_trending_tech(profile_id, tiers=["S", "A", "B", "C"])
-    growth = compute_growth_insights(profile)
+    growth = compute_growth_insights(profile, profile_id=profile_id)
 
     payload = {
         "stats": stats,

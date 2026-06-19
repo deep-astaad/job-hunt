@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react";
 import { useProfiles } from "@/hooks/useProfiles";
+import { useAuth } from "@/lib/auth-context";
 
 interface ProfileContextValue {
   profileId: string;
@@ -14,7 +15,8 @@ const ProfileContext = createContext<ProfileContextValue>({
 });
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
-  const { data } = useProfiles();
+  const { user } = useAuth();
+  const { data } = useProfiles(!!user?.authenticated);
   const [profileId, setProfileId] = useState("");
 
   // Set default once profiles load
