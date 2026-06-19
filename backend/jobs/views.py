@@ -98,24 +98,53 @@ class JobViewSet(viewsets.ModelViewSet):
             normalized_url = normalize_url(url)
             url_hash = hashlib.sha256(normalized_url.encode()).hexdigest()
 
+            # Full record used only when creating a brand-new row.
+            create_defaults = {
+                "url": normalized_url,
+                "title": job_data.get("title", "Unknown"),
+                "company": job_data.get("company", "Unknown"),
+                "source": job_data.get("source", "custom"),
+                "salary": job_data.get("salary", ""),
+                "description": job_data.get("description", ""),
+                "full_description": job_data.get("full_description", ""),
+                "tech_stack": job_data.get("tech_stack"),
+                "language": job_data.get("language"),
+                "experience_required": job_data.get("experience_required", ""),
+                "location": job_data.get("location", ""),
+                "is_formatted": job_data.get("is_formatted", False),
+                "raw_data": job_data.get("raw_data"),
+            }
+
+            # Non-destructive update set for re-seen rows: only refresh a field
+            # when the incoming payload actually carries a meaningful value, so a
+            # blank re-scrape stub can't wipe previously formatted data (which
+            # would also reset is_ranked via Job.save and force a costly
+            # re-format + re-rank). The formatter's bulk_create fallback still
+            # updates real content because its values are non-empty.
+            update_defaults = {"url": normalized_url}
+            for key in (
+                "title", "company", "source", "salary", "description",
+                "full_description", "tech_stack", "language",
+                "experience_required", "location",
+            ):
+                val = job_data.get(key)
+                if val in (None, "", []):
+                    continue
+                # Don't let a missing-title sentinel clobber a real one.
+                if key in ("title", "company") and val == "Unknown":
+                    continue
+                update_defaults[key] = val
+            if job_data.get("raw_data") is not None:
+                update_defaults["raw_data"] = job_data["raw_data"]
+            # Only ever promote is_formatted to True; never downgrade it here.
+            if job_data.get("is_formatted"):
+                update_defaults["is_formatted"] = True
+
             try:
                 obj, was_created = Job.objects.update_or_create(
                     url_hash=url_hash,
-                    defaults={
-                        "url": normalized_url,
-                        "title": job_data.get("title", "Unknown"),
-                        "company": job_data.get("company", "Unknown"),
-                        "source": job_data.get("source", "custom"),
-                        "salary": job_data.get("salary", ""),
-                        "description": job_data.get("description", ""),
-                        "full_description": job_data.get("full_description", ""),
-                        "tech_stack": job_data.get("tech_stack"),
-                        "language": job_data.get("language"),
-                        "experience_required": job_data.get("experience_required", ""),
-                        "location": job_data.get("location", ""),
-                        "is_formatted": job_data.get("is_formatted", False),
-                        "raw_data": job_data.get("raw_data"),
-                    },
+                    defaults=update_defaults,
+                    create_defaults=create_defaults,
                 )
                 if was_created:
                     created += 1
