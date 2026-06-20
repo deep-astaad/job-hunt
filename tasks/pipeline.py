@@ -25,6 +25,101 @@ from local_scrapers import (
 logger = logging.getLogger(__name__)
 
 POLL_BATCH_SIZE = 1000
+
+
+def _persist_prescreen_f(job_data, pre_results, persister):
+    """Mark a pre-screened F job as formatted and persist F rankings — no LLM calls.
+
+    Order matters: mark is_formatted=True first so that when the ranking save
+    flips is_ranked=True the Job.save() invariant (is_formatted=False resets
+    is_ranked) doesn't undo it.
+
+    Returns True on success, False if the is_formatted PATCH failed (caller should
+    fall back to normal chain dispatch so the job is not silently lost).
+    """
+    from config import DJANGO_API_URL
+
+    job_id = job_data["id"]
+    try:
+        persister.update_job(job_id, {"is_formatted": True})
+    except Exception as exc:
+        logger.warning("prescreen_f_update_failed", extra={"job_id": job_id, "error": str(exc)})
+        return False
+
+    rankings = [
+        {
+            "job_id": job_id,
+            "profile_id": res["profile_id"],
+            "profile_title": res["profile_id"],
+            "match_tier": "F",
+            "llm_tier": None,
+            "deterministic_tier": "F",
+            "match_score": 8,
+            "signals": res.get("signals", {}),
+            "rank": 92,
+            "jd_summary": f"Pre-screened: {res.get('hard_fail_reason') or 'hard fail'}",
+        }
+        for res in pre_results
+    ]
+    try:
+        resp = req.post(
+            f"{DJANGO_API_URL}/api/rankings/bulk_create/",
+            json=rankings,
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("prescreen_f_rankings_failed", extra={"job_id": job_id, "error": str(exc)})
+    return True
+
+
+def _dispatch_or_prescreen(job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority):
+    """Pre-screen a job and either persist F inline or dispatch the format+rank chain.
+
+    The Redis lock for job_data['id'] must already be held by the caller.
+    Returns True if dispatched to chain, False if pre-screened out (lock released,
+    F rankings persisted, job marked formatted — no in-flight entry created).
+    """
+    import matching as _matching
+    from tasks.formatting import format_and_persist_job
+    from tasks.ranking import rank_job_multi_profile
+
+    pre_fail = False
+    pre_results = []
+    try:
+        pre_fail, pre_results = _matching.prescreen_hard_fail(
+            job_data.get("raw_data") or {}, ranker_profiles
+        )
+    except Exception as exc:
+        logger.warning("prescreen_error", extra={"job_id": job_data.get("id"), "error": str(exc)})
+
+    if pre_fail:
+        logger.info("job_prescreened_f", extra={
+            "job_id": job_data.get("id"),
+            "reasons": [res.get("hard_fail_reason") for res in pre_results],
+        })
+        if _persist_prescreen_f(job_data, pre_results, persister):
+            r.delete(f"job_processing_lock:{job_data['id']}")
+            return False
+        # Persist failed (transient API error) — fall through to normal chain so the
+        # job is not silently dropped; it will be re-screened on the next scrape.
+        logger.warning("prescreen_f_persist_failed_falling_back", extra={"job_id": job_data.get("id")})
+
+    job_id = job_data["id"]
+    r.sadd(f"pipeline:{pipeline_run_id}:in_flight", job_id)
+    r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", job_id, time.time())
+    r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
+    chain(
+        format_and_persist_job.s(job_data).set(priority=job_priority),
+        rank_job_multi_profile.s(
+            profiles=ranker_profiles,
+            pipeline_run_id=pipeline_run_id,
+            job_id=job_id,
+        ).set(priority=job_priority),
+    ).apply_async()
+    return True
+
+
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
 
 # Redis key holding the latest Apify quota/credit problem (shown on the dashboard).
@@ -150,21 +245,11 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                     "source": job_dict.get("source", source),
                     "raw_data": job_dict.get("raw_data", {}),
                 }
-                
-                # Register in-flight job and update total count in Redis
-                r.sadd(f"pipeline:{pipeline_run_id}:in_flight", db_job["id"])
-                r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", db_job["id"], time.time())
-                r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
-                
-                from tasks.formatting import format_and_persist_job
-                from tasks.ranking import rank_job_multi_profile
-                
+
                 job_priority = 9 if location == "japan_tokyo" else 5
-                
-                chain(
-                    format_and_persist_job.s(job_data).set(priority=job_priority),
-                    rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]).set(priority=job_priority),
-                ).apply_async()
+                _dispatch_or_prescreen(
+                    job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority
+                )
                 
             except Exception as exc:
                 logger.error("item_dispatch_failed", extra={"error": str(exc)})
@@ -371,20 +456,10 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
                 "source": job_dict.get("source", source),
                 "raw_data": job_dict.get("raw_data", {}),
             }
-            
-            r.sadd(f"pipeline:{pipeline_run_id}:in_flight", db_job["id"])
-            r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", db_job["id"], time.time())
-            r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
-            
-            from tasks.formatting import format_and_persist_job
-            from tasks.ranking import rank_job_multi_profile
-            
-            job_priority = 9  # Local scrapers are all Japan-based
-            
-            chain(
-                format_and_persist_job.s(job_data).set(priority=job_priority),
-                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]).set(priority=job_priority),
-            ).apply_async()
+
+            _dispatch_or_prescreen(
+                job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority=9
+            )
             
         except Exception as exc:
             logger.error("item_dispatch_failed", extra={"error": str(exc)})
