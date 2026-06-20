@@ -165,7 +165,11 @@ def build():
         if not cfg:
             continue
         configs.append(_linkedin_config(cfg))
-        # configs.append(_indeed_config(cfg))
+        configs.append(_indeed_config(cfg))
+        # Japan-niche Apify actors (japan-dev, tokyo-dev) are intentionally
+        # kept disabled here: run_local_scrapers already scrapes those boards
+        # via HTTP with no Apify cost. Re-enabling would double-fetch the same
+        # listings (dedup prevents double-processing, but wastes quota).
         # if cfg.get("region") == "japan":
         #     configs.extend(_japan_niche_configs(cfg))
     return configs
