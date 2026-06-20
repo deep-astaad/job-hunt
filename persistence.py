@@ -148,12 +148,9 @@ class JobFormatter:
             ],
             temperature=0.1,
             timeout=120,
-        ).strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-        if text.endswith("```"):
-            text = text.rsplit("```", 1)[0]
-        result = json.loads(text.strip())
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(text)
         if isinstance(result, dict):
             result["language"] = detect_job_language(result)
             result["location"] = detect_job_location(result, raw_job)
