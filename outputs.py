@@ -55,6 +55,19 @@ class ExportHandler:
             requests.post(target_webhook, json={"embeds": [embed]}, timeout=10)
         except requests.RequestException as e:
             print(f"⚠️ Failed to send job {job_data.get('id')} to Discord: {e}")
+            return
+
+        # Mark sent so the end-of-run summary doesn't re-post this job.
+        job_id = job_data.get("id")
+        if job_id:
+            try:
+                requests.post(
+                    f"{DJANGO_API_URL}/api/jobs/mark_alerts_sent/",
+                    json={"job_ids": [job_id]},
+                    timeout=10,
+                )
+            except requests.RequestException:
+                pass
 
     @classmethod
     def post_tiered_jobs_from_api(cls, profile_id=None):
