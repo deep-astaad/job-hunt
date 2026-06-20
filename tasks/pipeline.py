@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from celery import chain
 from celery_app import app
-from persistence import DjangoPersistence
+from persistence import DjangoPersistence, normalize_url
 from config import get_apify_api_token, CELERY_BROKER_URL
 import redis
 import requests as req
@@ -154,31 +154,15 @@ def _flag_apify_quota_alert(r, actor_id, exc):
     r.set(APIFY_QUOTA_ALERT_KEY, payload, ex=7 * 86400)
 
 
-def clean_and_save_item(raw_job, persister, source="custom"):
-    title = (
-        raw_job.get("title")
-        or raw_job.get("position")
-        or raw_job.get("standardizedTitle")
-        or "Unknown"
-    )
-    company = (
-        raw_job.get("company")
-        or raw_job.get("companyName")
-        or raw_job.get("company_name")
-        or "Unknown"
-    )
-    url = (
-        raw_job.get("url")
-        or raw_job.get("jobUrl")
-        or raw_job.get("link")
-        or raw_job.get("applyUrl")
-        or ""
-    )
-
-    job_dict = {
-        "title": title,
-        "company": company,
-        "url": url,
+def _extract_job_dict(raw_job, source="custom"):
+    """Build a minimal stub dict from raw scraper output (no HTTP calls)."""
+    return {
+        "title": (raw_job.get("title") or raw_job.get("position")
+                  or raw_job.get("standardizedTitle") or "Unknown"),
+        "company": (raw_job.get("company") or raw_job.get("companyName")
+                    or raw_job.get("company_name") or "Unknown"),
+        "url": (raw_job.get("url") or raw_job.get("jobUrl")
+                or raw_job.get("link") or raw_job.get("applyUrl") or ""),
         "source": source,
         "salary": "",
         "description": "",
@@ -186,12 +170,7 @@ def clean_and_save_item(raw_job, persister, source="custom"):
         "raw_data": raw_job,
     }
 
-    try:
-        result = persister.save_jobs([job_dict])
-        return job_dict, result
-    except Exception as exc:
-        logger.warning("save_failed", extra={"url": url, "error": str(exc)})
-        return job_dict, None
+
 
 
 def _load_profiles_for_ranking(profile_ids):
@@ -225,27 +204,50 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
     items = page.items
     batch_size = len(items)
     
-    # 2. Process
+    # 2. Process — batch-save all stubs in one POST, then dispatch in-memory.
     if batch_size > 0:
+        from tasks.formatting import format_and_persist_job
+        from tasks.ranking import rank_job_multi_profile
+
+        job_priority = 9 if location == "japan_tokyo" else 5
+
+        # Build stubs for every item in the page (no HTTP calls yet).
+        batch_jobs = []
+        stub_by_url = {}  # normalized_url → raw job_dict (for dispatch below)
         for item in items:
+            jd = _extract_job_dict(item, source=source)
+            if jd.get("url"):
+                norm = normalize_url(jd["url"])
+                batch_jobs.append(jd)
+                stub_by_url[norm] = jd
+
+        # One HTTP POST for the whole page → returns {normalized_url: {id, is_formatted}}.
+        jobs_by_url = {}
+        if batch_jobs:
             try:
-                job_dict, save_result = clean_and_save_item(item, persister, source=source)
-                db_job = persister._fetch_job_by_url(job_dict.get("url", ""))
-                if not db_job:
+                result = persister.save_jobs(batch_jobs)
+                jobs_by_url = result.get("jobs", {})
+            except Exception as exc:
+                logger.error("batch_save_failed", extra={"batch_size": len(batch_jobs), "error": str(exc)})
+
+        # Dispatch in-memory using the response map — zero follow-up GETs.
+        for norm_url, job_dict in stub_by_url.items():
+            try:
+                db_info = jobs_by_url.get(norm_url)
+                if not db_info:
                     continue
-                
-                # Skip if already formatted and processed
-                if db_job.get("is_formatted"):
+
+                if db_info.get("is_formatted"):
                     logger.info("job_already_processed_skipping", extra={"url": job_dict.get("url", "")})
                     continue
-                
-                # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
-                if not r.set(f"job_processing_lock:{db_job['id']}", "1", nx=True, ex=3600):
+
+                job_id = db_info["id"]
+                if not r.set(f"job_processing_lock:{job_id}", "1", nx=True, ex=3600):
                     logger.info("job_already_in_progress_skipping", extra={"url": job_dict.get("url", "")})
                     continue
-                
+
                 job_data = {
-                    "id": db_job["id"],
+                    "id": job_id,
                     "title": job_dict.get("title", "Unknown"),
                     "company": job_dict.get("company", "Unknown"),
                     "url": job_dict.get("url", ""),
@@ -253,16 +255,15 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                     "raw_data": job_dict.get("raw_data", {}),
                 }
 
-                job_priority = 9 if location == "japan_tokyo" else 5
                 _dispatch_or_prescreen(
                     job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority
                 )
-                
+
+
             except Exception as exc:
                 logger.error("item_dispatch_failed", extra={"error": str(exc)})
-        
+
         offset += batch_size
-        # Since we processed items, fetch again quickly
         retry_kwargs = self.request.kwargs.copy()
         retry_kwargs["offset"] = offset
         raise self.retry(countdown=2, kwargs=retry_kwargs)
@@ -441,33 +442,55 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
     ranker_profiles = _load_profiles_for_ranking(profile_ids)
     r = redis.Redis.from_url(CELERY_BROKER_URL)
     
+    from tasks.formatting import format_and_persist_job
+    from tasks.ranking import rank_job_multi_profile
+
+    # Batch-save all stubs in one POST, then dispatch in-memory.
+    batch_jobs = []
+    stub_by_url = {}
     for item in all_jobs:
+        src = item.get("source", "custom")
+        jd = _extract_job_dict(item, source=src)
+        if jd.get("url"):
+            norm = normalize_url(jd["url"])
+            batch_jobs.append(jd)
+            stub_by_url[norm] = jd
+
+    jobs_by_url = {}
+    if batch_jobs:
         try:
-            source = item.get("source", "custom")
-            job_dict, save_result = clean_and_save_item(item, persister, source=source)
-            db_job = persister._fetch_job_by_url(job_dict.get("url", ""))
-            if not db_job:
+            result = persister.save_jobs(batch_jobs)
+            jobs_by_url = result.get("jobs", {})
+        except Exception as exc:
+            logger.error("batch_save_failed", extra={"batch_size": len(batch_jobs), "error": str(exc)})
+
+    for norm_url, job_dict in stub_by_url.items():
+        try:
+            db_info = jobs_by_url.get(norm_url)
+            if not db_info:
                 continue
-                
-            if db_job.get("is_formatted"):
+
+            if db_info.get("is_formatted"):
                 continue
-                
-            if not r.set(f"job_processing_lock:{db_job['id']}", "1", nx=True, ex=3600):
+
+            job_id = db_info["id"]
+            if not r.set(f"job_processing_lock:{job_id}", "1", nx=True, ex=3600):
                 continue
-                
+
             job_data = {
-                "id": db_job["id"],
+                "id": job_id,
                 "title": job_dict.get("title", "Unknown"),
                 "company": job_dict.get("company", "Unknown"),
                 "url": job_dict.get("url", ""),
-                "source": job_dict.get("source", source),
+                "source": job_dict.get("source", "custom"),
                 "raw_data": job_dict.get("raw_data", {}),
             }
 
             _dispatch_or_prescreen(
                 job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority=9
             )
-            
+
+
         except Exception as exc:
             logger.error("item_dispatch_failed", extra={"error": str(exc)})
             

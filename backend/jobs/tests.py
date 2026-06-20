@@ -367,6 +367,12 @@ class LocationAndScoringTests(TestCase):
         self.assertEqual(job.tech_stack, ["Python", "Django"])
         self.assertTrue(job.is_formatted)
         self.assertTrue(job.is_ranked)
+        # jobs map must reflect the REAL DB is_formatted=True so the poller
+        # can skip re-queuing without a follow-up GET (H1).
+        from .parsers import normalize_url as _norm2
+        jobs_map = resp.json().get("jobs", {})
+        self.assertTrue(jobs_map.get(_norm2(url1), {}).get("is_formatted"),
+                        "bulk_create must return is_formatted=True from DB, not from stub payload")
 
     def test_bulk_create_formatted_payload_still_updates(self):
         """The formatter's bulk_create fallback (real data, is_formatted=True)
@@ -425,6 +431,31 @@ class LocationAndScoringTests(TestCase):
         self.assertEqual(r.match_score, 77)
         self.assertEqual(r.deterministic_tier, "A")
         self.assertEqual(r.signals, {"skill": 0.9})
+
+    def test_bulk_create_returns_job_map(self):
+        """bulk_create response must include jobs dict keyed by normalized URL
+        with id and is_formatted — lets the pipeline skip follow-up GETs (H1)."""
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[
+                {"url": "https://co.example/map1", "title": "Eng A", "company": "Acme"},
+                {"url": "https://co.example/map2", "title": "Eng B", "company": "Acme",
+                 "is_formatted": True},
+            ],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+        data = resp.json()
+        jobs = data.get("jobs", {})
+        self.assertIn("https://co.example/map1", jobs, "jobs map missing url key")
+        self.assertIn("https://co.example/map2", jobs, "jobs map missing url key")
+        for norm_url in ("https://co.example/map1", "https://co.example/map2"):
+            entry = jobs[norm_url]
+            self.assertIn("id", entry)
+            self.assertIsInstance(entry["id"], int)
+            self.assertIn("is_formatted", entry)
+        self.assertFalse(jobs["https://co.example/map1"]["is_formatted"])
+        self.assertTrue(jobs["https://co.example/map2"]["is_formatted"])
 
     def test_dashboard_region_filter_renders(self):
         job = Job.objects.create(
