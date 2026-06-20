@@ -88,6 +88,8 @@ class JobViewSet(viewsets.ModelViewSet):
         jobs_data = request.data if isinstance(request.data, list) else request.data.get("jobs", [])
         created, updated = 0, 0
         errors = []
+        # Keyed by normalized URL; lets callers avoid a follow-up GET per job.
+        job_map = {}
 
         for job_data in jobs_data:
             url = job_data.get("url")
@@ -150,11 +152,12 @@ class JobViewSet(viewsets.ModelViewSet):
                     created += 1
                 else:
                     updated += 1
+                job_map[normalized_url] = {"id": obj.id, "is_formatted": obj.is_formatted}
             except Exception as e:
                 errors.append({"error": str(e), "url": url})
 
         return Response(
-            {"created": created, "updated": updated, "errors": errors},
+            {"created": created, "updated": updated, "errors": errors, "jobs": job_map},
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
