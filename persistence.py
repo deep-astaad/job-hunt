@@ -39,10 +39,12 @@ def detect_job_language(job_dict):
     Returns "JP", "EN", or "non-english".
     """
     from matching import detect_required_language
-    req_lang, _is_hard = detect_required_language(job_dict)
-    if req_lang == "japanese":
+    req_lang, is_hard = detect_required_language(job_dict)
+    # Only label JP when Japanese is actually *required* — optional/nice-to-have
+    # mentions stay EN so the stored label and dashboard filter mean "needs JP".
+    if req_lang == "japanese" and is_hard:
         return "JP"
-    if req_lang == "non-english":
+    if req_lang == "non-english" and is_hard:
         return "non-english"
     return "EN"
 

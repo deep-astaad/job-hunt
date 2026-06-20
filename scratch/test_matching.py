@@ -107,6 +107,15 @@ class ExperienceLanguageParsingTests(unittest.TestCase):
         })
         self.assertEqual(lang, "JP")
 
+    def test_detect_job_language_optional_jp_is_en(self):
+        # Japanese as a nice-to-have must NOT be labeled JP (it's not required).
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "Backend Engineer",
+            "description": "English-speaking team. Japanese is a plus but not required.",
+        })
+        self.assertEqual(lang, "EN")
+
 
 class ComputeMatchTests(unittest.TestCase):
     def test_strong_match_is_high_tier(self):
