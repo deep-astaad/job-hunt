@@ -58,6 +58,21 @@
     ]
   },
   {
+    "actor_id": "misceres/indeed-scraper",
+    "source": "indeed",
+    "location": "japan_tokyo",
+    "schedule_frequency": "daily",
+    "input": {
+      "followApplyRedirects": false,
+      "maxItemsPerSearch": 150,
+      "parseCompanyDetails": false,
+      "position": "(\"Software Engineer\" OR \"Software Developer\" OR \"Backend Engineer\" OR \"Cloud Engineer\" OR \"DevOps\" OR \"Python\" OR \"Platform Engineer\") AND (\"English\")",
+      "saveOnlyUniqueItems": true,
+      "country": "JP",
+      "location": "Tokyo"
+    }
+  },
+  {
     "actor_id": "curious_coder/linkedin-jobs-scraper",
     "source": "linkedin",
     "location": "india_bangalore",
@@ -114,5 +129,20 @@
         }
       }
     ]
+  },
+  {
+    "actor_id": "misceres/indeed-scraper",
+    "source": "indeed",
+    "location": "india_bangalore",
+    "schedule_frequency": "daily",
+    "input": {
+      "followApplyRedirects": false,
+      "maxItemsPerSearch": 150,
+      "parseCompanyDetails": false,
+      "position": "(\"Software Engineer\" OR \"Software Developer\" OR \"Backend Engineer\" OR \"Cloud Engineer\" OR \"DevOps\" OR \"Python\" OR \"Platform Engineer\")",
+      "saveOnlyUniqueItems": true,
+      "country": "IN",
+      "location": "Bengaluru"
+    }
   }
 ]
