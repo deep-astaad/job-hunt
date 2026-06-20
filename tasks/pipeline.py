@@ -196,7 +196,7 @@ def clean_and_save_item(raw_job, persister, source="custom"):
 
 def _load_profiles_for_ranking(profile_ids):
     import json as _json
-    if not getattr(_load_profiles_for_ranking, "cache", None):
+    if not hasattr(_load_profiles_for_ranking, "cache"):
         import os
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         profiles_path = os.path.join(base_dir, "user-profiles.json")

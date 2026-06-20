@@ -214,6 +214,7 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
     # matching.parse_profile_years. Never mutate the shared (cached) profile dicts
     # here — the worker pool is --pool=threads and concurrent tasks share the same
     # list, causing a data race.
+    rankings = []  # initialize so the finally/return path always has it defined
 
     try:
         import os
@@ -262,7 +263,7 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
         return {"status": "error", "job_id": effective_job_id}
 
     _check_and_trigger_discord(pipeline_run_id, effective_job_id)
-    return {"status": "done", "job_id": effective_job_id, "ranked_profiles": len(rankings) if 'rankings' in locals() else 0}
+    return {"status": "done", "job_id": effective_job_id, "ranked_profiles": len(rankings)}
 
 def _check_and_trigger_discord(pipeline_run_id, job_id=None):
     """Remove job from Redis in-flight set, and trigger Discord if pipeline is fully complete."""
