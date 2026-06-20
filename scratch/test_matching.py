@@ -201,6 +201,15 @@ class ComputeMatchTests(unittest.TestCase):
         res = matching.compute_match(BACKEND_PROFILE, job, TOKYO_REMOTE)
         self.assertIn(res["tier"], ("B", "C", "F"))
 
+    def test_generic_title_gets_partial_affinity(self):
+        # "Software Engineer" alone should score 0.6 not 1.0 (too generic for full credit).
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Software Engineer"}), 0.6)
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Software Developer"}), 0.6)
+        # Specific role still gets 1.0.
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Backend Engineer"}), 1.0)
+        # "Software Engineer (Backend)" has "backend" in title → 1.0.
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Software Engineer (Backend)"}), 1.0)
+
 
 class BlendTests(unittest.TestCase):
     def test_hard_fail_overrides_llm(self):
