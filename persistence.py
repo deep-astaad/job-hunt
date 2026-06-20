@@ -6,26 +6,55 @@ from openai import OpenAI
 from config import get_openai_api_keys, get_openai_base_url, get_openai_model, DJANGO_API_URL
 
 
+
+# Per-domain allowlist of query params that encode the job identity.
+# All other params (tracking tokens, session ids, referrers) are stripped.
+_DOMAIN_ID_PARAMS: dict[str, list[str]] = {
+    "indeed.com": ["jk"],
+    "indeed.co.jp": ["jk"],
+    # Taleo ATS (e.g. company.taleo.net / oracle.taleo.net)
+    "taleo.net": ["job"],
+    # Jobvite ATS (hire.jobvite.com / jobs.jobvite.com)
+    "jobvite.com": ["j"],
+    # SAP SuccessFactors
+    "successfactors.com": ["jobId"],
+    "successfactors.eu": ["jobId"],
+    # Workable ATS
+    "workable.com": ["jid"],
+    # SmartRecruiters
+    "smartrecruiters.com": ["job"],
+}
+
+
 def normalize_url(url):
-    """Normalize URL for comparison: strip query params and fragments (keeping jk for Indeed)."""
+    """Normalize a job URL for deduplication.
+
+    Strips tracking/session params and fragments; keeps only the query params
+    that encode the job identity for each domain.  Most boards (LinkedIn,
+    GaijinPot, CareerCross, Wantedly, Green) embed the ID in the path and
+    need no query params at all.
+    """
     if not url:
         return ""
     parsed = urlparse(url)
     netloc = parsed.netloc.lower()
     path = parsed.path
-    
-    # Strip trailing slash from path for consistency, but keep if it's just "/"
+
     if path.endswith("/") and len(path) > 1:
         path = path[:-1]
-        
+
     query_params = dict(parse_qsl(parsed.query))
-    
-    # Keep only essential query parameters depending on domain
-    keep_params = {}
-    if "indeed.com" in netloc or "indeed.co.jp" in netloc:
-        if "jk" in query_params:
-            keep_params["jk"] = query_params["jk"]
-            
+
+    # Exact host or subdomain match only — substring matching would let
+    # "notindeed.com" hit the "indeed.com" rule.
+    host = netloc.split("@")[-1].split(":")[0]
+    keep_keys: list[str] = []
+    for domain, params in _DOMAIN_ID_PARAMS.items():
+        if host == domain or host.endswith("." + domain):
+            keep_keys = params
+            break
+
+    keep_params = {k: query_params[k] for k in keep_keys if k in query_params}
     new_query = urlencode(keep_params) if keep_params else ""
     return urlunparse((parsed.scheme, netloc, path, "", new_query, ""))
 
