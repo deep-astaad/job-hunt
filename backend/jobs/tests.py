@@ -1,3 +1,4 @@
+import requests
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -81,6 +82,36 @@ class JobProcessingViewTests(TestCase):
         self.assertEqual(data.get("status"), "success")
         self.assertEqual(data.get("task_id"), "mock-task-id-123")
         mock_delay.assert_called_once()
+
+
+class DiscordAlertMarkingTests(TestCase):
+    """post_single_job_to_discord must only mark alert_sent on a confirmed-OK post."""
+
+    def _job_and_rankings(self):
+        return ({"id": 7, "region": "japan", "title": "BE", "company": "X"},
+                [{"match_tier": "S", "profile_id": "p1", "jd_summary": "x"}])
+
+    @patch("outputs.DISCORD_WEBHOOK_URL_JAPAN", "https://discord.test/webhook")
+    @patch("outputs.requests.post")
+    def test_failed_discord_post_does_not_mark_sent(self, mock_post):
+        # Webhook returns e.g. 429 -> raise_for_status() raises -> no mark.
+        mock_post.return_value.raise_for_status.side_effect = requests.RequestException("429")
+        from outputs import ExportHandler
+        job, rankings = self._job_and_rankings()
+        ExportHandler.post_single_job_to_discord(job, rankings)
+        # Only the webhook POST happened; mark_alerts_sent was never called.
+        self.assertEqual(mock_post.call_count, 1)
+
+    @patch("outputs.DISCORD_WEBHOOK_URL_JAPAN", "https://discord.test/webhook")
+    @patch("outputs.requests.post")
+    def test_ok_discord_post_marks_sent(self, mock_post):
+        mock_post.return_value.raise_for_status.return_value = None
+        from outputs import ExportHandler
+        job, rankings = self._job_and_rankings()
+        ExportHandler.post_single_job_to_discord(job, rankings)
+        # Webhook POST + mark_alerts_sent POST.
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertIn("mark_alerts_sent", mock_post.call_args_list[1].args[0])
 
 
 class PrescreenPersistTests(TestCase):

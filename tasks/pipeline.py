@@ -358,13 +358,27 @@ def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id,
 
 @app.task(name='tasks.pipeline.send_discord_summary')
 def send_discord_summary(pipeline_run_id):
-    """Final callback: all actors finished, all formatting/ranking jobs complete."""
+    """Final callback: all actors finished, all formatting/ranking jobs complete.
+
+    Posts any S/A-ranked jobs that weren't already alerted via the per-job
+    immediate notification (i.e. where alert_sent is still False).  This acts
+    as a backstop for jobs whose immediate alert failed and is a no-op when
+    all immediate alerts succeeded.
+    """
     r = redis.Redis.from_url(CELERY_BROKER_URL)
     total_jobs = int(r.get(f"pipeline:{pipeline_run_id}:total_jobs") or 0)
-    
-    print(f"\n📊 Pipeline {pipeline_run_id} complete! {total_jobs} jobs formatted and ranked.")
-        
     r.delete(f"pipeline:{pipeline_run_id}:total_jobs")
+
+    logger.info("pipeline_complete", extra={
+        "pipeline_run_id": pipeline_run_id, "total_jobs": total_jobs,
+    })
+
+    try:
+        from outputs import ExportHandler
+        ExportHandler.post_tiered_jobs_from_api()
+    except Exception as exc:
+        logger.error("discord_summary_failed", extra={"error": str(exc)})
+
     return {"status": "done", "total_jobs": total_jobs}
 
 
