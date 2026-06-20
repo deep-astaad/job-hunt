@@ -432,8 +432,7 @@ _ROLE_FAMILIES = {
     "backend": ["backend", "back-end", "back end", "server-side", "server engineer",
                 "api engineer", "api developer", "platform engineer", "python",
                 "django", "node.js", "nodejs", "golang", "java developer",
-                "java engineer", "ruby on rails", "php developer",
-                "software engineer", "software developer", "full stack", "fullstack"],
+                "java engineer", "ruby on rails", "php developer", "full stack", "fullstack"],
     "frontend": ["frontend", "front-end", "front end", "react", "vue", "angular",
                  "ui engineer", "web developer", "web engineer"],
     "devops": ["devops", "dev ops", "sre", "site reliability", "infrastructure",
@@ -441,10 +440,12 @@ _ROLE_FAMILIES = {
                "kubernetes", "software systems engineer"],
     "data": ["data engineer", "data scientist", "machine learning", "ml engineer",
              "ai engineer", "mlops", "analytics engineer"],
-    "fullstack": ["full stack", "fullstack", "full-stack", "software engineer",
-                  "software developer"],
+    "fullstack": ["full stack", "fullstack", "full-stack"],
     "mobile": ["ios", "android", "mobile", "flutter", "react native"],
 }
+
+# Bare generic titles: not specific enough for 1.0 affinity, but not unknown (0.3) either.
+_GENERIC_ROLE_KWS = frozenset(["software engineer", "software developer"])
 
 
 def _families_for(text):
@@ -462,7 +463,13 @@ def title_affinity(profile, job):
     )
     j_fams = _families_for(job.get("title", ""))
     if not j_fams:
-        # No recognisable engineering/tech family in title → likely non-tech role; be skeptical.
+        # No specific role-family keyword. Check for bare generic titles like
+        # "Software Engineer" / "Software Developer" which could fit many families
+        # but shouldn't score as high as a specific match.
+        title = (job.get("title") or "").lower()
+        if any(kw in title for kw in _GENERIC_ROLE_KWS):
+            return 0.6
+        # Genuinely unknown/non-tech role — be skeptical.
         return 0.3
     if p_fams & j_fams:
         return 1.0
