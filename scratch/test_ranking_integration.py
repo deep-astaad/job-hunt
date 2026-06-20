@@ -65,5 +65,52 @@ class ApplyMatchingEngineTests(unittest.TestCase):
         self.assertEqual(backend["llm_tier"], "S")  # raw LLM tier preserved
 
 
+class ProfileImmutabilityTests(unittest.TestCase):
+    """Regression tests for H5: shared profile dicts must not be mutated by ranking tasks."""
+
+    def _job(self):
+        return {
+            "id": 99, "title": "Backend Engineer (Python)", "company": "Acme",
+            "full_description": "Python/Django role. 2 years exp. English OK. Tokyo.",
+            "description": "Python/Django backend role",
+            "tech_stack": ["Python", "Django"],
+            "experience_required": "2 years", "language": "EN", "location": "Tokyo, Japan",
+        }
+
+    def test_experience_years_float_preserved_after_ranking(self):
+        import copy
+        profiles_before = copy.deepcopy(PROFILES)
+        llm = [{"profile_id": p["id"], "match_tier": "A", "jd_summary": "x"} for p in PROFILES]
+        ranking._apply_matching_engine(llm, self._job(), PROFILES)
+        for orig, after in zip(profiles_before, PROFILES):
+            self.assertEqual(
+                orig.get("experience_years"),
+                after.get("experience_years"),
+                f"Profile {orig['id']} experience_years was mutated from "
+                f"{orig.get('experience_years')} to {after.get('experience_years')}",
+            )
+
+    def test_experience_years_float_used_in_gate(self):
+        # Profile with 2.5y experience: a job requiring "5.5 years" is the exact boundary
+        # where int truncation produces the wrong result.
+        # float 2.5: 5.5 > 2.5+3=5.5 → False (no hard fail — borderline stretch, OK)
+        # int   2:   5.5 > 2+3=5    → True  (hard fail — wrong, truncation error)
+        backend = next(p for p in PROFILES if "backend" in p.get("id", ""))
+        self.assertEqual(backend.get("experience_years"), 2.5,
+                         "test requires the backend profile to have experience_years=2.5")
+        job = self._job()
+        job["experience_required"] = "5.5 years"
+        result = ranking._apply_matching_engine(
+            [{"profile_id": backend["id"], "match_tier": "B", "jd_summary": "x"}],
+            job, [backend]
+        )
+        match = result[0]
+        self.assertNotEqual(
+            match["match_tier"], "F",
+            "Experience gate hard-failed a 2.5y candidate at 5.5y required — "
+            "suggests truncated int (2) was used: 5.5 > 2+3=5 is True but 5.5 > 2.5+3=5.5 is False"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

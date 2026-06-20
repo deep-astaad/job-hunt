@@ -1,5 +1,4 @@
 import json
-import re
 from openai import OpenAI
 from config import get_openai_api_keys, get_openai_base_url
 
@@ -25,9 +24,4 @@ class JobRankerAI:
         abs_path = os.path.join(base_dir, filepath)
         with open(abs_path, "r", encoding="utf-8") as f:
             return json.load(f)
-
-    @staticmethod
-    def _parse_experience_years(experience_str):
-        match = re.search(r'(\d+)', experience_str)
-        return int(match.group(1)) if match else None
 
