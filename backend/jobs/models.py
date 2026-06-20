@@ -17,6 +17,15 @@ class Job(models.Model):
         ("japan_dev", "Japan Dev"),
         ("tokyo_dev", "Tokyo Dev"),
         ("daijob", "Daijob"),
+        ("gaijinpot", "GaijinPot"),
+        ("careercross", "CareerCross"),
+        ("green", "Green"),
+        ("wantedly", "Wantedly"),
+        # Legacy slugs already present in production data. Keep them accepted so
+        # PATCH/update paths do not reject rows before a data cleanup normalizes
+        # them to japan_dev/tokyo_dev.
+        ("japan-dev", "Japan Dev (legacy)"),
+        ("tokyodev", "TokyoDev (legacy)"),
         ("custom", "Custom/Other"),
     ]
 

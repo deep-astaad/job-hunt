@@ -171,17 +171,28 @@ def _persist_rankings(job_id, rankings):
             "jd_summary": r["jd_summary"],
         })
 
+    resp = requests.post(
+        f"{DJANGO_API_URL}/api/rankings/bulk_create/",
+        json=payload,
+        timeout=10,
+    )
     try:
-        resp = requests.post(
-            f"{DJANGO_API_URL}/api/rankings/bulk_create/",
-            json=payload,
-            timeout=10,
-        )
         resp.raise_for_status()
     except Exception as exc:
         logger.warning("ranking_persist_failed", extra={
-            "job_id": job_id, "error": str(exc),
+            "job_id": job_id,
+            "status_code": getattr(resp, "status_code", None),
+            "response_body": getattr(resp, "text", "")[:1000],
+            "error": str(exc),
         })
+        raise
+
+
+def _retry_or_release(self, exc, pipeline_run_id, job_id):
+    if self.request.retries >= self.max_retries:
+        _check_and_trigger_discord(pipeline_run_id, job_id)
+        raise exc
+    raise self.retry(exc=exc, countdown=30 * (2 ** self.request.retries))
 
 
 
@@ -257,16 +268,26 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
                 "job_id": effective_job_id, "attempt": self.request.retries, "error": str(exc),
             })
             raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+    except requests.RequestException as exc:
+        logger.warning("rank_persist_retry", extra={
+            "job_id": effective_job_id,
+            "attempt": self.request.retries,
+            "error": str(exc),
+        })
+        _retry_or_release(self, exc, pipeline_run_id, effective_job_id)
     except Exception as exc:
         logger.error("rank_gpt_fatal", extra={"job_id": effective_job_id, "error": str(exc)})
         _check_and_trigger_discord(pipeline_run_id, effective_job_id)
-        return {"status": "error", "job_id": effective_job_id}
+        raise
 
     _check_and_trigger_discord(pipeline_run_id, effective_job_id)
     return {"status": "done", "job_id": effective_job_id, "ranked_profiles": len(rankings)}
 
 def _check_and_trigger_discord(pipeline_run_id, job_id=None):
     """Remove job from Redis in-flight set, and trigger Discord if pipeline is fully complete."""
+    if job_id:
+        _clear_processing_lock(job_id)
+
     if not pipeline_run_id:
         return
 
@@ -301,3 +322,15 @@ def _check_and_trigger_discord(pipeline_run_id, job_id=None):
                 r.delete(dispatched_key)
     except Exception as exc:
         logger.error("redis_in_flight_removal_failed", extra={"pipeline_run_id": pipeline_run_id, "error": str(exc)})
+
+
+def _clear_processing_lock(job_id):
+    try:
+        import redis
+        from config import CELERY_BROKER_URL
+        redis.Redis.from_url(CELERY_BROKER_URL).delete(f"job_processing_lock:{job_id}")
+    except Exception as exc:
+        logger.error("job_processing_lock_release_failed", extra={
+            "job_id": job_id,
+            "error": str(exc),
+        })

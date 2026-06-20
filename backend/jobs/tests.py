@@ -201,6 +201,208 @@ class CeleryTaskTests(TestCase):
         mock_rank_apply_async.assert_called_once()
 
 
+class SourceChoicesTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_real_scraper_source_slugs_are_valid_on_patch(self):
+        sources = [
+            "indeed",
+            "linkedin",
+            "japan_dev",
+            "tokyo_dev",
+            "daijob",
+            "gaijinpot",
+            "careercross",
+            "green",
+            "wantedly",
+            "japan-dev",
+            "tokyodev",
+            "custom",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                job = Job.objects.create(
+                    title=f"{source} Engineer",
+                    company="Acme",
+                    url=f"https://example.com/{source}",
+                    url_hash=f"hash-{source}",
+                    source=source,
+                    is_formatted=False,
+                )
+                resp = self.client.patch(
+                    reverse("job-detail", args=[job.id]),
+                    data={
+                        "source": source,
+                        "description": "formatted",
+                        "is_formatted": True,
+                    },
+                    content_type="application/json",
+                )
+                self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_jobs_list_has_stable_default_order(self):
+        older = Job.objects.create(
+            title="Older",
+            company="Acme",
+            url="https://example.com/older",
+            url_hash="hash-older",
+        )
+        newer = Job.objects.create(
+            title="Newer",
+            company="Acme",
+            url="https://example.com/newer",
+            url_hash="hash-newer",
+        )
+
+        resp = self.client.get(reverse("job-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        ids = [item["id"] for item in resp.json()["results"]]
+        self.assertEqual(ids[:2], [newer.id, older.id])
+
+
+class FormattingTaskPersistenceTests(TestCase):
+    @patch("tasks.formatting._release_processing_state")
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_permanent_persist_failure_raises_and_releases_lock(
+        self, mock_format_job, mock_persistence_cls, mock_release
+    ):
+        error = requests.HTTPError("400 Bad Request")
+        error.response = MagicMock(
+            status_code=400,
+            text='{"source":["\\"wantedly\\" is not a valid choice."]}',
+        )
+        mock_persistence_cls.return_value.update_job.side_effect = error
+        mock_format_job.return_value = {
+            "title": "Engineer",
+            "company": "Acme",
+            "url": "https://example.com/job",
+            "source": "wantedly",
+            "description": "formatted",
+        }
+
+        from tasks.formatting import format_and_persist_job
+
+        with self.assertRaises(requests.HTTPError):
+            format_and_persist_job.run({
+                "id": 123,
+                "title": "Engineer",
+                "company": "Acme",
+                "url": "https://example.com/job",
+                "source": "wantedly",
+                "raw_data": {},
+            })
+
+        mock_release.assert_called_once_with(123, None)
+
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_blank_required_llm_fields_fall_back_to_original_job_data(
+        self, mock_format_job, mock_persistence_cls
+    ):
+        mock_format_job.return_value = {
+            "title": "Formatted title",
+            "company": "",
+            "url": "",
+            "source": "",
+            "description": "formatted",
+        }
+        mock_persistence_cls.return_value.update_job.return_value = {"id": 123}
+
+        from tasks.formatting import format_and_persist_job
+
+        format_and_persist_job.run({
+            "id": 123,
+            "title": "Original title",
+            "company": "Original Company",
+            "url": "https://example.com/job",
+            "source": "green",
+            "raw_data": {"description": "raw"},
+        })
+
+        persisted = mock_persistence_cls.return_value.update_job.call_args.args[1]
+        self.assertEqual(persisted["company"], "Original Company")
+        self.assertEqual(persisted["url"], "https://example.com/job")
+        self.assertEqual(persisted["source"], "green")
+
+
+class RankingTaskPersistenceTests(TestCase):
+    @patch("tasks.ranking._clear_processing_lock")
+    def test_no_job_data_clears_processing_lock(self, mock_clear_lock):
+        from tasks.ranking import rank_job_multi_profile
+
+        result = rank_job_multi_profile.run(
+            False,
+            profiles=[{"id": "backend_platform_engineer"}],
+            pipeline_run_id=None,
+            job_id=123,
+        )
+
+        self.assertEqual(result["status"], "skipped")
+        mock_clear_lock.assert_called_once_with(123)
+
+    @patch("tasks.ranking.requests.post")
+    def test_ranking_persist_failure_is_not_swallowed(self, mock_post):
+        response = MagicMock(status_code=500, text="server error")
+        response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+        mock_post.return_value = response
+
+        from tasks.ranking import _persist_rankings
+
+        with self.assertRaises(requests.HTTPError):
+            _persist_rankings(123, [{
+                "profile_id": "backend_platform_engineer",
+                "match_tier": "A",
+                "rank": 10,
+                "jd_summary": "summary",
+            }])
+
+
+class PipelineBatchPersistenceTests(TestCase):
+    def test_batch_save_failure_falls_back_per_job_and_recovers_job_map(self):
+        from tasks.pipeline import _save_jobs_with_fallback
+
+        persister = MagicMock()
+        persister.save_jobs.side_effect = [
+            requests.Timeout("bulk timed out after commit"),
+            {"jobs": {"https://example.com/job-a": {"id": 1, "is_formatted": False}}},
+            {"jobs": {"https://example.com/job-b": {"id": 2, "is_formatted": False}}},
+        ]
+
+        jobs_by_url = _save_jobs_with_fallback(persister, [
+            {"url": "https://example.com/job-a", "title": "A"},
+            {"url": "https://example.com/job-b", "title": "B"},
+        ])
+
+        self.assertEqual(set(jobs_by_url), {
+            "https://example.com/job-a",
+            "https://example.com/job-b",
+        })
+        self.assertEqual(persister.save_jobs.call_count, 3)
+
+    def test_incomplete_batch_response_only_retries_missing_urls(self):
+        from tasks.pipeline import _save_jobs_with_fallback
+
+        persister = MagicMock()
+        persister.save_jobs.side_effect = [
+            {"jobs": {"https://example.com/job-a": {"id": 1, "is_formatted": False}}},
+            {"jobs": {"https://example.com/job-b": {"id": 2, "is_formatted": False}}},
+        ]
+
+        jobs_by_url = _save_jobs_with_fallback(persister, [
+            {"url": "https://example.com/job-a", "title": "A"},
+            {"url": "https://example.com/job-b", "title": "B"},
+        ])
+
+        self.assertEqual(jobs_by_url["https://example.com/job-a"]["id"], 1)
+        self.assertEqual(jobs_by_url["https://example.com/job-b"]["id"], 2)
+        self.assertEqual(persister.save_jobs.call_args_list[1].args[0], [
+            {"url": "https://example.com/job-b", "title": "B"}
+        ])
+
+
 class JobStatsTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -563,5 +765,3 @@ class NormalizeUrlTests(TestCase):
     def test_substring_host_not_matched(self):
         self.assertEqual(self._norm("https://notindeed.com/viewjob?jk=abc123"),
                          "https://notindeed.com/viewjob")
-
-
