@@ -28,24 +28,22 @@ POLL_BATCH_SIZE = 1000
 
 
 def _persist_prescreen_f(job_data, pre_results, persister):
-    """Mark a pre-screened F job as formatted and persist F rankings — no LLM calls.
+    """Persist a pre-screened F job (F rankings + formatted/ranked flags) — no LLM calls.
 
-    Order matters: mark is_formatted=True first so that when the ranking save
-    flips is_ranked=True the Job.save() invariant (is_formatted=False resets
-    is_ranked) doesn't undo it.
+    Order is atomic-from-the-pipeline's-view: persist the F rankings FIRST (while
+    the job is still is_formatted=False), and only once that POST is confirmed do
+    we flip is_formatted+is_ranked together in a single patch. Both flags must be
+    set in the same call because Job.save() resets is_ranked while is_formatted is
+    False.
 
-    Returns True on success, False if the is_formatted PATCH failed (caller should
-    fall back to normal chain dispatch so the job is not silently lost).
+    Returns True only when rankings AND flags are persisted. Returns False if the
+    rankings POST fails, leaving the job discoverable as unformatted so the caller
+    can fall back to the normal format+rank chain (no silent formatted-but-unranked
+    orphan).
     """
     from config import DJANGO_API_URL
 
     job_id = job_data["id"]
-    try:
-        persister.update_job(job_id, {"is_formatted": True})
-    except Exception as exc:
-        logger.warning("prescreen_f_update_failed", extra={"job_id": job_id, "error": str(exc)})
-        return False
-
     rankings = [
         {
             "job_id": job_id,
@@ -70,6 +68,15 @@ def _persist_prescreen_f(job_data, pre_results, persister):
         resp.raise_for_status()
     except Exception as exc:
         logger.warning("prescreen_f_rankings_failed", extra={"job_id": job_id, "error": str(exc)})
+        return False
+
+    # Rankings are saved — now mark formatted+ranked atomically so the poller
+    # treats this job as fully processed.
+    try:
+        persister.update_job(job_id, {"is_formatted": True, "is_ranked": True})
+    except Exception as exc:
+        logger.warning("prescreen_f_flag_update_failed", extra={"job_id": job_id, "error": str(exc)})
+        return False
     return True
 
 
