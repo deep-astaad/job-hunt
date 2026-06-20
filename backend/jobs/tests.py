@@ -1,7 +1,7 @@
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from jobs.models import Job, JobRanking
 
 
@@ -81,6 +81,40 @@ class JobProcessingViewTests(TestCase):
         self.assertEqual(data.get("status"), "success")
         self.assertEqual(data.get("task_id"), "mock-task-id-123")
         mock_delay.assert_called_once()
+
+
+class PrescreenPersistTests(TestCase):
+    """_persist_prescreen_f must be atomic: rankings first, flags only after."""
+
+    def _results(self):
+        return [{"profile_id": "p1", "hard_fail_reason": "requires japanese", "signals": {}}]
+
+    @patch("tasks.pipeline.req.post")
+    def test_rankings_failure_returns_false_and_leaves_flags_untouched(self, mock_post):
+        # Discord/API ranking POST fails -> must NOT mark the job formatted.
+        mock_post.return_value.raise_for_status.side_effect = Exception("500")
+        from tasks.pipeline import _persist_prescreen_f
+
+        persister = MagicMock()
+        job = {"id": 123}
+        ok = _persist_prescreen_f(job, self._results(), persister)
+
+        self.assertFalse(ok)
+        persister.update_job.assert_not_called()  # no formatted-but-unranked orphan
+
+    @patch("tasks.pipeline.req.post")
+    def test_success_marks_formatted_and_ranked_atomically(self, mock_post):
+        mock_post.return_value.raise_for_status.return_value = None
+        from tasks.pipeline import _persist_prescreen_f
+
+        persister = MagicMock()
+        job = {"id": 123}
+        ok = _persist_prescreen_f(job, self._results(), persister)
+
+        self.assertTrue(ok)
+        persister.update_job.assert_called_once_with(
+            123, {"is_formatted": True, "is_ranked": True}
+        )
 
 
 class CeleryTaskTests(TestCase):

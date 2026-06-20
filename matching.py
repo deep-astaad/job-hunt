@@ -663,6 +663,128 @@ def compute_match(profile, job, location_cfgs=None):
     }
 
 
+def _thin_job_from_raw(raw):
+    """Build a minimal job dict from raw scraped data for hard-gate pre-screening.
+
+    Works on the raw Apify/local-scraper payload whose field names vary by actor.
+    """
+    title = (
+        raw.get("title") or raw.get("position") or
+        raw.get("standardizedTitle") or raw.get("job_title") or ""
+    )
+
+    desc = ""
+    for key in ("descriptionText", "description", "jobDescription",
+                "body", "content", "job_description", "details"):
+        val = raw.get(key)
+        if isinstance(val, dict):
+            val = val.get("html") or val.get("text") or val.get("content") or ""
+        if val and isinstance(val, str) and len(val) > 30:
+            desc = val
+            break
+
+    loc = ""
+    for key in ("formattedLocation", "location", "jobLocation",
+                "locationName", "place", "city"):
+        val = raw.get(key)
+        if isinstance(val, dict):
+            val = val.get("displayName") or val.get("name") or val.get("city") or ""
+        if val and isinstance(val, str):
+            loc = val.strip()
+            break
+
+    exp_raw = ""
+    for key in ("experienceLevel", "experience", "experience_level",
+                "experience_required", "seniority"):
+        val = raw.get(key)
+        if val and isinstance(val, str):
+            exp_raw = val
+            break
+
+    emp_type = str(raw.get("employmentType") or raw.get("employment_type") or "").lower()
+
+    return {
+        "title": str(title),
+        "description": desc[:3000],
+        "full_description": desc[:3000],
+        "location": loc,
+        "experience_required": exp_raw,
+        "_emp_type": emp_type,
+    }
+
+
+def _gate_check(thin_job, profile):
+    """Run hard gates only on a thin (raw) job dict for one profile.
+
+    Mirrors the hard-fail logic in compute_match but works on pre-formatted data.
+    Returns (hard_fail: bool, reason: str|None).
+    """
+    title = str(thin_job.get("title") or "")
+
+    # Language gate
+    req_lang, lang_required = detect_required_language(thin_job)
+    if req_lang and lang_required and req_lang not in candidate_languages(profile):
+        return True, f"requires {req_lang}"
+
+    # Internship gate: title, experience_required text, or raw employmentType
+    emp_type = str(thin_job.get("_emp_type") or "")
+    is_intern = (
+        bool(_INTERN_RE.search(title))
+        or "intern" in str(thin_job.get("experience_required") or "").lower()
+        or "internship" in emp_type
+    )
+    if is_intern:
+        return True, "internship"
+
+    # Senior/lead/staff gate
+    is_junior = bool(_JUNIOR_TITLE_RE.search(title))
+    is_senior = bool(_SENIOR_TITLE_RE.search(title)) and not is_junior
+    if is_senior:
+        return True, "senior/lead role"
+
+    # Over-experience gate: only when a clear years figure is in the raw data
+    # (raw experience_required is noisier than the formatter's output, so we only
+    # hard-fail on an unambiguous "more than profile+3y" signal).
+    req_years = parse_required_years(thin_job.get("experience_required"))
+    if req_years is not None and req_years > parse_profile_years(profile) + 3:
+        return True, f"requires {req_years:g}y experience"
+
+    return False, None
+
+
+def prescreen_hard_fail(raw_job, profiles):
+    """Cheap deterministic pre-screen run on raw (unformatted) scraped data.
+
+    Returns (all_hard_fail: bool, per_profile_results: list[dict]).
+
+    all_hard_fail is True only when every profile hard-fails on at least one hard
+    gate (language, seniority, internship, over-experience). The caller can then
+    skip both LLM passes and persist F rankings directly from per_profile_results.
+
+    Fails open: on any error returns (False, []) to never block normal processing.
+    """
+    if not raw_job or not profiles:
+        return False, []
+
+    try:
+        thin = _thin_job_from_raw(raw_job)
+        results = []
+        any_pass = False
+        for profile in profiles:
+            hard_fail, reason = _gate_check(thin, profile)
+            results.append({
+                "profile_id": profile.get("id"),
+                "hard_fail": hard_fail,
+                "hard_fail_reason": reason,
+                "signals": {"pre_screened": True},
+            })
+            if not hard_fail:
+                any_pass = True
+        return not any_pass, results
+    except Exception:
+        return False, []
+
+
 def blend_with_llm(deterministic, llm_tier):
     """Fuse the deterministic match with the LLM's tier into a final result.
 
