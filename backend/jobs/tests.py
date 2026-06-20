@@ -437,4 +437,35 @@ class NormalizeUrlTests(TestCase):
     def test_trailing_slash_stripped(self):
         self.assertEqual(self._norm("https://example.com/jobs/123/"), "https://example.com/jobs/123")
 
+    # (input, expected) — exercised against BOTH normalizers below.
+    PARITY_CASES = [
+        ("https://www.indeed.com/viewjob?jk=abc123&refnum=xyz&from=organic",
+         "https://www.indeed.com/viewjob?jk=abc123"),
+        ("https://jobs.indeed.com/viewjob?jk=sub42&utm=x",
+         "https://jobs.indeed.com/viewjob?jk=sub42"),
+        ("https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345&lang=en",
+         "https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345"),
+        ("https://hire.jobvite.com/Jobvite/job.aspx?j=abc123&s=LinkedIn",
+         "https://hire.jobvite.com/Jobvite/job.aspx?j=abc123"),
+        ("https://www.linkedin.com/jobs/view/12345?refId=abc&trackingId=xyz",
+         "https://www.linkedin.com/jobs/view/12345"),
+        ("https://example.com/jobs/123/", "https://example.com/jobs/123"),
+        # Substring guard: a host merely *containing* an allowlisted domain must
+        # NOT inherit its rule — jk here is a tracking param and gets stripped.
+        ("https://notindeed.com/viewjob?jk=abc123", "https://notindeed.com/viewjob"),
+    ]
+
+    def test_parity_both_normalizers_identical(self):
+        """persistence.normalize_url (Celery side) and jobs.parsers.normalize_url
+        (Django side) must produce byte-identical output — #22 dedup depends on it."""
+        from jobs.parsers import normalize_url as parsers_norm
+        from persistence import normalize_url as persistence_norm
+        for url, expected in self.PARITY_CASES:
+            self.assertEqual(parsers_norm(url), expected, f"parsers: {url}")
+            self.assertEqual(persistence_norm(url), expected, f"persistence: {url}")
+
+    def test_substring_host_not_matched(self):
+        self.assertEqual(self._norm("https://notindeed.com/viewjob?jk=abc123"),
+                         "https://notindeed.com/viewjob")
+
 

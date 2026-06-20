@@ -45,9 +45,12 @@ def normalize_url(url):
 
     query_params = dict(parse_qsl(parsed.query))
 
+    # Exact host or subdomain match only — substring matching would let
+    # "notindeed.com" hit the "indeed.com" rule.
+    host = netloc.split("@")[-1].split(":")[0]
     keep_keys: list[str] = []
     for domain, params in _DOMAIN_ID_PARAMS.items():
-        if domain in netloc:
+        if host == domain or host.endswith("." + domain):
             keep_keys = params
             break
 
