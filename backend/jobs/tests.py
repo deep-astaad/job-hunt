@@ -411,3 +411,30 @@ class LocationAndScoringTests(TestCase):
         self.assertContains(resp, "/100")
 
 
+class NormalizeUrlTests(TestCase):
+    """normalize_url must preserve identity params and strip tracking params."""
+
+    def _norm(self, url):
+        from jobs.parsers import normalize_url
+        return normalize_url(url)
+
+    def test_indeed_jk_kept(self):
+        url = "https://www.indeed.com/viewjob?jk=abc123&refnum=xyz&from=organic"
+        self.assertEqual(self._norm(url), "https://www.indeed.com/viewjob?jk=abc123")
+
+    def test_taleo_job_param_kept(self):
+        url = "https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345&lang=en"
+        self.assertEqual(self._norm(url), "https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345")
+
+    def test_jobvite_j_param_kept(self):
+        url = "https://hire.jobvite.com/Jobvite/job.aspx?j=abc123&s=LinkedIn"
+        self.assertEqual(self._norm(url), "https://hire.jobvite.com/Jobvite/job.aspx?j=abc123")
+
+    def test_linkedin_tracking_stripped(self):
+        url = "https://www.linkedin.com/jobs/view/12345?refId=abc&trackingId=xyz"
+        self.assertEqual(self._norm(url), "https://www.linkedin.com/jobs/view/12345")
+
+    def test_trailing_slash_stripped(self):
+        self.assertEqual(self._norm("https://example.com/jobs/123/"), "https://example.com/jobs/123")
+
+
