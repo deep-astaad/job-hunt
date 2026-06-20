@@ -27,6 +27,76 @@ logger = logging.getLogger(__name__)
 POLL_BATCH_SIZE = 1000
 
 
+def _merge_job_maps(target, source):
+    for url, info in (source or {}).items():
+        if info:
+            target[url] = info
+
+
+def _save_jobs_with_fallback(persister, batch_jobs):
+    """Persist scraper stubs and return the normalized-url job map.
+
+    Bulk API calls can fail client-side after Django has already committed some
+    rows. Falling back per job lets the caller recover ids for committed rows and
+    dispatch them instead of leaving fresh jobs unformatted.
+    """
+    jobs_by_url = {}
+    if not batch_jobs:
+        return jobs_by_url
+
+    expected_urls = [
+        normalize_url(job["url"])
+        for job in batch_jobs
+        if job.get("url")
+    ]
+
+    try:
+        result = persister.save_jobs(batch_jobs)
+        _merge_job_maps(jobs_by_url, result.get("jobs", {}))
+    except Exception as exc:
+        logger.error("batch_save_failed", extra={
+            "batch_size": len(batch_jobs),
+            "error": str(exc),
+        })
+
+    missing_jobs = [
+        job for job in batch_jobs
+        if job.get("url") and normalize_url(job["url"]) not in jobs_by_url
+    ]
+    if not missing_jobs:
+        return jobs_by_url
+
+    logger.warning("batch_save_fallback_started", extra={
+        "missing_count": len(missing_jobs),
+        "batch_size": len(batch_jobs),
+    })
+    for job in missing_jobs:
+        url = job.get("url")
+        norm_url = normalize_url(url)
+        try:
+            result = persister.save_jobs([job])
+            _merge_job_maps(jobs_by_url, result.get("jobs", {}))
+            if norm_url not in jobs_by_url:
+                logger.error("job_save_missing_from_response", extra={
+                    "url": url,
+                    "source": job.get("source"),
+                })
+        except Exception as exc:
+            logger.error("job_save_failed", extra={
+                "url": url,
+                "source": job.get("source"),
+                "error": str(exc),
+            })
+
+    recovered = sum(1 for url in expected_urls if url in jobs_by_url)
+    if recovered < len(set(expected_urls)):
+        logger.error("batch_save_fallback_incomplete", extra={
+            "recovered_count": recovered,
+            "expected_count": len(set(expected_urls)),
+        })
+    return jobs_by_url
+
+
 def _persist_prescreen_f(job_data, pre_results, persister):
     """Persist a pre-screened F job (F rankings + formatted/ranked flags) — no LLM calls.
 
@@ -222,13 +292,7 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                 stub_by_url[norm] = jd
 
         # One HTTP POST for the whole page → returns {normalized_url: {id, is_formatted}}.
-        jobs_by_url = {}
-        if batch_jobs:
-            try:
-                result = persister.save_jobs(batch_jobs)
-                jobs_by_url = result.get("jobs", {})
-            except Exception as exc:
-                logger.error("batch_save_failed", extra={"batch_size": len(batch_jobs), "error": str(exc)})
+        jobs_by_url = _save_jobs_with_fallback(persister, batch_jobs)
 
         # Dispatch in-memory using the response map — zero follow-up GETs.
         for norm_url, job_dict in stub_by_url.items():
@@ -253,6 +317,7 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                     "url": job_dict.get("url", ""),
                     "source": job_dict.get("source", source),
                     "raw_data": job_dict.get("raw_data", {}),
+                    "pipeline_run_id": pipeline_run_id,
                 }
 
                 _dispatch_or_prescreen(
@@ -470,13 +535,7 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
             batch_jobs.append(jd)
             stub_by_url[norm] = jd
 
-    jobs_by_url = {}
-    if batch_jobs:
-        try:
-            result = persister.save_jobs(batch_jobs)
-            jobs_by_url = result.get("jobs", {})
-        except Exception as exc:
-            logger.error("batch_save_failed", extra={"batch_size": len(batch_jobs), "error": str(exc)})
+    jobs_by_url = _save_jobs_with_fallback(persister, batch_jobs)
 
     for norm_url, job_dict in stub_by_url.items():
         try:
@@ -498,6 +557,7 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
                 "url": job_dict.get("url", ""),
                 "source": job_dict.get("source", "custom"),
                 "raw_data": job_dict.get("raw_data", {}),
+                "pipeline_run_id": pipeline_run_id,
             }
 
             _dispatch_or_prescreen(
@@ -665,6 +725,7 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "url": job.url,
             "source": job.source,
             "raw_data": job.raw_data,
+            "pipeline_run_id": None,
         }
         job_priority = get_job_priority(job)
         chain(
@@ -727,5 +788,3 @@ def deactivate_stale_jobs(days=30):
     deactivated = Job.objects.filter(is_active=True, updated_at__lt=cutoff).update(is_active=False)
     logger.info(f"deactivate_stale_jobs: deactivated {deactivated} jobs not updated in {days} days.")
     return {"status": "success", "deactivated": deactivated, "cutoff_days": days}
-
-

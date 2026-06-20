@@ -58,7 +58,7 @@ TIER_SORT_MAP = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
 
 
 class JobViewSet(viewsets.ModelViewSet):
-    queryset = Job.objects.all()
+    queryset = Job.objects.all().order_by("-scraped_at", "-id")
     filterset_class = JobFilter
     search_fields = ["title", "company", "description", "url"]
     ordering_fields = ["scraped_at", "company", "title", "best_tier"]
@@ -75,7 +75,9 @@ class JobViewSet(viewsets.ModelViewSet):
             ordering = self.request.query_params.get("ordering", "")
             if "best_tier" in ordering:
                 desc = ordering.startswith("-")
-                qs = qs.order_by(("-" if desc else "") + "_best_tier_int")
+                qs = qs.order_by(("-" if desc else "") + "_best_tier_int", "-scraped_at", "-id")
+            else:
+                qs = qs.order_by("-scraped_at", "-id")
         return qs
 
     def get_serializer_class(self):
