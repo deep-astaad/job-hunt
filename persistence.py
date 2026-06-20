@@ -264,64 +264,6 @@ class DjangoPersistence:
         print(f"   -> Fetched {len(all_jobs)} jobs updated today from DB.")
         return all_jobs
 
-    def _parse_ranking_markdown(self, markdown_text, profile_id, profile_title):
-        lines = [l.strip() for l in markdown_text.strip().split("\n") if l.strip().startswith("|")]
-        if len(lines) < 3:
-            return []
-        rankings = []
-        for line in lines[2:]:
-            cells = [c.strip() for c in line.split("|")[1:-1]]
-            if len(cells) < 8:
-                continue
-            rank_str, tier, title_company, salary, exp, lang, summary, url_cell = cells
-            url_match = re.search(r"\((https?://[^\)]+)\)", url_cell)
-            url = url_match.group(1) if url_match else None
-            try:
-                rank = int(rank_str.strip())
-            except ValueError:
-                continue
-            rankings.append({
-                "url": url,
-                "profile_id": profile_id,
-                "profile_title": profile_title,
-                "match_tier": tier.strip().upper(),
-                "rank": rank,
-                "jd_summary": summary.strip(),
-            })
-        return rankings
-
-    def _post_rankings(self, rankings_data):
-        enriched_rankings = []
-        for r in rankings_data:
-            if not r.get("url"):
-                continue
-            try:
-                job_id = self._fetch_job_id_by_url(r["url"])
-            except requests.RequestException:
-                print(f"   ⚠️ Could not reach API for URL: {r['url']}")
-                continue
-            if job_id:
-                enriched_rankings.append({
-                    "job_id": job_id,
-                    "profile_id": r["profile_id"],
-                    "profile_title": r.get("profile_title", ""),
-                    "match_tier": r["match_tier"],
-                    "rank": r["rank"],
-                    "jd_summary": r.get("jd_summary", ""),
-                })
-            else:
-                print(f"   ⚠️ Could not find job for URL: {r['url']}")
-
-        if not enriched_rankings:
-            print("   ⚠️ No rankings to persist (no matching jobs found).")
-            return
-
-        response = requests.post(self.RANKINGS_URL, json=enriched_rankings, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-        print(f"   -> Rankings: {result.get('created', 0)} created, "
-              f"{result.get('updated', 0)} updated")
-        return result
 
     def _fetch_job_by_url(self, url):
         """Fetch the full job object from the API by URL."""
@@ -336,49 +278,7 @@ class DjangoPersistence:
             results = results["results"]
         return results[0] if results else None
 
-    def _fetch_job_id_by_url(self, url):
-        job = self._fetch_job_by_url(url)
-        return job["id"] if job else None
 
-    def save_rankings(self, markdown_result, profile_id, profile_title, db_jobs):
-        """Parse ranking markdown and POST to backend."""
-        print("\n🗄️  Phase 4: Persisting rankings to Django backend...")
-        try:
-            # Build ID lookup from the jobs we already fetched (these are the jobs we ranked)
-            url_to_id = {normalize_url(j["url"]): j["id"] for j in db_jobs if j.get("url") and j.get("id")}
-            rankings = self._parse_ranking_markdown(markdown_result, profile_id, profile_title)
-            if not rankings:
-                print("   ⚠️ No rankings parsed from markdown table.")
-                return
-
-            enriched_rankings = []
-            for r in rankings:
-                url = r.get("url")
-                job_id = url_to_id.get(normalize_url(url)) if url else None
-                if job_id:
-                    enriched_rankings.append({
-                        "job_id": job_id,
-                        "profile_id": r["profile_id"],
-                        "profile_title": r.get("profile_title", ""),
-                        "match_tier": r["match_tier"],
-                        "rank": r["rank"],
-                        "jd_summary": r.get("jd_summary", ""),
-                    })
-
-            if not enriched_rankings:
-                print("   ⚠️ No rankings to persist (no matching jobs found).")
-                return
-
-            response = requests.post(self.RANKINGS_URL, json=enriched_rankings, timeout=30)
-            response.raise_for_status()
-            result = response.json()
-            print(f"   -> Rankings: {result.get('created', 0)} created, "
-                  f"{result.get('updated', 0)} updated")
-            print("   ✅ Rankings persisted.")
-        except requests.ConnectionError:
-            print("   ⚠️ Could not connect to Django API at " + DJANGO_API_URL)
-        except requests.RequestException as e:
-            print(f"   ⚠️ Ranking persistence failed: {e}")
 
     def persist_jobs(self, jobs):
         """POST formatted jobs to the backend."""
