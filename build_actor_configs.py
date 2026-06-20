@@ -72,8 +72,6 @@ def _linkedin_url(keyword, loc_cfg, append_english):
 def _linkedin_config(loc_cfg):
     # Japan: bias toward English-speaking roles (most JP listings need Japanese).
     append_english = loc_cfg.get("region") == "japan"
-    #TODO: For now get all jobs
-    append_english = False
     urls = [_linkedin_url(r, loc_cfg, append_english) for r in ROLES]
     return {
         "actor_id": "curious_coder/linkedin-jobs-scraper",
