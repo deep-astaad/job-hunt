@@ -52,12 +52,16 @@ class ExportHandler:
         }
 
         try:
-            requests.post(target_webhook, json={"embeds": [embed]}, timeout=10)
+            resp = requests.post(target_webhook, json={"embeds": [embed]}, timeout=10)
+            resp.raise_for_status()
         except requests.RequestException as e:
+            # Discord 429/4xx/5xx don't raise on their own — raise_for_status()
+            # turns them into a RequestException so we DON'T mark the job sent.
+            # The end-of-run summary (alert_sent=False) is then the backstop.
             print(f"⚠️ Failed to send job {job_data.get('id')} to Discord: {e}")
             return
 
-        # Mark sent so the end-of-run summary doesn't re-post this job.
+        # Mark sent (only after a confirmed-OK post) so the summary doesn't re-post.
         job_id = job_data.get("id")
         if job_id:
             try:
@@ -173,38 +177,47 @@ class ExportHandler:
                     default_embeds.append(embed)
 
         def _send_batches(webhook_url, embeds):
+            # Raises requests.RequestException on any failed post so the caller
+            # can avoid marking those jobs alert_sent.
             if not webhook_url:
                 return
             batch = []
             for e in embeds:
                 batch.append(e)
                 if len(batch) == 10:
-                    requests.post(webhook_url, json={"embeds": batch})
+                    requests.post(webhook_url, json={"embeds": batch}, timeout=10).raise_for_status()
                     batch = []
             if batch:
-                requests.post(webhook_url, json={"embeds": batch})
+                requests.post(webhook_url, json={"embeds": batch}, timeout=10).raise_for_status()
 
-        if DISCORD_WEBHOOK_URL_JAPAN and japan_embeds:
-            requests.post(DISCORD_WEBHOOK_URL_JAPAN, json={"content": header.replace("Top-Ranked Jobs", "Top-Ranked Japan Jobs")})
-            _send_batches(DISCORD_WEBHOOK_URL_JAPAN, japan_embeds)
+        # Only mark jobs alert_sent if their webhook batch actually posted OK,
+        # otherwise the backstop would skip jobs whose summary post failed.
+        send_failed = False
+        try:
+            if DISCORD_WEBHOOK_URL_JAPAN and japan_embeds:
+                requests.post(DISCORD_WEBHOOK_URL_JAPAN, json={"content": header.replace("Top-Ranked Jobs", "Top-Ranked Japan Jobs")}, timeout=10)
+                _send_batches(DISCORD_WEBHOOK_URL_JAPAN, japan_embeds)
 
-        if DISCORD_WEBHOOK_URL_INDIA and india_embeds:
-            requests.post(DISCORD_WEBHOOK_URL_INDIA, json={"content": header.replace("Top-Ranked Jobs", "Top-Ranked India Jobs")})
-            _send_batches(DISCORD_WEBHOOK_URL_INDIA, india_embeds)
+            if DISCORD_WEBHOOK_URL_INDIA and india_embeds:
+                requests.post(DISCORD_WEBHOOK_URL_INDIA, json={"content": header.replace("Top-Ranked Jobs", "Top-Ranked India Jobs")}, timeout=10)
+                _send_batches(DISCORD_WEBHOOK_URL_INDIA, india_embeds)
 
-        if DISCORD_WEBHOOK_URL_REMOTE and remote_embeds:
-            remote_header = header.replace("Top-Ranked Jobs", "Top-Ranked Remote Jobs (S Tier Only)")
-            requests.post(DISCORD_WEBHOOK_URL_REMOTE, json={"content": remote_header})
-            _send_batches(DISCORD_WEBHOOK_URL_REMOTE, remote_embeds)
+            if DISCORD_WEBHOOK_URL_REMOTE and remote_embeds:
+                remote_header = header.replace("Top-Ranked Jobs", "Top-Ranked Remote Jobs (S Tier Only)")
+                requests.post(DISCORD_WEBHOOK_URL_REMOTE, json={"content": remote_header}, timeout=10)
+                _send_batches(DISCORD_WEBHOOK_URL_REMOTE, remote_embeds)
 
-        if DISCORD_WEBHOOK_URL_DEFAULT and default_embeds:
-            default_header = header.replace("Top-Ranked Jobs", "Top-Ranked Other Jobs (S Tier Only)")
-            requests.post(DISCORD_WEBHOOK_URL_DEFAULT, json={"content": default_header})
-            _send_batches(DISCORD_WEBHOOK_URL_DEFAULT, default_embeds)
+            if DISCORD_WEBHOOK_URL_DEFAULT and default_embeds:
+                default_header = header.replace("Top-Ranked Jobs", "Top-Ranked Other Jobs (S Tier Only)")
+                requests.post(DISCORD_WEBHOOK_URL_DEFAULT, json={"content": default_header}, timeout=10)
+                _send_batches(DISCORD_WEBHOOK_URL_DEFAULT, default_embeds)
+        except requests.RequestException as e:
+            send_failed = True
+            print(f"⚠️ Discord summary send failed; not marking alerts sent: {e}")
 
-        # Mark alerts as sent
+        # Mark alerts as sent (only when the summary posts succeeded).
         job_ids = [job.get("id") for job in jobs[:DISCORD_TOP_N_JOBS] if job.get("id")]
-        if job_ids:
+        if job_ids and not send_failed:
             try:
                 requests.post(
                     f"{DJANGO_API_URL}/api/jobs/mark_alerts_sent/",
