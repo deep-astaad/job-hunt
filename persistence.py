@@ -30,52 +30,23 @@ def normalize_url(url):
     return urlunparse((parsed.scheme, netloc, path, "", new_query, ""))
 
 def detect_job_language(job_dict):
-    """Detect and normalize language choice based on content and language field."""
-    lang = str(job_dict.get("language", "")).strip().upper()
-    if lang in ("JP", "JAPANESE"):
-        lang = "JP"
-    elif lang in ("EN", "ENGLISH"):
-        lang = "EN"
-    elif lang in ("NON-ENGLISH", "NON_ENGLISH"):
-        lang = "non-english"
-    else:
-        lang = "EN"
+    """Detect required working language using the calibrated matching engine.
 
-    # Check description, title, etc. for explicit Japanese requirements
-    desc = (job_dict.get("full_description") or job_dict.get("description") or "").lower()
-    title = (job_dict.get("title") or "").lower()
+    Delegates to matching.detect_required_language so the stored label matches
+    exactly what the ranker uses for its language gate \u2014 no more over-tagging
+    EN-OK roles as JP just because an address contains a single kanji character.
 
-    if not desc and "raw_data" in job_dict:
-        raw_data = job_dict["raw_data"] or {}
-        desc = str(raw_data.get("descriptionText", raw_data.get("description", ""))).lower()
-
-    # Define common phrases suggesting Japanese is required
-    jp_indicators = [
-        r"business[- ]level japanese",
-        r"japanese[:\s]+business",
-        r"fluent japanese",
-        r"japanese[:\s]+fluent",
-        r"native japanese",
-        r"japanese[:\s]+native",
-        r"japanese[- ]level[\s:]+fluent",
-        r"jlpt[\s]*n[1-3]",
-        r"japanese required",
-        r"japanese is required",
-        r"all text in japanese",
-        r"japanese language proficiency",
-        r"language: japanese and english",
-        r"english and japanese required",
-    ]
-
-    for pattern in jp_indicators:
-        if re.search(pattern, desc) or re.search(pattern, title):
-            return "JP"
-
-    # Check if text contains Japanese characters (Hiragana, Katakana, or common Kanji)
-    if re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", desc) or re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", title):
+    Returns "JP", "EN", or "non-english".
+    """
+    from matching import detect_required_language
+    req_lang, is_hard = detect_required_language(job_dict)
+    # Only label JP when Japanese is actually *required* — optional/nice-to-have
+    # mentions stay EN so the stored label and dashboard filter mean "needs JP".
+    if req_lang == "japanese" and is_hard:
         return "JP"
-
-    return lang
+    if req_lang == "non-english" and is_hard:
+        return "non-english"
+    return "EN"
 
 
 _RAW_LOCATION_FIELDS = (

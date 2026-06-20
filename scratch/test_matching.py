@@ -89,6 +89,33 @@ class ExperienceLanguageParsingTests(unittest.TestCase):
         self.assertIn("english", langs)
         self.assertNotIn("japanese", langs)
 
+    def test_detect_job_language_no_cjk_overtag(self):
+        # A single kanji in the address must not tag an English role as JP.
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "Backend Engineer",
+            "description": "Build Python services. Office in 渋谷区.",
+            "language": "EN",
+        })
+        self.assertEqual(lang, "EN")
+
+    def test_detect_job_language_hard_jp_is_jp(self):
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "エンジニア",
+            "description": "Business level Japanese required, JLPT N2 minimum.",
+        })
+        self.assertEqual(lang, "JP")
+
+    def test_detect_job_language_optional_jp_is_en(self):
+        # Japanese as a nice-to-have must NOT be labeled JP (it's not required).
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "Backend Engineer",
+            "description": "English-speaking team. Japanese is a plus but not required.",
+        })
+        self.assertEqual(lang, "EN")
+
 
 class ComputeMatchTests(unittest.TestCase):
     def test_strong_match_is_high_tier(self):
