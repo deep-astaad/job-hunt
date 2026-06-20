@@ -106,10 +106,8 @@ def rank_jobs(jobs, profiles, system_prompt):
     )
 
     ranker = JobRankerAI()
-    for profile in profiles:
-        profile["experience_years"] = profile.get(
-            "experience_years", ranker._parse_experience_years(profile.get("experience", ""))
-        )
+    # experience_years is already set as a float in user-profiles.json;
+    # matching.parse_profile_years reads it directly. No mutation needed.
 
     print(f"\nRanking {len(jobs)} jobs against {len(profiles)} profiles (full-context + engine)...")
     for i, job in enumerate(jobs):

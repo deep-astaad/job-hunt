@@ -210,11 +210,10 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
 
     ranker = JobRankerAI()
     system_prompt = ranker._read_file("prompts/ranker.txt")
-
-    for profile in profiles:
-        profile["experience_years"] = ranker._parse_experience_years(
-            profile.get("experience", "")
-        )
+    # experience_years is already set as a float in user-profiles.json and read by
+    # matching.parse_profile_years. Never mutate the shared (cached) profile dicts
+    # here — the worker pool is --pool=threads and concurrent tasks share the same
+    # list, causing a data race.
 
     try:
         import os
