@@ -3,6 +3,35 @@
 User-facing behaviour changes. For internal/technical notes see
 [CHANGELOG-DEV.md](CHANGELOG-DEV.md).
 
+## v1.0.1 — 2026-06-20 — Pipeline persistence hotfix
+
+This bugfix release closes the production reliability issues found during the
+final post-merge validation pass.
+
+### Scrape → format → rank is safer
+- **Real job-board sources are accepted end to end.** GaijinPot, CareerCross,
+  Green, Wantedly, and legacy local scraper source names no longer fail
+  formatting updates because of rejected source values.
+- **Fresh jobs are no longer silently orphaned after a bulk save hiccup.** If the
+  backend saves jobs but the worker loses the bulk response, the worker now
+  recovers each job id and still dispatches formatting/ranking.
+- **Formatter and ranker persistence failures now fail loudly and retry.** A
+  temporary API/database problem no longer looks like successful processing.
+- **Processing locks are released on fatal failures.** Jobs do not stay stuck in
+  Redis after an unrecoverable formatter or ranker error.
+- **Blank AI output is patched from the original scraped job.** Required fields
+  like company, URL, and source fall back to scraper data when the formatter
+  returns blanks.
+
+### Data and API cleanup
+- **Production active URL hashes and duplicates were repaired.** Active rows now
+  match the current normalizer, duplicate normalized URLs were deactivated, and
+  current active jobs have complete profile rankings.
+- **Job list pagination is stable.** API list pages now use deterministic
+  ordering so repeated pagination does not drift.
+
+_No action required beyond deploying this release._
+
 ## v1.0.0 — 2026-06-20 — Ranking accuracy & alert reliability
 
 This release is a quality-and-reliability pass over the scrape → rank → notify

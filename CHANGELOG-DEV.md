@@ -2,6 +2,54 @@
 
 Technical notes for contributors. User-facing summary: [CHANGELOG.md](CHANGELOG.md).
 
+## v1.0.1 — 2026-06-20 — Critical pipeline persistence hotfix (PR #39)
+
+Follow-up remediation after the production validation pass for issues #34-#38.
+
+### Source validation / local scrapers
+- `Job.SOURCE_CHOICES` now includes every live scraper source slug:
+  `gaijinpot`, `careercross`, `green`, `wantedly`, plus legacy
+  `japan-dev` / `tokyodev` so existing rows remain patchable before cleanup.
+- Migration `0010_update_source_choices` updates the model choices.
+- `local_scrapers.py` now emits canonical `japan_dev` and `tokyo_dev` slugs.
+
+### Formatter/ranker persistence semantics
+- `tasks.formatting.format_and_persist_job` now raises/retries persistence
+  failures instead of returning falsey data into the ranking chain.
+- Permanent formatter HTTP failures release pipeline/processing state before
+  re-raising; transient request failures retry with exponential backoff.
+- Required text fields from the formatter (`title`, `company`, `url`, `source`)
+  are backfilled from the original scraped job when the LLM returns blank values.
+- `tasks.ranking._persist_rankings` now calls `raise_for_status()` and propagates
+  failures; ranker retry/fatal paths clear `job_processing_lock:{job_id}`.
+- Pipeline dispatch now passes `pipeline_run_id` through formatter payloads so
+  completion tracking can reconcile failed jobs.
+
+### Batch ingestion recovery
+- New `tasks.pipeline._save_jobs_with_fallback` keeps the fast bulk save path but
+  retries missing URLs individually when the bulk request fails or returns an
+  incomplete `{normalized_url: {id, is_formatted}}` map.
+- This covers the production failure mode where Django committed rows but the
+  worker lost the response map and skipped dispatch, leaving fresh jobs
+  unformatted.
+
+### API ordering / data repair
+- `JobViewSet` list queries now default to `order_by("-scraped_at", "-id")`.
+- `best_tier` ordering has the same deterministic tie-breakers.
+- Production active data was repaired outside the migration:
+  - active URL/hash mismatches: 0 after cleanup
+  - active duplicate normalized URL groups: 0 after cleanup
+  - missing active profile rankings: 0 after rerank
+  - formatted-but-unranked active jobs: 0 after rerank
+
+### Tests
+- Added `SourceChoicesTests`, `FormattingTaskPersistenceTests`,
+  `RankingTaskPersistenceTests`, and `PipelineBatchPersistenceTests`.
+- Run:
+  `python3 -m py_compile backend/jobs/models.py backend/jobs/views.py tasks/formatting.py tasks/ranking.py tasks/pipeline.py local_scrapers.py`
+- Run:
+  `MOCK_LLM=1 DJANGO_TEST_SQLITE=1 APP_MODE=celery-worker APIFY_API_TOKEN=x OPENAI_API_KEY=x uv run --project . python backend/manage.py test jobs`
+
 ## v1.0.0 — 2026-06-20 — Audit-hardening batch (PRs #20–#32)
 
 Thirteen audit findings from `PIPELINE_AUDIT.md`, each reviewed (freelancer +
