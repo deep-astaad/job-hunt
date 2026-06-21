@@ -7,6 +7,9 @@ import {
   type Settings,
 } from "@/storage/settings";
 import { getProfile } from "@/storage/profile";
+import { buildCoverLetterMessages } from "@/llm/prompts";
+import { messagesToPrompt } from "@/llm/promptText";
+import { getProvider } from "@/llm/webchat/providers";
 
 type Status = {
   platform: string;
@@ -88,6 +91,30 @@ export function Popup() {
       const profile = await getProfile();
       const tab = await activeTab();
       const job: JobContext = { url: tab?.url, title: tab?.title };
+
+      if (settings?.llmMode === "webchat") {
+        const prompt = messagesToPrompt(buildCoverLetterMessages(profile, job));
+        try {
+          await navigator.clipboard.writeText(prompt);
+        } catch {
+          /* fall through; auto-inject still works */
+        }
+        const provider = getProvider(settings.webchatProvider);
+        const resp = (await chrome.runtime.sendMessage({
+          type: "WEBCHAT_HANDOFF",
+          providerId: settings.webchatProvider,
+          prompt,
+        } satisfies Message)) as MessageResponse;
+        if (resp.ok) {
+          setNote(
+            `Opened ${provider?.label ?? "your LLM"} with the prompt — copy the answer back.`
+          );
+        } else {
+          setNote(resp.error);
+        }
+        return;
+      }
+
       const resp = (await chrome.runtime.sendMessage({
         type: "LLM_GENERATE",
         kind: "cover_letter",

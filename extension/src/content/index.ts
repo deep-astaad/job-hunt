@@ -1,4 +1,4 @@
-import { detectFields, clearRegistry } from "./detector";
+import { detectFields, clearRegistry, getElement, describeElement } from "./detector";
 import { detectPlatform } from "./platforms";
 import "./platforms/register"; // self-registers platform fill adapters
 import { resolveFields } from "./resolver";
@@ -60,6 +60,15 @@ async function runFillPass(force = false): Promise<{
   return { fieldCount: fields.length, filledCount };
 }
 
+/** Fill a returned web-chat answer into the field that requested it. */
+async function fillResult(fieldHandle: string, text: string): Promise<void> {
+  const el = getElement(fieldHandle);
+  if (!el) return;
+  const field = describeElement(el);
+  if (!field) return;
+  await fillField(field, text, platform.id, undefined, true);
+}
+
 // --- popup/background message handling ---
 chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   if (msg.type === "FILL_NOW") {
@@ -70,6 +79,12 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "FILL_FOCUSED") {
     fillFocused().then(() => sendResponse({ ok: true } satisfies MessageResponse));
+    return true;
+  }
+  if (msg.type === "FILL_RESULT") {
+    fillResult(msg.fieldHandle, msg.text).then(() =>
+      sendResponse({ ok: true } satisfies MessageResponse)
+    );
     return true;
   }
   if (msg.type === "GET_STATUS") {

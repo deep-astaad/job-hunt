@@ -13,6 +13,9 @@ import {
 } from "@/profile/schema";
 import type { FieldDescriptor, FieldResolution } from "@/shared/types";
 import { sendToBackground, type Message, type JobContext } from "@/shared/messages";
+import { buildCoverLetterMessages, buildScreeningMessages } from "@/llm/prompts";
+import { messagesToPrompt } from "@/llm/promptText";
+import { getProvider } from "@/llm/webchat/providers";
 
 /**
  * On-focus assistant. When you focus a field, AppFill offers — in order of
@@ -103,13 +106,22 @@ function isFocusableField(el: HTMLElement): boolean {
   return false;
 }
 
+// Direct-API field mapping needs a key; web chat can't do structured mapping.
 const canUseLlm = () =>
-  Boolean(settings.llmFieldMappingEnabled && settings.openaiApiKey);
-const canGenerate = () =>
   Boolean(
-    settings.openaiApiKey &&
-      (settings.coverLetterEnabled || settings.screeningAnswersEnabled || settings.fieldTailoringEnabled)
+    settings.llmMode === "direct" &&
+      settings.llmFieldMappingEnabled &&
+      settings.openaiApiKey
   );
+// Generation works either via the API (direct) or web-chat handoff (no key).
+const generationAvailable = () =>
+  settings.llmMode === "webchat" ||
+  (settings.llmMode === "direct" && Boolean(settings.openaiApiKey));
+const canGenerate = () =>
+  generationAvailable() &&
+  (settings.coverLetterEnabled ||
+    settings.screeningAnswersEnabled ||
+    settings.fieldTailoringEnabled);
 
 // ---------------------------------------------------------------- rendering --
 function renderSuggestion(resolution: FieldResolution) {
@@ -223,6 +235,11 @@ async function generateIntoField() {
   const label = (field.label ?? "").toLowerCase();
   const kind: "cover_letter" | "screening_answer" =
     /cover letter|motivation/.test(label) ? "cover_letter" : "screening_answer";
+
+  if (settings.llmMode === "webchat") {
+    return generateViaWebchat(kind);
+  }
+
   message("Generating…");
   try {
     const resp = await sendToBackground({
@@ -246,6 +263,66 @@ async function generateIntoField() {
 
 function jobContext(): JobContext {
   return { title: document.title, url: location.href };
+}
+
+/**
+ * BYO-LLM path: build the prompt, hand it to the configured web chat (opened by
+ * the background worker), and wait for the answer. The answer returns
+ * automatically when possible; the paste-back box is the reliable fallback.
+ */
+async function generateViaWebchat(kind: "cover_letter" | "screening_answer") {
+  if (!field) return;
+  const messages =
+    kind === "cover_letter"
+      ? buildCoverLetterMessages(profile, jobContext())
+      : buildScreeningMessages(
+          profile,
+          field.label ?? "",
+          jobContext(),
+          field.maxLength
+        );
+  const prompt = messagesToPrompt(messages);
+  const provider = getProvider(settings.webchatProvider);
+  const label = provider?.label ?? "your LLM";
+
+  try {
+    await navigator.clipboard.writeText(prompt);
+  } catch {
+    /* clipboard may be blocked; auto-inject / manual paste still works */
+  }
+
+  const resp = await sendToBackground({
+    type: "WEBCHAT_HANDOFF",
+    providerId: settings.webchatProvider,
+    prompt,
+    fieldHandle: field.id,
+  } satisfies Message);
+  if (!resp.ok) return message(resp.error, true);
+
+  renderPasteBack(label);
+}
+
+/** Waiting UI: answer auto-returns, or the user pastes it here to fill. */
+function renderPasteBack(providerLabel: string) {
+  const box = startBox();
+  box.appendChild(
+    text(`Opened ${providerLabel}. Answer will return here — or paste it:`)
+  );
+  const ta = document.createElement("textarea");
+  ta.className = "ta";
+  ta.placeholder = "Paste the answer…";
+  ta.addEventListener("keydown", (e) => e.stopPropagation());
+  box.appendChild(ta);
+  box.appendChild(
+    button("fill", "Fill", async () => {
+      const v = ta.value.trim();
+      if (!v || !field) return;
+      await fillField(field, v, platformId, undefined, true);
+      message("Filled ✓ review before submitting", true);
+    })
+  );
+  box.appendChild(closeBtn());
+  finishBox(box);
 }
 
 async function applyResolution(resolution: FieldResolution): Promise<boolean> {
@@ -282,6 +359,9 @@ function ensureHost(): ShadowRoot {
     .in{font:13px system-ui,sans-serif;border:1px solid #374151;background:#0b1220;color:#fff;
       border-radius:7px;padding:5px 8px;min-width:150px;outline:none;}
     .in:focus{border-color:#3b82f6;}
+    .ta{font:13px system-ui,sans-serif;border:1px solid #374151;background:#0b1220;color:#fff;
+      border-radius:7px;padding:6px 8px;min-width:230px;min-height:64px;outline:none;resize:vertical;}
+    .ta:focus{border-color:#3b82f6;}
     button{font:600 12px system-ui,sans-serif;border:none;border-radius:7px;padding:5px 9px;cursor:pointer;}
     .fill{background:#2563eb;color:#fff;}
     .ghost{background:#374151;color:#e5e7eb;}

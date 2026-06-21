@@ -34,6 +34,20 @@ export default defineManifest({
       run_at: "document_idle",
       all_frames: true,
     },
+    {
+      // BYO-LLM handoff: only the chat providers' own pages.
+      matches: [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://www.kimi.com/*",
+        "https://kimi.com/*",
+        "https://kimi.moonshot.cn/*",
+      ],
+      js: ["src/content/webchat.ts"],
+      run_at: "document_idle",
+    },
   ],
   action: {
     default_popup: "src/popup/index.html",

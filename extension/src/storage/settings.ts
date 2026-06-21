@@ -1,7 +1,20 @@
 /** User-configurable settings, persisted in chrome.storage.local. */
 
+export type LlmMode = "direct" | "webchat" | "off";
+
 export interface Settings {
   // LLM
+  /**
+   * How generation features get their LLM:
+   *  - "direct"  — call the OpenAI-compatible API with the key below (default).
+   *  - "webchat" — hand the prompt to a logged-in web chat (no API key needed).
+   *  - "off"     — no LLM; deterministic + learned autofill only.
+   */
+  llmMode: LlmMode;
+  /** Provider id for "webchat" mode (see WEB_CHAT_PROVIDERS). */
+  webchatProvider: string;
+  /** Best-effort auto-paste of the prompt into the chat composer. */
+  webchatAutoInject: boolean;
   openaiApiKey: string;
   openaiBaseUrl: string;
   openaiModel: string;
@@ -22,6 +35,9 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  llmMode: "direct",
+  webchatProvider: "claude",
+  webchatAutoInject: true,
   openaiApiKey: "",
   openaiBaseUrl: "https://api.openai.com/v1",
   openaiModel: "gpt-4o-mini",
