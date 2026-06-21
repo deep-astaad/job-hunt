@@ -67,6 +67,27 @@ export async function removeContact(id: string): Promise<void> {
   await save((await getContacts()).filter((c) => c.id !== id));
 }
 
+/** Mark a contact as reached out to now (resets the follow-up clock). */
+export async function markContacted(id: string, when = Date.now()): Promise<void> {
+  await updateContact(id, { lastContactedAt: when });
+}
+
+/**
+ * Pure: contacts due for a follow-up — last touch (lastContactedAt, else
+ * capture) is at least `cadenceDays` ago. Oldest first.
+ */
+export function dueContacts(
+  list: Contact[],
+  cadenceDays: number,
+  now = Date.now()
+): Contact[] {
+  const ms = cadenceDays * 86_400_000;
+  const lastTouch = (c: Contact) => c.lastContactedAt ?? c.capturedAt;
+  return list
+    .filter((c) => now - lastTouch(c) >= ms)
+    .sort((a, b) => lastTouch(a) - lastTouch(b));
+}
+
 /** Pure: filter contacts by a free-text query over name/company/role. */
 export function searchContacts(list: Contact[], query: string): Contact[] {
   const q = query.trim().toLowerCase();

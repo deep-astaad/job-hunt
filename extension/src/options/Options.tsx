@@ -588,6 +588,19 @@ export function Options() {
           Saved from LinkedIn / company pages via the toolbar popup. Used for
           outreach and follow-up reminders.
         </p>
+        <label style={label}>
+          Follow-up reminder cadence: {settings.followUpCadenceDays} day(s) since
+          last contact
+        </label>
+        <input
+          type="range"
+          min={1}
+          max={30}
+          step={1}
+          value={settings.followUpCadenceDays}
+          onChange={(e) => patchSettings({ followUpCadenceDays: Number(e.target.value) })}
+          style={{ marginBottom: 8 }}
+        />
         {contacts.length > 0 && (
           <input
             style={{ ...input, marginBottom: 8 }}

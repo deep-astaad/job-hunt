@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { addContact, getContacts, removeContact, searchContacts } from "./contacts";
+import {
+  addContact,
+  getContacts,
+  removeContact,
+  searchContacts,
+  dueContacts,
+} from "./contacts";
 
 function installChromeStub() {
   const store: Record<string, unknown> = {};
@@ -52,5 +58,26 @@ describe("searchContacts", () => {
     expect(searchContacts(list, "globex").map((c) => c.id)).toEqual(["2"]);
     expect(searchContacts(list, "engineer").map((c) => c.id)).toEqual(["1"]);
     expect(searchContacts(list, "")).toHaveLength(2);
+  });
+});
+
+describe("dueContacts", () => {
+  const now = 1_000 * 86_400_000; // day 1000 in ms
+  const day = 86_400_000;
+  const list = [
+    { id: "fresh", capturedAt: now - 2 * day }, // captured 2 days ago, never contacted
+    { id: "stale", capturedAt: now - 30 * day, lastContactedAt: now - 10 * day },
+    { id: "recent", capturedAt: now - 30 * day, lastContactedAt: now - 1 * day },
+  ];
+
+  it("returns contacts past the cadence, oldest touch first", () => {
+    const out = dueContacts(list as never, 7, now).map((c) => c.id);
+    expect(out).toEqual(["stale"]); // fresh=2d, recent=1d are under 7d
+  });
+
+  it("treats never-contacted as due from capture date", () => {
+    const out = dueContacts(list as never, 1, now).map((c) => c.id);
+    expect(out).toContain("fresh");
+    expect(out).toContain("stale");
   });
 });

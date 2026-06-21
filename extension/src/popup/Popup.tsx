@@ -22,7 +22,13 @@ import { messagesToPrompt } from "@/llm/promptText";
 import { getProvider } from "@/llm/webchat/providers";
 import { matchResumeToJob } from "@/llm/resumeMatch";
 import { profileToResumeHtml } from "@/profile/resumeHtml";
-import { addContact } from "@/storage/contacts";
+import {
+  addContact,
+  getContacts,
+  dueContacts,
+  markContacted,
+  type Contact,
+} from "@/storage/contacts";
 
 type Status = {
   platform: string;
@@ -57,6 +63,7 @@ export function Popup() {
   const [angle, setAngle] = useState("generic");
   const [templates, setTemplates] = useState<OutreachTemplate[]>([]);
   const [templateId, setTemplateId] = useState("");
+  const [due, setDue] = useState<Contact[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -65,6 +72,7 @@ export function Popup() {
       const tpls = await getTemplates();
       setTemplates(tpls);
       setTemplateId(tpls[0]?.id ?? "");
+      setDue(dueContacts(await getContacts(), s.followUpCadenceDays));
       const tab = await activeTab();
       setDomain(domainOf(tab?.url));
       if (tab?.id) {
@@ -92,6 +100,48 @@ export function Popup() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function refreshDue() {
+    if (!settings) return;
+    setDue(dueContacts(await getContacts(), settings.followUpCadenceDays));
+  }
+
+  async function followUp(contact: Contact) {
+    setBusy(true);
+    try {
+      const profile = await getProfile();
+      const tpl =
+        templates.find((t) => t.id === "recruiter_followup") ?? templates[0];
+      const myName =
+        profile.contact.fullName ||
+        [profile.contact.firstName, profile.contact.lastName].filter(Boolean).join(" ");
+      const text = tpl
+        ? renderTemplate(tpl.body, {
+            name: contact.name,
+            firstName: contact.name?.split(" ")[0],
+            company: contact.company,
+            role: contact.role,
+            myName,
+            myTitle: profile.headline || profile.currentTitle,
+          })
+        : `Hi ${contact.name ?? ""}, following up — thanks!`;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        /* ignore */
+      }
+      await markContacted(contact.id);
+      await refreshDue();
+      setNote(`Follow-up for ${contact.name ?? "contact"} copied ✓`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function snooze(contact: Contact) {
+    await markContacted(contact.id);
+    await refreshDue();
   }
 
   async function draftOutreach() {
@@ -458,6 +508,39 @@ export function Popup() {
         )}
       </div>
 
+      {due.length > 0 && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: 8,
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderRadius: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 4 }}>
+            Follow-ups due ({due.length})
+          </div>
+          {due.slice(0, 4).map((c) => (
+            <div
+              key={c.id}
+              style={{ display: "flex", gap: 6, alignItems: "center", padding: "2px 0", fontSize: 12 }}
+            >
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.name || "(contact)"}
+                {c.company ? ` · ${c.company}` : ""}
+              </span>
+              <button onClick={() => followUp(c)} disabled={busy} style={miniBtn}>
+                draft
+              </button>
+              <button onClick={() => snooze(c)} disabled={busy} style={miniBtnGhost}>
+                done
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
         <button onClick={fillNow} disabled={busy} style={primaryBtn}>
           {busy ? "Working…" : "Fill this form"}
@@ -557,6 +640,21 @@ const linkBtn: React.CSSProperties = {
   cursor: "pointer",
   padding: 0,
   fontSize: 12,
+};
+const miniBtn: React.CSSProperties = {
+  padding: "3px 8px",
+  borderRadius: 6,
+  border: "none",
+  background: "#2563eb",
+  color: "#fff",
+  cursor: "pointer",
+  fontSize: 11,
+  fontWeight: 600,
+};
+const miniBtnGhost: React.CSSProperties = {
+  ...miniBtn,
+  background: "#e5e7eb",
+  color: "#374151",
 };
 const toggleRow: React.CSSProperties = {
   display: "flex",
