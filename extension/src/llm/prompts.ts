@@ -124,6 +124,34 @@ export function buildTailorMessages(
   ];
 }
 
+/**
+ * Produce a JD-focused resume: the SAME structured shape as extraction, but
+ * selected/reordered/emphasized for this posting. Truthful — selection and
+ * emphasis only, never fabrication.
+ */
+export function buildTailoredResumeMessages(
+  profile: CandidateProfile,
+  job?: Job
+): ChatMessage[] {
+  const system =
+    "You tailor a candidate's resume to a specific job by SELECTING and ORDERING " +
+    "their existing material — never inventing. From the master profile, keep the " +
+    "most relevant work experience and bullets first, drop or trim clearly " +
+    "irrelevant bullets, and reorder skills so the job-relevant ones lead. Do NOT " +
+    "add skills, employers, dates, or achievements not present in the profile. " +
+    "Respond with STRICT JSON in this shape (omit unknown fields): {summary, " +
+    "headline, yearsOfExperience, currentCompany, currentTitle, skills:[], " +
+    "workExperience:[{company,title,location,startDate,endDate,current,bullets:[]}], " +
+    "education:[{school,degree,field,startDate,endDate,gpa}]}. Keep it truthful.";
+  const user =
+    `MASTER PROFILE:\n${profileDigest(profile)}\n\n` +
+    `TARGET JOB:\n${JSON.stringify(job ?? {}, null, 1)}`;
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
 /** Extract a structured profile from a markdown resume. */
 export function buildProfileExtractionMessages(markdown: string): ChatMessage[] {
   const system =

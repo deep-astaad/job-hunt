@@ -11,6 +11,12 @@ import {
   getResumeFile,
   deleteResumeFile,
 } from "@/storage/resumeFile";
+import {
+  getResumeVariants,
+  addResumeVariant,
+  removeResumeVariant,
+  type ResumeVariant,
+} from "@/storage/resumeVariants";
 import { getAllMemory, deleteMemory, clearMemory } from "@/storage/memory";
 import type { MemoryEntry } from "@/storage/memory";
 import { type CandidateProfile, type EligibilityInfo } from "@/profile/schema";
@@ -24,6 +30,9 @@ export function Options() {
   const [markdown, setMarkdown] = useState("");
   const [yamlText, setYamlText] = useState("");
   const [resumeName, setResumeName] = useState<string | null>(null);
+  const [variants, setVariants] = useState<ResumeVariant[]>([]);
+  const [vLabel, setVLabel] = useState("");
+  const [vTags, setVTags] = useState("");
   const [memory, setMemory] = useState<MemoryEntry[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,6 +45,7 @@ export function Options() {
       setYamlText(profileToYaml(p));
       const rf = await getResumeFile();
       setResumeName(rf?.name ?? null);
+      setVariants(await getResumeVariants());
       setMemory(await getAllMemory());
     })();
   }, []);
@@ -143,12 +153,32 @@ export function Options() {
     if (!file) return;
     await saveResumeFile(file);
     setResumeName(file.name);
+    setVariants(await getResumeVariants());
     flash("Resume stored ✓ It will attach to upload fields.");
   }
 
   async function onDeleteResume() {
     await deleteResumeFile();
     setResumeName(null);
+    setVariants(await getResumeVariants());
+  }
+
+  async function onAddVariant(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const tags = vTags.split(",").map((t) => t.trim()).filter(Boolean);
+    await addResumeVariant(file, vLabel, tags);
+    setVLabel("");
+    setVTags("");
+    e.target.value = "";
+    setVariants(await getResumeVariants());
+    flash("Variant added ✓ AppFill picks the best match per job.");
+  }
+
+  async function onRemoveVariant(id: string) {
+    await removeResumeVariant(id);
+    setVariants(await getResumeVariants());
+    if (id === "resume") setResumeName(null);
   }
 
   async function onExport() {
@@ -175,6 +205,7 @@ export function Options() {
       setYamlText(profileToYaml(p));
       const rf = await getResumeFile();
       setResumeName(rf?.name ?? null);
+      setVariants(await getResumeVariants());
       setMemory(await getAllMemory());
       flash("Backup imported ✓");
     } catch (err) {
@@ -202,6 +233,54 @@ export function Options() {
               </button>
             </>
           )}
+        </div>
+
+        <label style={{ ...label, marginTop: 16 }}>
+          Resume variants — AppFill attaches the one whose label/tags best match
+          the job (falls back to the default above)
+        </label>
+        {variants.filter((v) => v.id !== "resume").length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {variants
+              .filter((v) => v.id !== "resume")
+              .map((v) => (
+                <div key={v.id} style={memRow}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{v.label}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      {v.fileName}
+                      {v.tags.length ? ` · ${v.tags.join(", ")}` : ""}
+                    </div>
+                  </div>
+                  <button style={linkBtn} onClick={() => onRemoveVariant(v.id)}>
+                    remove
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            style={{ ...input, width: 140 }}
+            placeholder="Label (e.g. Backend)"
+            value={vLabel}
+            onChange={(e) => setVLabel(e.target.value)}
+          />
+          <input
+            style={{ ...input, width: 180 }}
+            placeholder="Tags: go, backend, api"
+            value={vTags}
+            onChange={(e) => setVTags(e.target.value)}
+          />
+          <label style={{ ...btn, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Add variant
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={onAddVariant}
+              style={{ display: "none" }}
+            />
+          </label>
         </div>
 
         <label style={{ ...label, marginTop: 16 }}>
