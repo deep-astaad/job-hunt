@@ -39,6 +39,8 @@ export interface Settings {
   appLogEndpoint: string;
   /** Optional bearer token sent as Authorization on the POST. */
   appLogToken: string;
+  /** Days after last contact before a networking follow-up is "due". */
+  followUpCadenceDays: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -59,6 +61,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appLogEnabled: false,
   appLogEndpoint: "",
   appLogToken: "",
+  followUpCadenceDays: 7,
 };
 
 const KEY = "appfill:settings";
