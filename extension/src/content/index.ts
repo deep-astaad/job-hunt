@@ -9,6 +9,7 @@ import { installSuggestions, fillFocused } from "./suggest";
 import { fetchResumeFile } from "./resume";
 import { extractJobContext } from "./jobContext";
 import { installFlow, startFlow, stopFlow } from "./flow";
+import { fillWorkHistory } from "./workHistory";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
@@ -99,6 +100,22 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "FLOW_STOP") {
     stopFlow().then(() => sendResponse({ ok: true } satisfies MessageResponse));
+    return true;
+  }
+  if (msg.type === "FILL_WORK_HISTORY") {
+    getProfile()
+      .then((p) => fillWorkHistory(p))
+      .then((count) =>
+        sendResponse({
+          ok: true,
+          status: {
+            platform: platform.label,
+            fieldCount: detectFields().length,
+            filledCount: count,
+            autofillEnabled: true,
+          },
+        } satisfies MessageResponse)
+      );
     return true;
   }
   if (msg.type === "GET_STATUS") {

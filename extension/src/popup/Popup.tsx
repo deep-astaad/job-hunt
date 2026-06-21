@@ -77,6 +77,24 @@ export function Popup() {
     }
   }
 
+  async function fillWorkHistory() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const resp = await sendToTab(tab.id, { type: "FILL_WORK_HISTORY" });
+      if (resp.ok && "status" in resp) {
+        setStatus(resp.status);
+        setNote(`Filled ${resp.status.filledCount} work-history fields.`);
+      }
+    } catch {
+      setNote("Couldn't reach this page. Reload and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function startGuidedFlow() {
     const tab = await activeTab();
     if (!tab?.id) return;
@@ -259,6 +277,9 @@ export function Popup() {
         </button>
         <button onClick={startGuidedFlow} disabled={busy} style={btn}>
           Guided multi-page fill →
+        </button>
+        <button onClick={fillWorkHistory} disabled={busy} style={btn}>
+          Fill work history & education
         </button>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard
