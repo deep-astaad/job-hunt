@@ -51,8 +51,11 @@ async function onFocus(e: FocusEvent) {
 
   const field = describeElement(el);
   if (!field) return hide();
-  // Don't nag on fields the user has already filled.
-  if (field.existingValue && field.existingValue.trim()) return hide();
+  // Don't nag on free-text fields the user has already filled. Option fields
+  // (select/combobox) always report their default selection as a "value", so we
+  // still offer a suggestion there.
+  const isOption = field.kind === "select" || field.kind === "combobox";
+  if (!isOption && field.existingValue && field.existingValue.trim()) return hide();
 
   const resolution = await resolveSingle(field, profile, domain, platformId);
   currentField = field;
@@ -131,8 +134,9 @@ function render(anchor: HTMLElement, resolution: FieldResolution) {
   }
 
   const fill = button("fill", "Fill", async () => {
-    await applyResolution(resolution);
-    hide();
+    const ok = await applyResolution(resolution);
+    if (ok) hide();
+    else message("Couldn't auto-select — pick it manually", true);
   });
   box.appendChild(fill);
 
@@ -161,34 +165,59 @@ function renderAiOnly(anchor: HTMLElement, _field: FieldDescriptor) {
   position(box, anchor);
 }
 
-async function applyResolution(resolution: FieldResolution) {
-  if (!currentField) return;
+/** Replace the box with a short status line (transient unless `keep`). */
+function message(msg: string, keep = false) {
+  const sh = ensureHost();
+  clearBox(sh);
+  if (!currentEl) return;
+  const box = document.createElement("div");
+  box.className = "box";
+  const mark = document.createElement("span");
+  mark.className = "mark";
+  mark.textContent = "AppFill";
+  box.appendChild(mark);
+  box.appendChild(text(msg));
+  if (keep) box.appendChild(button("x", "✕", hide));
+  sh.appendChild(box);
+  position(box, currentEl);
+}
+
+async function applyResolution(resolution: FieldResolution): Promise<boolean> {
+  if (!currentField) return false;
   if (resolution.isResumeFile) {
     const file = await fetchResumeFile();
-    if (file) await fillField(currentField, "", platformId, file);
-    return;
+    return file
+      ? fillField(currentField, "", platformId, file, true /* force */)
+      : false;
   }
-  if (resolution.value) await fillField(currentField, resolution.value, platformId);
+  if (resolution.value)
+    return fillField(currentField, resolution.value, platformId, undefined, true);
+  return false;
 }
 
 async function askAi() {
-  if (!currentField) return;
-  const sh = ensureHost();
-  const box = sh.querySelector(".box");
-  if (box) box.textContent = "Asking AI…";
+  if (!currentField || !currentEl) return;
+  message("Asking AI…");
   try {
     const resp = await sendToBackground({
       type: "LLM_MAP_FIELDS",
       fields: [currentField],
       profile,
     } satisfies Message);
-    if (resp.ok && "resolutions" in resp && resp.resolutions[0]?.value) {
-      await fillField(currentField, resp.resolutions[0].value, platformId);
+    const value =
+      resp.ok && "resolutions" in resp ? resp.resolutions[0]?.value : undefined;
+    if (!value) return message("No AI suggestion for this field", true);
+    const ok = await fillField(currentField, value, platformId, undefined, true);
+    if (ok) {
+      message(`✓ ${value}`);
+      setTimeout(hide, 900);
+    } else {
+      // Couldn't auto-select (e.g. an option that isn't in the list).
+      message(`Couldn't auto-select “${value}” — pick it manually`, true);
     }
   } catch {
-    /* ignore */
+    message("AI request failed", true);
   }
-  hide();
 }
 
 function position(box: HTMLElement, anchor: HTMLElement) {
