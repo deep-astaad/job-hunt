@@ -36,6 +36,12 @@ export type Message =
       type: "LLM_EXTRACT_PROFILE";
       markdown: string;
     }
+  // popup -> background: produce a JD-focused resume (subset/reordered profile)
+  | {
+      type: "LLM_TAILOR_RESUME";
+      profile: CandidateProfile;
+      job?: JobContext;
+    }
   // popup/background -> content: run a whole-form fill pass now
   | { type: "FILL_NOW" }
   // background -> content: fill the currently focused field (context menu / shortcut)
@@ -52,8 +58,9 @@ export type Message =
       entries: { signature: string; value: string }[];
     }
   // content -> background: fetch the stored resume (IndexedDB lives in the
-  // extension origin, which the page-scoped content script can't read directly)
-  | { type: "GET_RESUME_FILE" }
+  // extension origin, which the page-scoped content script can't read directly).
+  // jobText, when present, lets the background auto-pick the best resume variant.
+  | { type: "GET_RESUME_FILE"; jobText?: string }
   // content/popup -> background: start a BYO-LLM web-chat handoff. Background
   // opens the provider tab and records the prompt + return target.
   | {

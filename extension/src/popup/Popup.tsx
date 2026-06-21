@@ -7,9 +7,11 @@ import {
   type Settings,
 } from "@/storage/settings";
 import { getProfile } from "@/storage/profile";
-import { buildCoverLetterMessages } from "@/llm/prompts";
+import { buildCoverLetterMessages, buildTailoredResumeMessages } from "@/llm/prompts";
 import { messagesToPrompt } from "@/llm/promptText";
 import { getProvider } from "@/llm/webchat/providers";
+import { matchResumeToJob } from "@/llm/resumeMatch";
+import { profileToResumeHtml } from "@/profile/resumeHtml";
 
 type Status = {
   platform: string;
@@ -84,21 +86,88 @@ export function Popup() {
     setSettings(next);
   }
 
+  async function getJobContext(): Promise<JobContext> {
+    const tab = await activeTab();
+    let job: JobContext = { url: tab?.url, title: tab?.title };
+    if (tab?.id != null) {
+      try {
+        const jc = await sendToTab(tab.id, { type: "GET_JOB_CONTEXT" });
+        if (jc.ok && "job" in jc) job = jc.job;
+      } catch {
+        /* not a content-script page; fall back to title/url */
+      }
+    }
+    return job;
+  }
+
+  async function tailorResume() {
+    setBusy(true);
+    setNote("");
+    try {
+      const profile = await getProfile();
+      const job = await getJobContext();
+      const jobText = [job.title, job.company, job.description]
+        .filter(Boolean)
+        .join("\n");
+      const m = matchResumeToJob(profile, jobText);
+      const scoreLine = `Match ${m.score}/100 · ${m.matchedSkills.length ? m.matchedSkills.slice(0, 6).join(", ") : "no skill keywords found"}`;
+
+      if (settings?.llmMode === "webchat") {
+        const prompt = messagesToPrompt(buildTailoredResumeMessages(profile, job));
+        try {
+          await navigator.clipboard.writeText(prompt);
+        } catch {
+          /* auto-inject still works */
+        }
+        const provider = getProvider(settings.webchatProvider);
+        const resp = (await chrome.runtime.sendMessage({
+          type: "WEBCHAT_HANDOFF",
+          providerId: settings.webchatProvider,
+          prompt,
+        } satisfies Message)) as MessageResponse;
+        setNote(
+          resp.ok
+            ? `${scoreLine}. Opened ${provider?.label ?? "your LLM"} to draft a tailored resume.`
+            : resp.error
+        );
+        return;
+      }
+
+      if (settings?.llmMode === "off" || !settings) {
+        setNote(`${scoreLine}. (Enable an LLM in settings to generate a tailored resume.)`);
+        return;
+      }
+
+      const resp = (await chrome.runtime.sendMessage({
+        type: "LLM_TAILOR_RESUME",
+        profile,
+        job,
+      } satisfies Message)) as MessageResponse;
+      if (resp.ok && "profile" in resp) {
+        const html = profileToResumeHtml(resp.profile);
+        const w = window.open("", "_blank");
+        if (w) {
+          w.document.write(html);
+          w.document.close();
+          setTimeout(() => w.print(), 350);
+        }
+        setNote(`${scoreLine}. Tailored resume opened — print/save as PDF.`);
+      } else if (!resp.ok) {
+        setNote(resp.error);
+      }
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Tailoring failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function generateCoverLetter() {
     setBusy(true);
     setNote("");
     try {
       const profile = await getProfile();
-      const tab = await activeTab();
-      let job: JobContext = { url: tab?.url, title: tab?.title };
-      if (tab?.id != null) {
-        try {
-          const jc = await sendToTab(tab.id, { type: "GET_JOB_CONTEXT" });
-          if (jc.ok && "job" in jc) job = jc.job;
-        } catch {
-          /* not a content-script page; fall back to title/url */
-        }
-      }
+      const job = await getJobContext();
 
       if (settings?.llmMode === "webchat") {
         const prompt = messagesToPrompt(buildCoverLetterMessages(profile, job));
@@ -179,6 +248,9 @@ export function Popup() {
         </button>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard
+        </button>
+        <button onClick={tailorResume} disabled={busy} style={btn}>
+          Tailor resume for this job
         </button>
         <label style={toggleRow}>
           <input type="checkbox" checked={siteEnabled} onChange={toggleSite} />

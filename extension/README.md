@@ -42,6 +42,10 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
   **save it to your profile** when it maps to a known field.
 - **Inline generation** — focusing a big text box (cover letter / "why this
   company?") offers **✨ Generate**, grounded in your profile + the page's job.
+- **Tailored resume per job** — the popup’s **Tailor resume for this job** shows a
+  deterministic JD match score and (with an LLM) generates a JD-focused resume from
+  your master, opened as a printable PDF. Upload multiple **resume variants** with
+  labels/tags (e.g. “Backend”, “ML”) and AppFill attaches the best match per posting.
 - **Bring your own LLM (no API key)** — set LLM mode to **Web chat** (options §3)
   to generate via a logged-in **Claude / ChatGPT / Gemini / Kimi** tab instead of
   an API key. AppFill opens the chat with your prompt (also copied to clipboard),

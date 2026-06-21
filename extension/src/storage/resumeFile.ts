@@ -2,11 +2,15 @@
  * Binary resume storage (PDF/DOCX) in IndexedDB. chrome.storage.local is fine
  * for JSON but awkward for large binaries, so the actual file lives here and is
  * attached to file-upload inputs by the filler.
+ *
+ * Supports multiple named variants (e.g. "backend", "ml"), each keyed by id in
+ * the object store. The default/primary variant uses the id "resume" so the
+ * pre-existing single-resume data keeps working unchanged.
  */
 
 const DB_NAME = "appfill";
 const STORE = "files";
-const RESUME_KEY = "resume";
+export const DEFAULT_RESUME_ID = "resume";
 
 export interface StoredFile {
   name: string;
@@ -28,7 +32,7 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveResumeFile(file: File): Promise<void> {
+export async function saveResumeFileAs(id: string, file: File): Promise<void> {
   const data = await file.arrayBuffer();
   const record: StoredFile = {
     name: file.name,
@@ -40,18 +44,18 @@ export async function saveResumeFile(file: File): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(record, RESUME_KEY);
+    tx.objectStore(STORE).put(record, id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
   db.close();
 }
 
-export async function getResumeFile(): Promise<StoredFile | undefined> {
+export async function getResumeFileById(id: string): Promise<StoredFile | undefined> {
   const db = await openDb();
   const result = await new Promise<StoredFile | undefined>((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(RESUME_KEY);
+    const req = tx.objectStore(STORE).get(id);
     req.onsuccess = () => resolve(req.result as StoredFile | undefined);
     req.onerror = () => reject(req.error);
   });
@@ -59,20 +63,34 @@ export async function getResumeFile(): Promise<StoredFile | undefined> {
   return result;
 }
 
+export async function deleteResumeFileById(id: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+// --- backward-compatible single-resume API (operates on the default id) ------
+
+export function saveResumeFile(file: File): Promise<void> {
+  return saveResumeFileAs(DEFAULT_RESUME_ID, file);
+}
+
+export function getResumeFile(): Promise<StoredFile | undefined> {
+  return getResumeFileById(DEFAULT_RESUME_ID);
+}
+
+export function deleteResumeFile(): Promise<void> {
+  return deleteResumeFileById(DEFAULT_RESUME_ID);
+}
+
 /** Reconstruct a DOM File from the stored bytes for attaching to <input file>. */
 export async function getResumeAsFile(): Promise<File | undefined> {
   const stored = await getResumeFile();
   if (!stored) return undefined;
   return new File([stored.data], stored.name, { type: stored.type });
-}
-
-export async function deleteResumeFile(): Promise<void> {
-  const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).delete(RESUME_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
 }

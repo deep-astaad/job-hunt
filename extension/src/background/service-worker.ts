@@ -2,7 +2,9 @@ import type { Message, MessageResponse } from "@/shared/messages";
 import type { FieldDescriptor, FieldResolution } from "@/shared/types";
 import { getSettings } from "@/storage/settings";
 import { remember } from "@/storage/memory";
-import { getResumeFile } from "@/storage/resumeFile";
+import { getResumeFile, getResumeFileById } from "@/storage/resumeFile";
+import { getResumeVariants } from "@/storage/resumeVariants";
+import { pickVariantForJob } from "@/llm/resumeMatch";
 import { arrayBufferToBase64 } from "@/shared/encoding";
 import { chatCompletion, type LlmConfig } from "@/llm/openai";
 import {
@@ -11,6 +13,7 @@ import {
   buildScreeningMessages,
   buildTailorMessages,
   buildProfileExtractionMessages,
+  buildTailoredResumeMessages,
 } from "@/llm/prompts";
 import { emptyProfile, type CandidateProfile } from "@/profile/schema";
 import { getProvider, webChatTarget } from "@/llm/webchat/providers";
@@ -91,11 +94,13 @@ async function handle(
       return generate(msg);
     case "LLM_EXTRACT_PROFILE":
       return extractProfile(msg.markdown);
+    case "LLM_TAILOR_RESUME":
+      return tailorResume(msg);
     case "CAPTURE_SUBMISSION":
       await remember(msg.entries, msg.domain, msg.platform);
       return { ok: true };
     case "GET_RESUME_FILE":
-      return resumeFile();
+      return resumeFile(msg.jobText);
     case "WEBCHAT_HANDOFF":
       return startWebchatHandoff(msg, sender?.tab?.id);
     case "WEBCHAT_RESULT":
@@ -194,16 +199,8 @@ async function generate(
   return { ok: true, text: text.trim() };
 }
 
-async function extractProfile(markdown: string): Promise<MessageResponse> {
-  const cfg = await llmConfig();
-  if (!cfg.apiKey) return { ok: false, error: "No OpenAI API key configured." };
-  const content = await chatCompletion(
-    cfg,
-    buildProfileExtractionMessages(markdown),
-    { jsonMode: true, temperature: 0 }
-  );
-  const parsed = safeJson(content) ?? {};
-  const profile: CandidateProfile = {
+function normalizeProfile(parsed: any, rawMarkdown?: string): CandidateProfile {
+  return {
     ...emptyProfile(),
     ...parsed,
     contact: { ...parsed.contact },
@@ -212,13 +209,40 @@ async function extractProfile(markdown: string): Promise<MessageResponse> {
     education: parsed.education ?? [],
     links: parsed.links ?? {},
     eligibility: parsed.eligibility ?? {},
-    rawMarkdown: markdown,
+    ...(rawMarkdown != null ? { rawMarkdown } : {}),
   };
-  return { ok: true, profile };
 }
 
-async function resumeFile(): Promise<MessageResponse> {
-  const stored = await getResumeFile();
+async function extractProfile(markdown: string): Promise<MessageResponse> {
+  const cfg = await llmConfig();
+  if (!cfg.apiKey) return { ok: false, error: "No OpenAI API key configured." };
+  const content = await chatCompletion(
+    cfg,
+    buildProfileExtractionMessages(markdown),
+    { jsonMode: true, temperature: 0 }
+  );
+  return { ok: true, profile: normalizeProfile(safeJson(content) ?? {}, markdown) };
+}
+
+async function tailorResume(
+  msg: Extract<Message, { type: "LLM_TAILOR_RESUME" }>
+): Promise<MessageResponse> {
+  const cfg = await llmConfig();
+  if (!cfg.apiKey) return { ok: false, error: "No OpenAI API key configured." };
+  const content = await chatCompletion(
+    cfg,
+    buildTailoredResumeMessages(msg.profile, msg.job),
+    { jsonMode: true, temperature: 0.2 }
+  );
+  const tailored = normalizeProfile(safeJson(content) ?? {}, msg.profile.rawMarkdown);
+  // Never let tailoring fabricate identity — keep the real contact + links.
+  tailored.contact = { ...msg.profile.contact, ...tailored.contact };
+  tailored.links = { ...msg.profile.links, ...tailored.links };
+  return { ok: true, profile: tailored };
+}
+
+async function resumeFile(jobText?: string): Promise<MessageResponse> {
+  let stored = await pickResume(jobText);
   if (!stored) return { ok: true, file: undefined };
   return {
     ok: true,
@@ -228,6 +252,21 @@ async function resumeFile(): Promise<MessageResponse> {
       base64: arrayBufferToBase64(stored.data),
     },
   };
+}
+
+/** Choose the resume bytes to attach: best variant for the job, else default. */
+async function pickResume(jobText?: string) {
+  const variants = await getResumeVariants();
+  if (jobText && variants.length > 1) {
+    const pick = pickVariantForJob(variants, jobText);
+    if (pick) {
+      const f = await getResumeFileById(pick.id);
+      if (f) return f;
+    }
+  }
+  const def = await getResumeFile();
+  if (def) return def;
+  return variants[0] ? await getResumeFileById(variants[0].id) : undefined;
 }
 
 function safeJson(s: string): any {
