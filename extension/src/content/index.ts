@@ -11,6 +11,7 @@ import { extractJobContext } from "./jobContext";
 import { installFlow, startFlow, stopFlow } from "./flow";
 import { fillWorkHistory } from "./workHistory";
 import { runValidation, renderValidationPanel } from "./validate";
+import { extractContactInfo } from "./contactInfo";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
@@ -102,6 +103,10 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "GET_JOB_CONTEXT") {
     sendResponse({ ok: true, job: extractJobContext() } satisfies MessageResponse);
+    return false;
+  }
+  if (msg.type === "GET_CONTACT_INFO") {
+    sendResponse({ ok: true, contact: extractContactInfo() } satisfies MessageResponse);
     return false;
   }
   if (msg.type === "FLOW_START") {

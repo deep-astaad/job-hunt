@@ -1,5 +1,6 @@
 import type { FieldDescriptor, FieldResolution } from "./types";
 import type { CandidateProfile } from "@/profile/schema";
+import type { ContactDraft } from "@/storage/contacts";
 
 /**
  * Typed messaging contract between content script, popup/options UI, and the
@@ -83,6 +84,8 @@ export type Message =
   | { type: "FILL_WORK_HISTORY" }
   // popup -> content: run the pre-submit validation pass and show the checklist.
   | { type: "VALIDATE_FORM" }
+  // popup -> content: scrape a contact draft from the page (LinkedIn/company).
+  | { type: "GET_CONTACT_INFO" }
   // content -> background: an application was submitted; log it (opt-in).
   | {
       type: "APPLICATION_SUBMITTED";
@@ -99,6 +102,7 @@ export type MessageResponse =
   | { ok: true; text: string }
   | { ok: true; url: string }
   | { ok: true; job: JobContext }
+  | { ok: true; contact: ContactDraft }
   | { ok: true; profile: CandidateProfile }
   | { ok: true; file?: { name: string; type: string; base64: string } }
   | {

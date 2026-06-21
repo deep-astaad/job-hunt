@@ -9,6 +9,7 @@ import {
   DEFAULT_RESUME_ID,
 } from "./resumeFile";
 import { getResumeVariants, type ResumeVariant } from "./resumeVariants";
+import { getContacts, type Contact } from "./contacts";
 import { arrayBufferToBase64, base64ToFile } from "@/shared/encoding";
 
 /**
@@ -32,6 +33,8 @@ export interface Backup {
   resume?: { name: string; type: string; base64: string };
   /** Non-default named resume variants. */
   resumeVariants?: BackupVariant[];
+  /** Networking contacts. */
+  contacts?: Contact[];
 }
 
 export async function exportAll(): Promise<Backup> {
@@ -58,6 +61,7 @@ export async function exportAll(): Promise<Backup> {
         }
       : undefined,
     resumeVariants: backupVariants.length ? backupVariants : undefined,
+    contacts: (await getContacts()) ?? [],
   };
 }
 
@@ -81,5 +85,8 @@ export async function importAll(data: Backup): Promise<void> {
     await chrome.storage.local.set({
       "appfill:resumeVariants": data.resumeVariants.map((v) => v.meta),
     });
+  }
+  if (data.contacts?.length) {
+    await chrome.storage.local.set({ "appfill:contacts": data.contacts });
   }
 }
