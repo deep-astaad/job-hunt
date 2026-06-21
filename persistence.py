@@ -6,76 +6,76 @@ from openai import OpenAI
 from config import get_openai_api_keys, get_openai_base_url, get_openai_model, DJANGO_API_URL
 
 
+
+# Per-domain allowlist of query params that encode the job identity.
+# All other params (tracking tokens, session ids, referrers) are stripped.
+_DOMAIN_ID_PARAMS: dict[str, list[str]] = {
+    "indeed.com": ["jk"],
+    "indeed.co.jp": ["jk"],
+    # Taleo ATS (e.g. company.taleo.net / oracle.taleo.net)
+    "taleo.net": ["job"],
+    # Jobvite ATS (hire.jobvite.com / jobs.jobvite.com)
+    "jobvite.com": ["j"],
+    # SAP SuccessFactors
+    "successfactors.com": ["jobId"],
+    "successfactors.eu": ["jobId"],
+    # Workable ATS
+    "workable.com": ["jid"],
+    # SmartRecruiters
+    "smartrecruiters.com": ["job"],
+}
+
+
 def normalize_url(url):
-    """Normalize URL for comparison: strip query params and fragments (keeping jk for Indeed)."""
+    """Normalize a job URL for deduplication.
+
+    Strips tracking/session params and fragments; keeps only the query params
+    that encode the job identity for each domain.  Most boards (LinkedIn,
+    GaijinPot, CareerCross, Wantedly, Green) embed the ID in the path and
+    need no query params at all.
+    """
     if not url:
         return ""
     parsed = urlparse(url)
     netloc = parsed.netloc.lower()
     path = parsed.path
-    
-    # Strip trailing slash from path for consistency, but keep if it's just "/"
+
     if path.endswith("/") and len(path) > 1:
         path = path[:-1]
-        
+
     query_params = dict(parse_qsl(parsed.query))
-    
-    # Keep only essential query parameters depending on domain
-    keep_params = {}
-    if "indeed.com" in netloc or "indeed.co.jp" in netloc:
-        if "jk" in query_params:
-            keep_params["jk"] = query_params["jk"]
-            
+
+    # Exact host or subdomain match only — substring matching would let
+    # "notindeed.com" hit the "indeed.com" rule.
+    host = netloc.split("@")[-1].split(":")[0]
+    keep_keys: list[str] = []
+    for domain, params in _DOMAIN_ID_PARAMS.items():
+        if host == domain or host.endswith("." + domain):
+            keep_keys = params
+            break
+
+    keep_params = {k: query_params[k] for k in keep_keys if k in query_params}
     new_query = urlencode(keep_params) if keep_params else ""
     return urlunparse((parsed.scheme, netloc, path, "", new_query, ""))
 
 def detect_job_language(job_dict):
-    """Detect and normalize language choice based on content and language field."""
-    lang = str(job_dict.get("language", "")).strip().upper()
-    if lang in ("JP", "JAPANESE"):
-        lang = "JP"
-    elif lang in ("EN", "ENGLISH"):
-        lang = "EN"
-    elif lang in ("NON-ENGLISH", "NON_ENGLISH"):
-        lang = "non-english"
-    else:
-        lang = "EN"
+    """Detect required working language using the calibrated matching engine.
 
-    # Check description, title, etc. for explicit Japanese requirements
-    desc = (job_dict.get("full_description") or job_dict.get("description") or "").lower()
-    title = (job_dict.get("title") or "").lower()
+    Delegates to matching.detect_required_language so the stored label matches
+    exactly what the ranker uses for its language gate \u2014 no more over-tagging
+    EN-OK roles as JP just because an address contains a single kanji character.
 
-    if not desc and "raw_data" in job_dict:
-        raw_data = job_dict["raw_data"] or {}
-        desc = str(raw_data.get("descriptionText", raw_data.get("description", ""))).lower()
-
-    # Define common phrases suggesting Japanese is required
-    jp_indicators = [
-        r"business[- ]level japanese",
-        r"japanese[:\s]+business",
-        r"fluent japanese",
-        r"japanese[:\s]+fluent",
-        r"native japanese",
-        r"japanese[:\s]+native",
-        r"japanese[- ]level[\s:]+fluent",
-        r"jlpt[\s]*n[1-3]",
-        r"japanese required",
-        r"japanese is required",
-        r"all text in japanese",
-        r"japanese language proficiency",
-        r"language: japanese and english",
-        r"english and japanese required",
-    ]
-
-    for pattern in jp_indicators:
-        if re.search(pattern, desc) or re.search(pattern, title):
-            return "JP"
-
-    # Check if text contains Japanese characters (Hiragana, Katakana, or common Kanji)
-    if re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", desc) or re.search(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]", title):
+    Returns "JP", "EN", or "non-english".
+    """
+    from matching import detect_required_language
+    req_lang, is_hard = detect_required_language(job_dict)
+    # Only label JP when Japanese is actually *required* — optional/nice-to-have
+    # mentions stay EN so the stored label and dashboard filter mean "needs JP".
+    if req_lang == "japanese" and is_hard:
         return "JP"
-
-    return lang
+    if req_lang == "non-english" and is_hard:
+        return "non-english"
+    return "EN"
 
 
 _RAW_LOCATION_FIELDS = (
@@ -148,12 +148,9 @@ class JobFormatter:
             ],
             temperature=0.1,
             timeout=120,
-        ).strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-        if text.endswith("```"):
-            text = text.rsplit("```", 1)[0]
-        result = json.loads(text.strip())
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(text)
         if isinstance(result, dict):
             result["language"] = detect_job_language(result)
             result["location"] = detect_job_location(result, raw_job)
@@ -264,64 +261,6 @@ class DjangoPersistence:
         print(f"   -> Fetched {len(all_jobs)} jobs updated today from DB.")
         return all_jobs
 
-    def _parse_ranking_markdown(self, markdown_text, profile_id, profile_title):
-        lines = [l.strip() for l in markdown_text.strip().split("\n") if l.strip().startswith("|")]
-        if len(lines) < 3:
-            return []
-        rankings = []
-        for line in lines[2:]:
-            cells = [c.strip() for c in line.split("|")[1:-1]]
-            if len(cells) < 8:
-                continue
-            rank_str, tier, title_company, salary, exp, lang, summary, url_cell = cells
-            url_match = re.search(r"\((https?://[^\)]+)\)", url_cell)
-            url = url_match.group(1) if url_match else None
-            try:
-                rank = int(rank_str.strip())
-            except ValueError:
-                continue
-            rankings.append({
-                "url": url,
-                "profile_id": profile_id,
-                "profile_title": profile_title,
-                "match_tier": tier.strip().upper(),
-                "rank": rank,
-                "jd_summary": summary.strip(),
-            })
-        return rankings
-
-    def _post_rankings(self, rankings_data):
-        enriched_rankings = []
-        for r in rankings_data:
-            if not r.get("url"):
-                continue
-            try:
-                job_id = self._fetch_job_id_by_url(r["url"])
-            except requests.RequestException:
-                print(f"   ⚠️ Could not reach API for URL: {r['url']}")
-                continue
-            if job_id:
-                enriched_rankings.append({
-                    "job_id": job_id,
-                    "profile_id": r["profile_id"],
-                    "profile_title": r.get("profile_title", ""),
-                    "match_tier": r["match_tier"],
-                    "rank": r["rank"],
-                    "jd_summary": r.get("jd_summary", ""),
-                })
-            else:
-                print(f"   ⚠️ Could not find job for URL: {r['url']}")
-
-        if not enriched_rankings:
-            print("   ⚠️ No rankings to persist (no matching jobs found).")
-            return
-
-        response = requests.post(self.RANKINGS_URL, json=enriched_rankings, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-        print(f"   -> Rankings: {result.get('created', 0)} created, "
-              f"{result.get('updated', 0)} updated")
-        return result
 
     def _fetch_job_by_url(self, url):
         """Fetch the full job object from the API by URL."""
@@ -336,49 +275,7 @@ class DjangoPersistence:
             results = results["results"]
         return results[0] if results else None
 
-    def _fetch_job_id_by_url(self, url):
-        job = self._fetch_job_by_url(url)
-        return job["id"] if job else None
 
-    def save_rankings(self, markdown_result, profile_id, profile_title, db_jobs):
-        """Parse ranking markdown and POST to backend."""
-        print("\n🗄️  Phase 4: Persisting rankings to Django backend...")
-        try:
-            # Build ID lookup from the jobs we already fetched (these are the jobs we ranked)
-            url_to_id = {normalize_url(j["url"]): j["id"] for j in db_jobs if j.get("url") and j.get("id")}
-            rankings = self._parse_ranking_markdown(markdown_result, profile_id, profile_title)
-            if not rankings:
-                print("   ⚠️ No rankings parsed from markdown table.")
-                return
-
-            enriched_rankings = []
-            for r in rankings:
-                url = r.get("url")
-                job_id = url_to_id.get(normalize_url(url)) if url else None
-                if job_id:
-                    enriched_rankings.append({
-                        "job_id": job_id,
-                        "profile_id": r["profile_id"],
-                        "profile_title": r.get("profile_title", ""),
-                        "match_tier": r["match_tier"],
-                        "rank": r["rank"],
-                        "jd_summary": r.get("jd_summary", ""),
-                    })
-
-            if not enriched_rankings:
-                print("   ⚠️ No rankings to persist (no matching jobs found).")
-                return
-
-            response = requests.post(self.RANKINGS_URL, json=enriched_rankings, timeout=30)
-            response.raise_for_status()
-            result = response.json()
-            print(f"   -> Rankings: {result.get('created', 0)} created, "
-                  f"{result.get('updated', 0)} updated")
-            print("   ✅ Rankings persisted.")
-        except requests.ConnectionError:
-            print("   ⚠️ Could not connect to Django API at " + DJANGO_API_URL)
-        except requests.RequestException as e:
-            print(f"   ⚠️ Ranking persistence failed: {e}")
 
     def persist_jobs(self, jobs):
         """POST formatted jobs to the backend."""

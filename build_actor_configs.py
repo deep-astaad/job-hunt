@@ -26,18 +26,26 @@ from urllib.parse import quote
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Curated English-friendly engineering roles aligned with the candidate profiles.
+# Curated roles for the candidate profiles: de-aliased (no Developer/Engineer
+# pairs), senior/non-target roles removed, JP-context noise dropped.
+# 34 → 16 unique queries; paired with count=100 this cuts Apify volume ~88%.
 ROLES = [
-    "API Developer", "API Engineer", "AI Engineer", "Application Engineer",
-    "Automation Engineer", "AWS Engineer", "Backend Developer", "Backend Engineer",
-    "Cloud Engineer", "Cloud Solutions Architect", "Data Engineer", "DevOps Engineer",
-    "Django Developer", "Django Engineer", "Engineering Lead", 
-    "English Speaking Software Engineer", "Full Stack Developer", "Full Stack Engineer",
-    "Go Engineer", "Golang Engineer", "Infrastructure Engineer", 
-    "Machine Learning Engineer", "Platform Engineer", "Python Developer", 
-    "Python Engineer", "Remote Backend Engineer", "Server Side Engineer", 
-    "Site Reliability Engineer", "Software Developer", "Software Engineer", 
-    "Solutions Architect", "Systems Engineer", "Technical Lead", "Web Developer",
+    "AI Engineer",
+    "API Engineer",
+    "Backend Engineer",
+    "Cloud Engineer",
+    "Data Engineer",
+    "DevOps Engineer",
+    "Django Engineer",
+    "Full Stack Engineer",
+    "Go Engineer",
+    "Infrastructure Engineer",
+    "Machine Learning Engineer",
+    "Platform Engineer",
+    "Python Engineer",
+    "Site Reliability Engineer",
+    "Software Engineer",
+    "Solutions Architect",
 ]
 
 # Recent-postings window (LinkedIn f_TPR): r86400 = last 24h.
@@ -72,8 +80,6 @@ def _linkedin_url(keyword, loc_cfg, append_english):
 def _linkedin_config(loc_cfg):
     # Japan: bias toward English-speaking roles (most JP listings need Japanese).
     append_english = loc_cfg.get("region") == "japan"
-    #TODO: For now get all jobs
-    append_english = False
     urls = [_linkedin_url(r, loc_cfg, append_english) for r in ROLES]
     return {
         "actor_id": "curious_coder/linkedin-jobs-scraper",
@@ -81,7 +87,7 @@ def _linkedin_config(loc_cfg):
         "location": loc_cfg["id"],
         "schedule_frequency": loc_cfg.get("schedule_frequency", "daily"),
         "input": {
-            "count": 400,
+            "count": 100,
             "scrapeCompany": False,
             "splitByLocation": False,
             "splitCountry": loc_cfg.get("country", "") or "JP",
@@ -92,7 +98,7 @@ def _linkedin_config(loc_cfg):
         "fallback_actors": [
             {
                 "actor_id": "bebity/linkedin-jobs-scraper",
-                "input": {"urls": urls, "count": 400, "scrapeCompany": False},
+                "input": {"urls": urls, "count": 100, "scrapeCompany": False},
             }
         ],
     }
@@ -159,7 +165,11 @@ def build():
         if not cfg:
             continue
         configs.append(_linkedin_config(cfg))
-        # configs.append(_indeed_config(cfg))
+        configs.append(_indeed_config(cfg))
+        # Japan-niche Apify actors (japan-dev, tokyo-dev) are intentionally
+        # kept disabled here: run_local_scrapers already scrapes those boards
+        # via HTTP with no Apify cost. Re-enabling would double-fetch the same
+        # listings (dedup prevents double-processing, but wastes quota).
         # if cfg.get("region") == "japan":
         #     configs.extend(_japan_niche_configs(cfg))
     return configs

@@ -166,4 +166,26 @@ Schedules are **not** in code. `schedule_daily_scrapers` is registered as a peri
 - Frontend dashboard: `/` (Django-rendered, `jobs/web_views.py`, `jobs/web_urls.py`) — server-side, infinite-scroll via `?ajax=1`.
 - Django admin: `/admin/`
 - REST API: `/api/jobs/`, `/api/rankings/`, `/api/settings/`. Key custom actions: `jobs/bulk_create/`, `jobs/stats/`, `jobs/today-ranked/`, `jobs/mark_alerts_sent/`, `rankings/bulk_create/`, `rankings/update_ranks/`.
+
+## Unattended audit issue-loop
+
+Issues come from `PIPELINE_AUDIT.md` (created via `scripts/create_audit_issues.sh`).
+Work them **one at a time, each in its own branch/worktree**, with these helpers:
+
+- **`/next-issue`** — pick highest-severity open issue, isolate a branch, load just
+  that issue + its audit section.
+- **`/e2e-check`** — run the cost-aware suites via the **`e2e-devdb`** skill
+  (`MOCK_LLM=1` mandatory; dev DB copy, never prod; never real Apify).
+- **`/finish-issue`** — fresh-context review via the **`pipeline-arch-reviewer`**
+  subagent, then open a PR.
+
+**`gh` auth:** the working GitHub token is `pat_for_llm` in `.env` (not `gh`'s
+default auth, not `_legacy_pat_for_llm_donotuse`). Prefix every `gh` call with
+`GH_TOKEN=$(grep -E '^pat_for_llm=' .env | cut -d= -f2-)`. Never echo or commit it.
+
+**This pass is PR-only: open a PR per issue and stop. Never merge or push to `main`,
+never enable auto-merge.** Between issues, `/clear` (fresh context is intentional —
+the invariants live here in CLAUDE.md + memory, so a cleared session re-bootstraps).
+Two `PreToolUse` guards (`.claude/hooks/guard.py`) block unmocked paid runs and
+committed secrets — treat a denial as a real stop, not a retry-differently signal.
 </content>

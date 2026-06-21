@@ -58,7 +58,7 @@ TIER_SORT_MAP = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
 
 
 class JobViewSet(viewsets.ModelViewSet):
-    queryset = Job.objects.all()
+    queryset = Job.objects.all().order_by("-scraped_at", "-id")
     filterset_class = JobFilter
     search_fields = ["title", "company", "description", "url"]
     ordering_fields = ["scraped_at", "company", "title", "best_tier"]
@@ -75,7 +75,9 @@ class JobViewSet(viewsets.ModelViewSet):
             ordering = self.request.query_params.get("ordering", "")
             if "best_tier" in ordering:
                 desc = ordering.startswith("-")
-                qs = qs.order_by(("-" if desc else "") + "_best_tier_int")
+                qs = qs.order_by(("-" if desc else "") + "_best_tier_int", "-scraped_at", "-id")
+            else:
+                qs = qs.order_by("-scraped_at", "-id")
         return qs
 
     def get_serializer_class(self):
@@ -88,6 +90,8 @@ class JobViewSet(viewsets.ModelViewSet):
         jobs_data = request.data if isinstance(request.data, list) else request.data.get("jobs", [])
         created, updated = 0, 0
         errors = []
+        # Keyed by normalized URL; lets callers avoid a follow-up GET per job.
+        job_map = {}
 
         for job_data in jobs_data:
             url = job_data.get("url")
@@ -98,34 +102,64 @@ class JobViewSet(viewsets.ModelViewSet):
             normalized_url = normalize_url(url)
             url_hash = hashlib.sha256(normalized_url.encode()).hexdigest()
 
+            # Full record used only when creating a brand-new row.
+            create_defaults = {
+                "url": normalized_url,
+                "title": job_data.get("title", "Unknown"),
+                "company": job_data.get("company", "Unknown"),
+                "source": job_data.get("source", "custom"),
+                "salary": job_data.get("salary", ""),
+                "description": job_data.get("description", ""),
+                "full_description": job_data.get("full_description", ""),
+                "tech_stack": job_data.get("tech_stack"),
+                "language": job_data.get("language"),
+                "experience_required": job_data.get("experience_required", ""),
+                "location": job_data.get("location", ""),
+                "is_formatted": job_data.get("is_formatted", False),
+                "raw_data": job_data.get("raw_data"),
+            }
+
+            # Non-destructive update set for re-seen rows: only refresh a field
+            # when the incoming payload actually carries a meaningful value, so a
+            # blank re-scrape stub can't wipe previously formatted data (which
+            # would also reset is_ranked via Job.save and force a costly
+            # re-format + re-rank). The formatter's bulk_create fallback still
+            # updates real content because its values are non-empty.
+            update_defaults = {"url": normalized_url}
+            for key in (
+                "title", "company", "source", "salary", "description",
+                "full_description", "tech_stack", "language",
+                "experience_required", "location",
+            ):
+                val = job_data.get(key)
+                if val in (None, "", []):
+                    continue
+                # Don't let a missing-title sentinel clobber a real one.
+                if key in ("title", "company") and val == "Unknown":
+                    continue
+                update_defaults[key] = val
+            if job_data.get("raw_data") is not None:
+                update_defaults["raw_data"] = job_data["raw_data"]
+            # Only ever promote is_formatted to True; never downgrade it here.
+            if job_data.get("is_formatted"):
+                update_defaults["is_formatted"] = True
+
             try:
                 obj, was_created = Job.objects.update_or_create(
                     url_hash=url_hash,
-                    defaults={
-                        "url": normalized_url,
-                        "title": job_data.get("title", "Unknown"),
-                        "company": job_data.get("company", "Unknown"),
-                        "source": job_data.get("source", "custom"),
-                        "salary": job_data.get("salary", ""),
-                        "description": job_data.get("description", ""),
-                        "full_description": job_data.get("full_description", ""),
-                        "tech_stack": job_data.get("tech_stack"),
-                        "language": job_data.get("language"),
-                        "experience_required": job_data.get("experience_required", ""),
-                        "location": job_data.get("location", ""),
-                        "is_formatted": job_data.get("is_formatted", False),
-                        "raw_data": job_data.get("raw_data"),
-                    },
+                    defaults=update_defaults,
+                    create_defaults=create_defaults,
                 )
                 if was_created:
                     created += 1
                 else:
                     updated += 1
+                job_map[normalized_url] = {"id": obj.id, "is_formatted": obj.is_formatted}
             except Exception as e:
                 errors.append({"error": str(e), "url": url})
 
         return Response(
-            {"created": created, "updated": updated, "errors": errors},
+            {"created": created, "updated": updated, "errors": errors, "jobs": job_map},
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 

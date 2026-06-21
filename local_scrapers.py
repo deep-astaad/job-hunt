@@ -63,7 +63,7 @@ def scrape_tokyo_dev(limit=50):
                 "full_description": description,
                 "description": description[:500],
                 "salary": "",
-                "source": "tokyodev"
+                "source": "tokyo_dev"
             })
             time.sleep(1) # Polite delay
         except Exception as e:
@@ -133,7 +133,7 @@ def scrape_japan_dev(limit=50):
                 "full_description": description,
                 "description": description[:500],
                 "salary": "",
-                "source": "japan-dev"
+                "source": "japan_dev"
             })
             time.sleep(1) # Polite delay
         except Exception as e:

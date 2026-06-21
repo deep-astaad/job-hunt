@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from celery import chain
 from celery_app import app
-from persistence import DjangoPersistence
+from persistence import DjangoPersistence, normalize_url
 from config import get_apify_api_token, CELERY_BROKER_URL
 import redis
 import requests as req
@@ -25,6 +25,178 @@ from local_scrapers import (
 logger = logging.getLogger(__name__)
 
 POLL_BATCH_SIZE = 1000
+
+
+def _merge_job_maps(target, source):
+    for url, info in (source or {}).items():
+        if info:
+            target[url] = info
+
+
+def _save_jobs_with_fallback(persister, batch_jobs):
+    """Persist scraper stubs and return the normalized-url job map.
+
+    Bulk API calls can fail client-side after Django has already committed some
+    rows. Falling back per job lets the caller recover ids for committed rows and
+    dispatch them instead of leaving fresh jobs unformatted.
+    """
+    jobs_by_url = {}
+    if not batch_jobs:
+        return jobs_by_url
+
+    expected_urls = [
+        normalize_url(job["url"])
+        for job in batch_jobs
+        if job.get("url")
+    ]
+
+    try:
+        result = persister.save_jobs(batch_jobs)
+        _merge_job_maps(jobs_by_url, result.get("jobs", {}))
+    except Exception as exc:
+        logger.error("batch_save_failed", extra={
+            "batch_size": len(batch_jobs),
+            "error": str(exc),
+        })
+
+    missing_jobs = [
+        job for job in batch_jobs
+        if job.get("url") and normalize_url(job["url"]) not in jobs_by_url
+    ]
+    if not missing_jobs:
+        return jobs_by_url
+
+    logger.warning("batch_save_fallback_started", extra={
+        "missing_count": len(missing_jobs),
+        "batch_size": len(batch_jobs),
+    })
+    for job in missing_jobs:
+        url = job.get("url")
+        norm_url = normalize_url(url)
+        try:
+            result = persister.save_jobs([job])
+            _merge_job_maps(jobs_by_url, result.get("jobs", {}))
+            if norm_url not in jobs_by_url:
+                logger.error("job_save_missing_from_response", extra={
+                    "url": url,
+                    "source": job.get("source"),
+                })
+        except Exception as exc:
+            logger.error("job_save_failed", extra={
+                "url": url,
+                "source": job.get("source"),
+                "error": str(exc),
+            })
+
+    recovered = sum(1 for url in expected_urls if url in jobs_by_url)
+    if recovered < len(set(expected_urls)):
+        logger.error("batch_save_fallback_incomplete", extra={
+            "recovered_count": recovered,
+            "expected_count": len(set(expected_urls)),
+        })
+    return jobs_by_url
+
+
+def _persist_prescreen_f(job_data, pre_results, persister):
+    """Persist a pre-screened F job (F rankings + formatted/ranked flags) — no LLM calls.
+
+    Order is atomic-from-the-pipeline's-view: persist the F rankings FIRST (while
+    the job is still is_formatted=False), and only once that POST is confirmed do
+    we flip is_formatted+is_ranked together in a single patch. Both flags must be
+    set in the same call because Job.save() resets is_ranked while is_formatted is
+    False.
+
+    Returns True only when rankings AND flags are persisted. Returns False if the
+    rankings POST fails, leaving the job discoverable as unformatted so the caller
+    can fall back to the normal format+rank chain (no silent formatted-but-unranked
+    orphan).
+    """
+    from config import DJANGO_API_URL
+
+    job_id = job_data["id"]
+    rankings = [
+        {
+            "job_id": job_id,
+            "profile_id": res["profile_id"],
+            "profile_title": res["profile_id"],
+            "match_tier": "F",
+            "llm_tier": None,
+            "deterministic_tier": "F",
+            "match_score": 8,
+            "signals": res.get("signals", {}),
+            "rank": 92,
+            "jd_summary": f"Pre-screened: {res.get('hard_fail_reason') or 'hard fail'}",
+        }
+        for res in pre_results
+    ]
+    try:
+        resp = req.post(
+            f"{DJANGO_API_URL}/api/rankings/bulk_create/",
+            json=rankings,
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("prescreen_f_rankings_failed", extra={"job_id": job_id, "error": str(exc)})
+        return False
+
+    # Rankings are saved — now mark formatted+ranked atomically so the poller
+    # treats this job as fully processed.
+    try:
+        persister.update_job(job_id, {"is_formatted": True, "is_ranked": True})
+    except Exception as exc:
+        logger.warning("prescreen_f_flag_update_failed", extra={"job_id": job_id, "error": str(exc)})
+        return False
+    return True
+
+
+def _dispatch_or_prescreen(job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority):
+    """Pre-screen a job and either persist F inline or dispatch the format+rank chain.
+
+    The Redis lock for job_data['id'] must already be held by the caller.
+    Returns True if dispatched to chain, False if pre-screened out (lock released,
+    F rankings persisted, job marked formatted — no in-flight entry created).
+    """
+    import matching as _matching
+    from tasks.formatting import format_and_persist_job
+    from tasks.ranking import rank_job_multi_profile
+
+    pre_fail = False
+    pre_results = []
+    try:
+        pre_fail, pre_results = _matching.prescreen_hard_fail(
+            job_data.get("raw_data") or {}, ranker_profiles
+        )
+    except Exception as exc:
+        logger.warning("prescreen_error", extra={"job_id": job_data.get("id"), "error": str(exc)})
+
+    if pre_fail:
+        logger.info("job_prescreened_f", extra={
+            "job_id": job_data.get("id"),
+            "reasons": [res.get("hard_fail_reason") for res in pre_results],
+        })
+        if _persist_prescreen_f(job_data, pre_results, persister):
+            r.delete(f"job_processing_lock:{job_data['id']}")
+            return False
+        # Persist failed (transient API error) — fall through to normal chain so the
+        # job is not silently dropped; it will be re-screened on the next scrape.
+        logger.warning("prescreen_f_persist_failed_falling_back", extra={"job_id": job_data.get("id")})
+
+    job_id = job_data["id"]
+    r.sadd(f"pipeline:{pipeline_run_id}:in_flight", job_id)
+    r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", job_id, time.time())
+    r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
+    chain(
+        format_and_persist_job.s(job_data).set(priority=job_priority),
+        rank_job_multi_profile.s(
+            profiles=ranker_profiles,
+            pipeline_run_id=pipeline_run_id,
+            job_id=job_id,
+        ).set(priority=job_priority),
+    ).apply_async()
+    return True
+
+
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
 
 # Redis key holding the latest Apify quota/credit problem (shown on the dashboard).
@@ -52,31 +224,15 @@ def _flag_apify_quota_alert(r, actor_id, exc):
     r.set(APIFY_QUOTA_ALERT_KEY, payload, ex=7 * 86400)
 
 
-def clean_and_save_item(raw_job, persister, source="custom"):
-    title = (
-        raw_job.get("title")
-        or raw_job.get("position")
-        or raw_job.get("standardizedTitle")
-        or "Unknown"
-    )
-    company = (
-        raw_job.get("company")
-        or raw_job.get("companyName")
-        or raw_job.get("company_name")
-        or "Unknown"
-    )
-    url = (
-        raw_job.get("url")
-        or raw_job.get("jobUrl")
-        or raw_job.get("link")
-        or raw_job.get("applyUrl")
-        or ""
-    )
-
-    job_dict = {
-        "title": title,
-        "company": company,
-        "url": url,
+def _extract_job_dict(raw_job, source="custom"):
+    """Build a minimal stub dict from raw scraper output (no HTTP calls)."""
+    return {
+        "title": (raw_job.get("title") or raw_job.get("position")
+                  or raw_job.get("standardizedTitle") or "Unknown"),
+        "company": (raw_job.get("company") or raw_job.get("companyName")
+                    or raw_job.get("company_name") or "Unknown"),
+        "url": (raw_job.get("url") or raw_job.get("jobUrl")
+                or raw_job.get("link") or raw_job.get("applyUrl") or ""),
         "source": source,
         "salary": "",
         "description": "",
@@ -84,17 +240,12 @@ def clean_and_save_item(raw_job, persister, source="custom"):
         "raw_data": raw_job,
     }
 
-    try:
-        result = persister.save_jobs([job_dict])
-        return job_dict, result
-    except Exception as exc:
-        logger.warning("save_failed", extra={"url": url, "error": str(exc)})
-        return job_dict, None
+
 
 
 def _load_profiles_for_ranking(profile_ids):
     import json as _json
-    if not getattr(_load_profiles_for_ranking, "cache", None):
+    if not hasattr(_load_profiles_for_ranking, "cache"):
         import os
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         profiles_path = os.path.join(base_dir, "user-profiles.json")
@@ -123,54 +274,61 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
     items = page.items
     batch_size = len(items)
     
-    # 2. Process
+    # 2. Process — batch-save all stubs in one POST, then dispatch in-memory.
     if batch_size > 0:
+        from tasks.formatting import format_and_persist_job
+        from tasks.ranking import rank_job_multi_profile
+
+        job_priority = 9 if location == "japan_tokyo" else 5
+
+        # Build stubs for every item in the page (no HTTP calls yet).
+        batch_jobs = []
+        stub_by_url = {}  # normalized_url → raw job_dict (for dispatch below)
         for item in items:
+            jd = _extract_job_dict(item, source=source)
+            if jd.get("url"):
+                norm = normalize_url(jd["url"])
+                batch_jobs.append(jd)
+                stub_by_url[norm] = jd
+
+        # One HTTP POST for the whole page → returns {normalized_url: {id, is_formatted}}.
+        jobs_by_url = _save_jobs_with_fallback(persister, batch_jobs)
+
+        # Dispatch in-memory using the response map — zero follow-up GETs.
+        for norm_url, job_dict in stub_by_url.items():
             try:
-                job_dict, save_result = clean_and_save_item(item, persister, source=source)
-                db_job = persister._fetch_job_by_url(job_dict.get("url", ""))
-                if not db_job:
+                db_info = jobs_by_url.get(norm_url)
+                if not db_info:
                     continue
-                
-                # Skip if already formatted and processed
-                if db_job.get("is_formatted"):
+
+                if db_info.get("is_formatted"):
                     logger.info("job_already_processed_skipping", extra={"url": job_dict.get("url", "")})
                     continue
-                
-                # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
-                if not r.set(f"job_processing_lock:{db_job['id']}", "1", nx=True, ex=3600):
+
+                job_id = db_info["id"]
+                if not r.set(f"job_processing_lock:{job_id}", "1", nx=True, ex=3600):
                     logger.info("job_already_in_progress_skipping", extra={"url": job_dict.get("url", "")})
                     continue
-                
+
                 job_data = {
-                    "id": db_job["id"],
+                    "id": job_id,
                     "title": job_dict.get("title", "Unknown"),
                     "company": job_dict.get("company", "Unknown"),
                     "url": job_dict.get("url", ""),
                     "source": job_dict.get("source", source),
                     "raw_data": job_dict.get("raw_data", {}),
+                    "pipeline_run_id": pipeline_run_id,
                 }
-                
-                # Register in-flight job and update total count in Redis
-                r.sadd(f"pipeline:{pipeline_run_id}:in_flight", db_job["id"])
-                r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", db_job["id"], time.time())
-                r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
-                
-                from tasks.formatting import format_and_persist_job
-                from tasks.ranking import rank_job_multi_profile
-                
-                job_priority = 9 if location == "japan_tokyo" else 5
-                
-                chain(
-                    format_and_persist_job.s(job_data).set(priority=job_priority),
-                    rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]).set(priority=job_priority),
-                ).apply_async()
-                
+
+                _dispatch_or_prescreen(
+                    job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority
+                )
+
+
             except Exception as exc:
                 logger.error("item_dispatch_failed", extra={"error": str(exc)})
-        
+
         offset += batch_size
-        # Since we processed items, fetch again quickly
         retry_kwargs = self.request.kwargs.copy()
         retry_kwargs["offset"] = offset
         raise self.retry(countdown=2, kwargs=retry_kwargs)
@@ -265,13 +423,27 @@ def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id,
 
 @app.task(name='tasks.pipeline.send_discord_summary')
 def send_discord_summary(pipeline_run_id):
-    """Final callback: all actors finished, all formatting/ranking jobs complete."""
+    """Final callback: all actors finished, all formatting/ranking jobs complete.
+
+    Posts any S/A-ranked jobs that weren't already alerted via the per-job
+    immediate notification (i.e. where alert_sent is still False).  This acts
+    as a backstop for jobs whose immediate alert failed and is a no-op when
+    all immediate alerts succeeded.
+    """
     r = redis.Redis.from_url(CELERY_BROKER_URL)
     total_jobs = int(r.get(f"pipeline:{pipeline_run_id}:total_jobs") or 0)
-    
-    print(f"\n📊 Pipeline {pipeline_run_id} complete! {total_jobs} jobs formatted and ranked.")
-        
     r.delete(f"pipeline:{pipeline_run_id}:total_jobs")
+
+    logger.info("pipeline_complete", extra={
+        "pipeline_run_id": pipeline_run_id, "total_jobs": total_jobs,
+    })
+
+    try:
+        from outputs import ExportHandler
+        ExportHandler.post_tiered_jobs_from_api()
+    except Exception as exc:
+        logger.error("discord_summary_failed", extra={"error": str(exc)})
+
     return {"status": "done", "total_jobs": total_jobs}
 
 
@@ -349,43 +521,50 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
     ranker_profiles = _load_profiles_for_ranking(profile_ids)
     r = redis.Redis.from_url(CELERY_BROKER_URL)
     
+    from tasks.formatting import format_and_persist_job
+    from tasks.ranking import rank_job_multi_profile
+
+    # Batch-save all stubs in one POST, then dispatch in-memory.
+    batch_jobs = []
+    stub_by_url = {}
     for item in all_jobs:
+        src = item.get("source", "custom")
+        jd = _extract_job_dict(item, source=src)
+        if jd.get("url"):
+            norm = normalize_url(jd["url"])
+            batch_jobs.append(jd)
+            stub_by_url[norm] = jd
+
+    jobs_by_url = _save_jobs_with_fallback(persister, batch_jobs)
+
+    for norm_url, job_dict in stub_by_url.items():
         try:
-            source = item.get("source", "custom")
-            job_dict, save_result = clean_and_save_item(item, persister, source=source)
-            db_job = persister._fetch_job_by_url(job_dict.get("url", ""))
-            if not db_job:
+            db_info = jobs_by_url.get(norm_url)
+            if not db_info:
                 continue
-                
-            if db_job.get("is_formatted"):
+
+            if db_info.get("is_formatted"):
                 continue
-                
-            if not r.set(f"job_processing_lock:{db_job['id']}", "1", nx=True, ex=3600):
+
+            job_id = db_info["id"]
+            if not r.set(f"job_processing_lock:{job_id}", "1", nx=True, ex=3600):
                 continue
-                
+
             job_data = {
-                "id": db_job["id"],
+                "id": job_id,
                 "title": job_dict.get("title", "Unknown"),
                 "company": job_dict.get("company", "Unknown"),
                 "url": job_dict.get("url", ""),
-                "source": job_dict.get("source", source),
+                "source": job_dict.get("source", "custom"),
                 "raw_data": job_dict.get("raw_data", {}),
+                "pipeline_run_id": pipeline_run_id,
             }
-            
-            r.sadd(f"pipeline:{pipeline_run_id}:in_flight", db_job["id"])
-            r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", db_job["id"], time.time())
-            r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
-            
-            from tasks.formatting import format_and_persist_job
-            from tasks.ranking import rank_job_multi_profile
-            
-            job_priority = 9  # Local scrapers are all Japan-based
-            
-            chain(
-                format_and_persist_job.s(job_data).set(priority=job_priority),
-                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=pipeline_run_id, job_id=db_job["id"]).set(priority=job_priority),
-            ).apply_async()
-            
+
+            _dispatch_or_prescreen(
+                job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority=9
+            )
+
+
         except Exception as exc:
             logger.error("item_dispatch_failed", extra={"error": str(exc)})
             
@@ -546,6 +725,7 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "url": job.url,
             "source": job.source,
             "raw_data": job.raw_data,
+            "pipeline_run_id": None,
         }
         job_priority = get_job_priority(job)
         chain(
@@ -608,5 +788,3 @@ def deactivate_stale_jobs(days=30):
     deactivated = Job.objects.filter(is_active=True, updated_at__lt=cutoff).update(is_active=False)
     logger.info(f"deactivate_stale_jobs: deactivated {deactivated} jobs not updated in {days} days.")
     return {"status": "success", "deactivated": deactivated, "cutoff_days": days}
-
-

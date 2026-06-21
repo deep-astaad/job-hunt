@@ -89,6 +89,33 @@ class ExperienceLanguageParsingTests(unittest.TestCase):
         self.assertIn("english", langs)
         self.assertNotIn("japanese", langs)
 
+    def test_detect_job_language_no_cjk_overtag(self):
+        # A single kanji in the address must not tag an English role as JP.
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "Backend Engineer",
+            "description": "Build Python services. Office in 渋谷区.",
+            "language": "EN",
+        })
+        self.assertEqual(lang, "EN")
+
+    def test_detect_job_language_hard_jp_is_jp(self):
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "エンジニア",
+            "description": "Business level Japanese required, JLPT N2 minimum.",
+        })
+        self.assertEqual(lang, "JP")
+
+    def test_detect_job_language_optional_jp_is_en(self):
+        # Japanese as a nice-to-have must NOT be labeled JP (it's not required).
+        from persistence import detect_job_language
+        lang = detect_job_language({
+            "title": "Backend Engineer",
+            "description": "English-speaking team. Japanese is a plus but not required.",
+        })
+        self.assertEqual(lang, "EN")
+
 
 class ComputeMatchTests(unittest.TestCase):
     def test_strong_match_is_high_tier(self):
@@ -174,6 +201,15 @@ class ComputeMatchTests(unittest.TestCase):
         res = matching.compute_match(BACKEND_PROFILE, job, TOKYO_REMOTE)
         self.assertIn(res["tier"], ("B", "C", "F"))
 
+    def test_generic_title_gets_partial_affinity(self):
+        # "Software Engineer" alone should score 0.6 not 1.0 (too generic for full credit).
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Software Engineer"}), 0.6)
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Software Developer"}), 0.6)
+        # Specific role still gets 1.0.
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Backend Engineer"}), 1.0)
+        # "Software Engineer (Backend)" has "backend" in title → 1.0.
+        self.assertAlmostEqual(matching.title_affinity(BACKEND_PROFILE, {"title": "Software Engineer (Backend)"}), 1.0)
+
 
 class BlendTests(unittest.TestCase):
     def test_hard_fail_overrides_llm(self):
@@ -195,6 +231,89 @@ class BlendTests(unittest.TestCase):
                "hard_fail_reason": None, "signals": {}}
         out = matching.blend_with_llm(det, None)
         self.assertEqual(out["final_score"], 75)
+
+
+class PreScreenTests(unittest.TestCase):
+    """Tests for matching.prescreen_hard_fail — raw data, no formatter needed."""
+
+    def _raw(self, **kw):
+        base = {
+            "title": "Backend Engineer",
+            "descriptionText": "We build Python/Django APIs in Tokyo. English OK.",
+        }
+        base.update(kw)
+        return base
+
+    def test_japanese_required_all_fail(self):
+        raw = self._raw(
+            descriptionText="Build Python services. Business level Japanese (JLPT N2) is required."
+        )
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertTrue(fail)
+        self.assertEqual(len(results), 1)
+        self.assertIn("japanese", results[0]["hard_fail_reason"])
+
+    def test_senior_title_all_fail(self):
+        raw = self._raw(title="Senior Staff Backend Engineer")
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertTrue(fail)
+        self.assertIn("senior", results[0]["hard_fail_reason"])
+
+    def test_intern_title_all_fail(self):
+        raw = self._raw(title="Software Engineering Intern")
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertTrue(fail)
+        self.assertIn("internship", results[0]["hard_fail_reason"])
+
+    def test_internship_employment_type_all_fail(self):
+        raw = self._raw(title="Software Engineer", employmentType="Internship")
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertTrue(fail)
+
+    def test_good_job_passes(self):
+        raw = self._raw(
+            descriptionText="Python/Django backend role in Tokyo. 2 years exp. English OK.",
+        )
+        fail, _ = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertFalse(fail)
+
+    def test_english_ok_clears_japanese_gate(self):
+        raw = self._raw(
+            descriptionText="Japanese is a plus but English only is fine. Python role."
+        )
+        fail, _ = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertFalse(fail)
+
+    def test_empty_raw_fails_open(self):
+        fail, results = matching.prescreen_hard_fail({}, [BACKEND_PROFILE])
+        self.assertFalse(fail)
+        self.assertEqual(results, [])
+
+    def test_any_passing_profile_prevents_skip(self):
+        jp_speaker = dict(BACKEND_PROFILE, id="jp_speaker", languages=["English", "Japanese"])
+        raw = self._raw(
+            descriptionText="Python role. Business level Japanese required."
+        )
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE, jp_speaker])
+        # BACKEND_PROFILE hard-fails on Japanese; jp_speaker passes → should NOT skip
+        self.assertFalse(fail)
+        backend_res = next(r for r in results if r["profile_id"] == "backend_platform_engineer")
+        self.assertTrue(backend_res["hard_fail"])
+        jp_res = next(r for r in results if r["profile_id"] == "jp_speaker")
+        self.assertFalse(jp_res["hard_fail"])
+
+    def test_over_experience_raw_field(self):
+        raw = self._raw(experienceLevel="10+ years required")
+        # BACKEND_PROFILE has 2.5 years; 10 > 2.5+3
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertTrue(fail)
+        self.assertIn("experience", results[0]["hard_fail_reason"])
+
+    def test_description_field_fallback(self):
+        raw = {"title": "Principal Architect", "description": "Lead the architecture."}
+        fail, results = matching.prescreen_hard_fail(raw, [BACKEND_PROFILE])
+        self.assertTrue(fail)
+        self.assertIn("senior", results[0]["hard_fail_reason"])
 
 
 class LocationsConfigTests(unittest.TestCase):

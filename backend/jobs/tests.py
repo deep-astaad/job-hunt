@@ -1,7 +1,8 @@
+import requests
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from jobs.models import Job, JobRanking
 
 
@@ -83,6 +84,70 @@ class JobProcessingViewTests(TestCase):
         mock_delay.assert_called_once()
 
 
+class DiscordAlertMarkingTests(TestCase):
+    """post_single_job_to_discord must only mark alert_sent on a confirmed-OK post."""
+
+    def _job_and_rankings(self):
+        return ({"id": 7, "region": "japan", "title": "BE", "company": "X"},
+                [{"match_tier": "S", "profile_id": "p1", "jd_summary": "x"}])
+
+    @patch("outputs.DISCORD_WEBHOOK_URL_JAPAN", "https://discord.test/webhook")
+    @patch("outputs.requests.post")
+    def test_failed_discord_post_does_not_mark_sent(self, mock_post):
+        # Webhook returns e.g. 429 -> raise_for_status() raises -> no mark.
+        mock_post.return_value.raise_for_status.side_effect = requests.RequestException("429")
+        from outputs import ExportHandler
+        job, rankings = self._job_and_rankings()
+        ExportHandler.post_single_job_to_discord(job, rankings)
+        # Only the webhook POST happened; mark_alerts_sent was never called.
+        self.assertEqual(mock_post.call_count, 1)
+
+    @patch("outputs.DISCORD_WEBHOOK_URL_JAPAN", "https://discord.test/webhook")
+    @patch("outputs.requests.post")
+    def test_ok_discord_post_marks_sent(self, mock_post):
+        mock_post.return_value.raise_for_status.return_value = None
+        from outputs import ExportHandler
+        job, rankings = self._job_and_rankings()
+        ExportHandler.post_single_job_to_discord(job, rankings)
+        # Webhook POST + mark_alerts_sent POST.
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertIn("mark_alerts_sent", mock_post.call_args_list[1].args[0])
+
+
+class PrescreenPersistTests(TestCase):
+    """_persist_prescreen_f must be atomic: rankings first, flags only after."""
+
+    def _results(self):
+        return [{"profile_id": "p1", "hard_fail_reason": "requires japanese", "signals": {}}]
+
+    @patch("tasks.pipeline.req.post")
+    def test_rankings_failure_returns_false_and_leaves_flags_untouched(self, mock_post):
+        # Discord/API ranking POST fails -> must NOT mark the job formatted.
+        mock_post.return_value.raise_for_status.side_effect = Exception("500")
+        from tasks.pipeline import _persist_prescreen_f
+
+        persister = MagicMock()
+        job = {"id": 123}
+        ok = _persist_prescreen_f(job, self._results(), persister)
+
+        self.assertFalse(ok)
+        persister.update_job.assert_not_called()  # no formatted-but-unranked orphan
+
+    @patch("tasks.pipeline.req.post")
+    def test_success_marks_formatted_and_ranked_atomically(self, mock_post):
+        mock_post.return_value.raise_for_status.return_value = None
+        from tasks.pipeline import _persist_prescreen_f
+
+        persister = MagicMock()
+        job = {"id": 123}
+        ok = _persist_prescreen_f(job, self._results(), persister)
+
+        self.assertTrue(ok)
+        persister.update_job.assert_called_once_with(
+            123, {"is_formatted": True, "is_ranked": True}
+        )
+
+
 class CeleryTaskTests(TestCase):
     def setUp(self):
         # 1. Unformatted job (should format and rank)
@@ -134,6 +199,208 @@ class CeleryTaskTests(TestCase):
         
         # Verify rank task was called directly for unranked job
         mock_rank_apply_async.assert_called_once()
+
+
+class SourceChoicesTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_real_scraper_source_slugs_are_valid_on_patch(self):
+        sources = [
+            "indeed",
+            "linkedin",
+            "japan_dev",
+            "tokyo_dev",
+            "daijob",
+            "gaijinpot",
+            "careercross",
+            "green",
+            "wantedly",
+            "japan-dev",
+            "tokyodev",
+            "custom",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                job = Job.objects.create(
+                    title=f"{source} Engineer",
+                    company="Acme",
+                    url=f"https://example.com/{source}",
+                    url_hash=f"hash-{source}",
+                    source=source,
+                    is_formatted=False,
+                )
+                resp = self.client.patch(
+                    reverse("job-detail", args=[job.id]),
+                    data={
+                        "source": source,
+                        "description": "formatted",
+                        "is_formatted": True,
+                    },
+                    content_type="application/json",
+                )
+                self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_jobs_list_has_stable_default_order(self):
+        older = Job.objects.create(
+            title="Older",
+            company="Acme",
+            url="https://example.com/older",
+            url_hash="hash-older",
+        )
+        newer = Job.objects.create(
+            title="Newer",
+            company="Acme",
+            url="https://example.com/newer",
+            url_hash="hash-newer",
+        )
+
+        resp = self.client.get(reverse("job-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        ids = [item["id"] for item in resp.json()["results"]]
+        self.assertEqual(ids[:2], [newer.id, older.id])
+
+
+class FormattingTaskPersistenceTests(TestCase):
+    @patch("tasks.formatting._release_processing_state")
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_permanent_persist_failure_raises_and_releases_lock(
+        self, mock_format_job, mock_persistence_cls, mock_release
+    ):
+        error = requests.HTTPError("400 Bad Request")
+        error.response = MagicMock(
+            status_code=400,
+            text='{"source":["\\"wantedly\\" is not a valid choice."]}',
+        )
+        mock_persistence_cls.return_value.update_job.side_effect = error
+        mock_format_job.return_value = {
+            "title": "Engineer",
+            "company": "Acme",
+            "url": "https://example.com/job",
+            "source": "wantedly",
+            "description": "formatted",
+        }
+
+        from tasks.formatting import format_and_persist_job
+
+        with self.assertRaises(requests.HTTPError):
+            format_and_persist_job.run({
+                "id": 123,
+                "title": "Engineer",
+                "company": "Acme",
+                "url": "https://example.com/job",
+                "source": "wantedly",
+                "raw_data": {},
+            })
+
+        mock_release.assert_called_once_with(123, None)
+
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_blank_required_llm_fields_fall_back_to_original_job_data(
+        self, mock_format_job, mock_persistence_cls
+    ):
+        mock_format_job.return_value = {
+            "title": "Formatted title",
+            "company": "",
+            "url": "",
+            "source": "",
+            "description": "formatted",
+        }
+        mock_persistence_cls.return_value.update_job.return_value = {"id": 123}
+
+        from tasks.formatting import format_and_persist_job
+
+        format_and_persist_job.run({
+            "id": 123,
+            "title": "Original title",
+            "company": "Original Company",
+            "url": "https://example.com/job",
+            "source": "green",
+            "raw_data": {"description": "raw"},
+        })
+
+        persisted = mock_persistence_cls.return_value.update_job.call_args.args[1]
+        self.assertEqual(persisted["company"], "Original Company")
+        self.assertEqual(persisted["url"], "https://example.com/job")
+        self.assertEqual(persisted["source"], "green")
+
+
+class RankingTaskPersistenceTests(TestCase):
+    @patch("tasks.ranking._clear_processing_lock")
+    def test_no_job_data_clears_processing_lock(self, mock_clear_lock):
+        from tasks.ranking import rank_job_multi_profile
+
+        result = rank_job_multi_profile.run(
+            False,
+            profiles=[{"id": "backend_platform_engineer"}],
+            pipeline_run_id=None,
+            job_id=123,
+        )
+
+        self.assertEqual(result["status"], "skipped")
+        mock_clear_lock.assert_called_once_with(123)
+
+    @patch("tasks.ranking.requests.post")
+    def test_ranking_persist_failure_is_not_swallowed(self, mock_post):
+        response = MagicMock(status_code=500, text="server error")
+        response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+        mock_post.return_value = response
+
+        from tasks.ranking import _persist_rankings
+
+        with self.assertRaises(requests.HTTPError):
+            _persist_rankings(123, [{
+                "profile_id": "backend_platform_engineer",
+                "match_tier": "A",
+                "rank": 10,
+                "jd_summary": "summary",
+            }])
+
+
+class PipelineBatchPersistenceTests(TestCase):
+    def test_batch_save_failure_falls_back_per_job_and_recovers_job_map(self):
+        from tasks.pipeline import _save_jobs_with_fallback
+
+        persister = MagicMock()
+        persister.save_jobs.side_effect = [
+            requests.Timeout("bulk timed out after commit"),
+            {"jobs": {"https://example.com/job-a": {"id": 1, "is_formatted": False}}},
+            {"jobs": {"https://example.com/job-b": {"id": 2, "is_formatted": False}}},
+        ]
+
+        jobs_by_url = _save_jobs_with_fallback(persister, [
+            {"url": "https://example.com/job-a", "title": "A"},
+            {"url": "https://example.com/job-b", "title": "B"},
+        ])
+
+        self.assertEqual(set(jobs_by_url), {
+            "https://example.com/job-a",
+            "https://example.com/job-b",
+        })
+        self.assertEqual(persister.save_jobs.call_count, 3)
+
+    def test_incomplete_batch_response_only_retries_missing_urls(self):
+        from tasks.pipeline import _save_jobs_with_fallback
+
+        persister = MagicMock()
+        persister.save_jobs.side_effect = [
+            {"jobs": {"https://example.com/job-a": {"id": 1, "is_formatted": False}}},
+            {"jobs": {"https://example.com/job-b": {"id": 2, "is_formatted": False}}},
+        ]
+
+        jobs_by_url = _save_jobs_with_fallback(persister, [
+            {"url": "https://example.com/job-a", "title": "A"},
+            {"url": "https://example.com/job-b", "title": "B"},
+        ])
+
+        self.assertEqual(jobs_by_url["https://example.com/job-a"]["id"], 1)
+        self.assertEqual(jobs_by_url["https://example.com/job-b"]["id"], 2)
+        self.assertEqual(persister.save_jobs.call_args_list[1].args[0], [
+            {"url": "https://example.com/job-b", "title": "B"}
+        ])
 
 
 class JobStatsTests(TestCase):
@@ -288,6 +555,88 @@ class LocationAndScoringTests(TestCase):
         self.assertEqual(job.region, "japan")
         self.assertEqual(job.country, "JP")
 
+    def test_bulk_create_restub_does_not_wipe_formatted_job(self):
+        """A blank re-scrape stub must not overwrite formatted data or reset
+        is_formatted/is_ranked (C2): that would force a costly re-format/re-rank."""
+        import hashlib as _hashlib
+        from .parsers import normalize_url as _norm
+        url1 = "https://co.example/dedup1"
+        hash1 = _hashlib.sha256(_norm(url1).encode()).hexdigest()
+        # Job already scraped, formatted, and ranked on a prior run.
+        job = Job.objects.create(
+            title="Backend Engineer", company="Acme",
+            url=_norm(url1), url_hash=hash1,
+            description="Real formatted description.",
+            full_description="Full formatted JD.",
+            tech_stack=["Python", "Django"],
+            language="EN", experience_required="3+ years",
+            is_formatted=True,
+        )
+        JobRanking.objects.create(
+            job=job, profile_id="p1", match_tier="A", match_score=80, rank=10,
+        )
+        job.refresh_from_db()
+        self.assertTrue(job.is_ranked)
+
+        # The poller re-sends a blank stub for the same URL.
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[{
+                "url": "https://co.example/dedup1",
+                "title": "Backend Engineer",
+                "company": "Acme",
+                "source": "linkedin",
+                "description": "",
+                "full_description": "",
+                "tech_stack": None,
+            }],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+
+        job.refresh_from_db()
+        self.assertEqual(job.description, "Real formatted description.")
+        self.assertEqual(job.full_description, "Full formatted JD.")
+        self.assertEqual(job.tech_stack, ["Python", "Django"])
+        self.assertTrue(job.is_formatted)
+        self.assertTrue(job.is_ranked)
+        # jobs map must reflect the REAL DB is_formatted=True so the poller
+        # can skip re-queuing without a follow-up GET (H1).
+        from .parsers import normalize_url as _norm2
+        jobs_map = resp.json().get("jobs", {})
+        self.assertTrue(jobs_map.get(_norm2(url1), {}).get("is_formatted"),
+                        "bulk_create must return is_formatted=True from DB, not from stub payload")
+
+    def test_bulk_create_formatted_payload_still_updates(self):
+        """The formatter's bulk_create fallback (real data, is_formatted=True)
+        must still update a previously-stubbed row."""
+        import hashlib as _hashlib
+        from .parsers import normalize_url as _norm
+        url2 = "https://co.example/dedup2"
+        hash2 = _hashlib.sha256(_norm(url2).encode()).hexdigest()
+        Job.objects.create(
+            title="Backend Engineer", company="Acme",
+            url=_norm(url2), url_hash=hash2,
+            description="", is_formatted=False,
+        )
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[{
+                "url": "https://co.example/dedup2",
+                "title": "Backend Engineer",
+                "company": "Acme",
+                "description": "Now formatted.",
+                "tech_stack": ["Go"],
+                "is_formatted": True,
+            }],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+        job = Job.objects.get(url="https://co.example/dedup2")
+        self.assertEqual(job.description, "Now formatted.")
+        self.assertEqual(job.tech_stack, ["Go"])
+        self.assertTrue(job.is_formatted)
+
     def test_remote_is_detected_on_save(self):
         job = Job.objects.create(
             title="Backend Engineer (Fully Remote)", company="Acme",
@@ -315,6 +664,31 @@ class LocationAndScoringTests(TestCase):
         self.assertEqual(r.match_score, 77)
         self.assertEqual(r.deterministic_tier, "A")
         self.assertEqual(r.signals, {"skill": 0.9})
+
+    def test_bulk_create_returns_job_map(self):
+        """bulk_create response must include jobs dict keyed by normalized URL
+        with id and is_formatted — lets the pipeline skip follow-up GETs (H1)."""
+        resp = self.client.post(
+            reverse("job-bulk-create"),
+            data=[
+                {"url": "https://co.example/map1", "title": "Eng A", "company": "Acme"},
+                {"url": "https://co.example/map2", "title": "Eng B", "company": "Acme",
+                 "is_formatted": True},
+            ],
+            content_type="application/json",
+        )
+        self.assertIn(resp.status_code, (200, 201))
+        data = resp.json()
+        jobs = data.get("jobs", {})
+        self.assertIn("https://co.example/map1", jobs, "jobs map missing url key")
+        self.assertIn("https://co.example/map2", jobs, "jobs map missing url key")
+        for norm_url in ("https://co.example/map1", "https://co.example/map2"):
+            entry = jobs[norm_url]
+            self.assertIn("id", entry)
+            self.assertIsInstance(entry["id"], int)
+            self.assertIn("is_formatted", entry)
+        self.assertFalse(jobs["https://co.example/map1"]["is_formatted"])
+        self.assertTrue(jobs["https://co.example/map2"]["is_formatted"])
 
     def test_dashboard_region_filter_renders(self):
         job = Job.objects.create(
@@ -395,4 +769,59 @@ class JobAppliedTests(TestCase):
         self.assertEqual(len(results), 2)
 
 
+class NormalizeUrlTests(TestCase):
+    """normalize_url must preserve identity params and strip tracking params."""
 
+    def _norm(self, url):
+        from jobs.parsers import normalize_url
+        return normalize_url(url)
+
+    def test_indeed_jk_kept(self):
+        url = "https://www.indeed.com/viewjob?jk=abc123&refnum=xyz&from=organic"
+        self.assertEqual(self._norm(url), "https://www.indeed.com/viewjob?jk=abc123")
+
+    def test_taleo_job_param_kept(self):
+        url = "https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345&lang=en"
+        self.assertEqual(self._norm(url), "https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345")
+
+    def test_jobvite_j_param_kept(self):
+        url = "https://hire.jobvite.com/Jobvite/job.aspx?j=abc123&s=LinkedIn"
+        self.assertEqual(self._norm(url), "https://hire.jobvite.com/Jobvite/job.aspx?j=abc123")
+
+    def test_linkedin_tracking_stripped(self):
+        url = "https://www.linkedin.com/jobs/view/12345?refId=abc&trackingId=xyz"
+        self.assertEqual(self._norm(url), "https://www.linkedin.com/jobs/view/12345")
+
+    def test_trailing_slash_stripped(self):
+        self.assertEqual(self._norm("https://example.com/jobs/123/"), "https://example.com/jobs/123")
+
+    # (input, expected) — exercised against BOTH normalizers below.
+    PARITY_CASES = [
+        ("https://www.indeed.com/viewjob?jk=abc123&refnum=xyz&from=organic",
+         "https://www.indeed.com/viewjob?jk=abc123"),
+        ("https://jobs.indeed.com/viewjob?jk=sub42&utm=x",
+         "https://jobs.indeed.com/viewjob?jk=sub42"),
+        ("https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345&lang=en",
+         "https://company.taleo.net/careersection/2/jobdetail.ftl?job=12345"),
+        ("https://hire.jobvite.com/Jobvite/job.aspx?j=abc123&s=LinkedIn",
+         "https://hire.jobvite.com/Jobvite/job.aspx?j=abc123"),
+        ("https://www.linkedin.com/jobs/view/12345?refId=abc&trackingId=xyz",
+         "https://www.linkedin.com/jobs/view/12345"),
+        ("https://example.com/jobs/123/", "https://example.com/jobs/123"),
+        # Substring guard: a host merely *containing* an allowlisted domain must
+        # NOT inherit its rule — jk here is a tracking param and gets stripped.
+        ("https://notindeed.com/viewjob?jk=abc123", "https://notindeed.com/viewjob"),
+    ]
+
+    def test_parity_both_normalizers_identical(self):
+        """persistence.normalize_url (Celery side) and jobs.parsers.normalize_url
+        (Django side) must produce byte-identical output — #22 dedup depends on it."""
+        from jobs.parsers import normalize_url as parsers_norm
+        from persistence import normalize_url as persistence_norm
+        for url, expected in self.PARITY_CASES:
+            self.assertEqual(parsers_norm(url), expected, f"parsers: {url}")
+            self.assertEqual(persistence_norm(url), expected, f"persistence: {url}")
+
+    def test_substring_host_not_matched(self):
+        self.assertEqual(self._norm("https://notindeed.com/viewjob?jk=abc123"),
+                         "https://notindeed.com/viewjob")
