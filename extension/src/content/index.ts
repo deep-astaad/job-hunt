@@ -8,6 +8,7 @@ import { installSubmissionCapture } from "./capture";
 import { installSuggestions, fillFocused } from "./suggest";
 import { fetchResumeFile } from "./resume";
 import { extractJobContext } from "./jobContext";
+import { installFlow, startFlow, stopFlow } from "./flow";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
@@ -92,6 +93,14 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
     sendResponse({ ok: true, job: extractJobContext() } satisfies MessageResponse);
     return false;
   }
+  if (msg.type === "FLOW_START") {
+    startFlow().then(() => sendResponse({ ok: true } satisfies MessageResponse));
+    return true;
+  }
+  if (msg.type === "FLOW_STOP") {
+    stopFlow().then(() => sendResponse({ ok: true } satisfies MessageResponse));
+    return true;
+  }
   if (msg.type === "GET_STATUS") {
     getSettings().then((s) => {
       sendResponse({
@@ -114,6 +123,7 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
 // runs on load *only* when the user has opted in (globally or per-site).
 installSubmissionCapture(domain, platform.id);
 void installSuggestions(domain, platform.id);
+installFlow({ fill: () => runFillPass(true), platformId: platform.id, domain });
 
 const isTopFrame = window.top === window;
 
