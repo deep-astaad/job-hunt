@@ -15,6 +15,55 @@ import type { Settings } from "@/storage/settings";
  * Mirrors the pipeline's philosophy: deterministic first, LLM as an assist, and
  * everything still works with the LLM turned off.
  */
+/**
+ * Resolve a single field for the on-focus suggestion, using only memory +
+ * deterministic mapping (fast, no network/LLM). Returns undefined if there's
+ * nothing confident to suggest.
+ */
+export async function resolveSingle(
+  field: FieldDescriptor,
+  profile: CandidateProfile,
+  domain: string,
+  platform: string
+): Promise<FieldResolution | undefined> {
+  const det = mapFieldDeterministic(field);
+
+  const mem = await recall(field.signature, domain, platform);
+  if (mem) {
+    return {
+      fieldId: field.id,
+      value: mem.value,
+      confidence:
+        mem.scope === "domain" ? 0.95 : mem.scope === "platform" ? 0.85 : 0.7,
+      source: mem.scope === "global" ? "memory-global" : "memory",
+      canonicalKey: det?.key,
+    };
+  }
+
+  if (det) {
+    if (det.key === "resumeFile") {
+      return {
+        fieldId: field.id,
+        confidence: det.confidence,
+        source: "deterministic",
+        canonicalKey: "resumeFile",
+        isResumeFile: true,
+      };
+    }
+    const value = resolveCanonicalValue(profile, det.key);
+    if (value != null && value !== "") {
+      return {
+        fieldId: field.id,
+        value,
+        confidence: det.confidence,
+        source: "deterministic",
+        canonicalKey: det.key,
+      };
+    }
+  }
+  return undefined;
+}
+
 export async function resolveFields(
   fields: FieldDescriptor[],
   profile: CandidateProfile,

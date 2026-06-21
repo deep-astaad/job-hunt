@@ -11,7 +11,10 @@ export interface Settings {
   screeningAnswersEnabled: boolean;
   fieldTailoringEnabled: boolean;
   // Fill behavior
+  /** Auto-fill the whole form on page load. Off by default — opt in per site. */
   autofillOnLoad: boolean;
+  /** Show an inline "fill this field?" suggestion when a field is focused. */
+  suggestOnFocus: boolean;
   /** Per-site override of autofill: domain -> enabled. Absent = use global. */
   siteOverrides: Record<string, boolean>;
   /** Confidence below this is badged "review me" and never silently committed. */
@@ -26,7 +29,8 @@ export const DEFAULT_SETTINGS: Settings = {
   coverLetterEnabled: true,
   screeningAnswersEnabled: true,
   fieldTailoringEnabled: false,
-  autofillOnLoad: true,
+  autofillOnLoad: false,
+  suggestOnFocus: true,
   siteOverrides: {},
   lowConfidenceThreshold: 0.6,
 };

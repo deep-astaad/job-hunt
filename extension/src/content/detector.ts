@@ -25,9 +25,8 @@ export function detectFields(root: ParentNode = document): FieldDescriptor[] {
   );
 
   for (const el of Array.from(controls)) {
-    if (!isVisible(el)) continue;
     const kind = kindOf(el);
-    if (!kind) continue;
+    if (!kind || !isVisible(el)) continue;
 
     // Collapse radio groups into a single descriptor with options.
     if (kind === "radio") {
@@ -38,30 +37,38 @@ export function detectFields(root: ParentNode = document): FieldDescriptor[] {
       }
     }
 
-    const id = assignHandle(el);
-    const label = labelFor(el);
-    const descriptor = withSignature({
-      id,
-      kind,
-      label,
-      name: (el as HTMLInputElement).name || undefined,
-      domId: el.id || undefined,
-      placeholder: (el as HTMLInputElement).placeholder || undefined,
-      autocomplete:
-        el.getAttribute("autocomplete")?.toLowerCase() || undefined,
-      ariaLabel: el.getAttribute("aria-label") || undefined,
-      required:
-        el.hasAttribute("required") ||
-        el.getAttribute("aria-required") === "true",
-      sectionHeading: sectionHeadingFor(el),
-      options: optionsFor(el, kind),
-      groupName: (el as HTMLInputElement).name || undefined,
-      maxLength: maxLengthOf(el),
-      existingValue: currentValue(el, kind),
-    });
-    out.push(descriptor);
+    const descriptor = describeElement(el);
+    if (descriptor) out.push(descriptor);
   }
   return out;
+}
+
+/**
+ * Build a FieldDescriptor for a single element (used by both the batch scan and
+ * the on-focus suggestion flow). Returns undefined if the element isn't a
+ * fillable, visible control.
+ */
+export function describeElement(el: HTMLElement): FieldDescriptor | undefined {
+  const kind = kindOf(el);
+  if (!kind || !isVisible(el)) return undefined;
+  const id = assignHandle(el);
+  return withSignature({
+    id,
+    kind,
+    label: labelFor(el),
+    name: (el as HTMLInputElement).name || undefined,
+    domId: el.id || undefined,
+    placeholder: (el as HTMLInputElement).placeholder || undefined,
+    autocomplete: el.getAttribute("autocomplete")?.toLowerCase() || undefined,
+    ariaLabel: el.getAttribute("aria-label") || undefined,
+    required:
+      el.hasAttribute("required") || el.getAttribute("aria-required") === "true",
+    sectionHeading: sectionHeadingFor(el),
+    options: optionsFor(el, kind),
+    groupName: (el as HTMLInputElement).name || undefined,
+    maxLength: maxLengthOf(el),
+    existingValue: currentValue(el, kind),
+  });
 }
 
 function assignHandle(el: HTMLElement): string {
