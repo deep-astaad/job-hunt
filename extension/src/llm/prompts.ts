@@ -2,8 +2,47 @@ import type { CandidateProfile } from "@/profile/schema";
 import type { FieldDescriptor } from "@/shared/types";
 import type { ChatMessage } from "@/llm/openai";
 import type { JobContext } from "@/shared/messages";
+import type { ContactDraft } from "@/storage/contacts";
 
 type Job = JobContext;
+
+/** Networking angles for connection notes / outreach. */
+export type OutreachAngle =
+  | "generic"
+  | "alum"
+  | "same_stack"
+  | "hiring_manager"
+  | "mutual_interest"
+  | "referral";
+
+const ANGLE_HINT: Record<OutreachAngle, string> = {
+  generic: "Be warm and specific about why you'd value connecting.",
+  alum: "Mention a shared school / alumni connection if plausible.",
+  same_stack: "Lead with shared technology / domain interests.",
+  hiring_manager: "They may be a hiring manager — express interest in their team's work.",
+  mutual_interest: "Anchor on a shared professional interest or topic.",
+  referral: "You're hoping for a referral — be respectful and low-pressure.",
+};
+
+export function buildConnectNoteMessages(
+  profile: CandidateProfile,
+  contact: ContactDraft,
+  angle: OutreachAngle
+): ChatMessage[] {
+  const system =
+    "Write a LinkedIn connection-request note from the candidate to the contact. " +
+    "STRICT under 300 characters (LinkedIn's limit), 2-3 sentences, first person, " +
+    "warm and specific, no flattery clichés. " +
+    ANGLE_HINT[angle] +
+    " Ground any claim about the sender in their profile. Return only the note.";
+  const user =
+    `SENDER PROFILE:\n${profileDigest(profile)}\n\n` +
+    `CONTACT:\n${JSON.stringify(contact, null, 1)}`;
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
 
 function profileDigest(profile: CandidateProfile): string {
   // Prefer the raw markdown (richest), fall back to a compact JSON view.

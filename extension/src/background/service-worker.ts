@@ -14,6 +14,8 @@ import {
   buildTailorMessages,
   buildProfileExtractionMessages,
   buildTailoredResumeMessages,
+  buildConnectNoteMessages,
+  type OutreachAngle,
 } from "@/llm/prompts";
 import { emptyProfile, type CandidateProfile } from "@/profile/schema";
 import { getProvider, webChatTarget } from "@/llm/webchat/providers";
@@ -96,6 +98,8 @@ async function handle(
       return extractProfile(msg.markdown);
     case "LLM_TAILOR_RESUME":
       return tailorResume(msg);
+    case "LLM_CONNECT_NOTE":
+      return connectNote(msg);
     case "CAPTURE_SUBMISSION":
       await remember(msg.entries, msg.domain, msg.platform);
       return { ok: true };
@@ -273,6 +277,19 @@ async function logApplication(record: {
   } catch {
     /* best-effort; never block the user's submission */
   }
+}
+
+async function connectNote(
+  msg: Extract<Message, { type: "LLM_CONNECT_NOTE" }>
+): Promise<MessageResponse> {
+  const cfg = await llmConfig();
+  if (!cfg.apiKey) return { ok: false, error: "No OpenAI API key configured." };
+  const text = await chatCompletion(
+    cfg,
+    buildConnectNoteMessages(msg.profile, msg.contact, msg.angle as OutreachAngle),
+    { temperature: 0.6 }
+  );
+  return { ok: true, text: text.trim().slice(0, 300) };
 }
 
 async function resumeFile(jobText?: string): Promise<MessageResponse> {
