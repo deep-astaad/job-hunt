@@ -42,6 +42,9 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
   **save it to your profile** when it maps to a known field.
 - **Inline generation** — focusing a big text box (cover letter / "why this
   company?") offers **✨ Generate**, grounded in your profile + the page's job.
+- **Pre-submit check** — the popup’s **Check before submitting** flags empty
+  required fields, fields you have data for but left blank, and a rough
+  experience-vs-JD gap, as an on-page checklist that jumps you to each field.
 - **Work history & education** — the popup’s **Fill work history & education**
   populates repeating ATS rows (company, title, dates, description / school,
   degree, field) from your master resume, clicking “Add another” as needed.
