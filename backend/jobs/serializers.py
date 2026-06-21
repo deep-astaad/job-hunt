@@ -24,7 +24,7 @@ class JobListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "company", "url", "source", "salary",
             "language", "experience_required", "is_active", "is_ranked", "scraped_at",
-            "location", "region", "country", "is_remote",
+            "location", "region", "country", "is_remote", "is_applied",
         ]
 
 
@@ -37,7 +37,7 @@ class TodayRankedJobSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "company", "url", "source", "salary",
             "description", "language", "experience_required", "scraped_at",
-            "location", "region", "country", "is_remote",
+            "location", "region", "country", "is_remote", "is_applied",
             "ranking", "matched_profiles",
         ]
 
@@ -67,7 +67,7 @@ class JobInlineSerializer(serializers.ModelSerializer):
             "id", "title", "company", "url", "source",
             "salary", "salary_yen", "language", "experience_required",
             "description", "tech_stack", "scraped_at", "jlpt_level",
-            "location", "region", "country", "is_remote",
+            "location", "region", "country", "is_remote", "is_applied",
         ]
 
 

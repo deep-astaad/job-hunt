@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { JobList } from "./JobList";
 import { JobDetailPane } from "./JobDetailPane";
+import { ApplyConfirmModal } from "./ApplyConfirmModal";
 import { useJobs } from "@/hooks/useJobs";
 import { useFilters } from "@/lib/filter-context";
 import type { BrowseItem } from "@/lib/types";
@@ -11,6 +12,7 @@ export function BrowsePage() {
   const { filters } = useFilters();
   const [selectedItem, setSelectedItem] = useState<BrowseItem | null>(null);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
+  const [confirmJob, setConfirmJob] = useState<{ id: number; title: string; company: string } | null>(null);
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useJobs(filters);
 
@@ -28,8 +30,12 @@ export function BrowsePage() {
     setMobileShowDetail(true);
   };
 
+  const handleApplyTriggered = (jobId: number, title: string, company: string) => {
+    setConfirmJob({ id: jobId, title, company });
+  };
+
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden relative">
       {/* ── Left: job list ──────────────────────────── */}
       <div className={cn(
         "flex flex-col border-r border-border bg-base shrink-0",
@@ -55,6 +61,7 @@ export function BrowsePage() {
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             isLoading={isLoading}
+            onApplyTriggered={handleApplyTriggered}
           />
         </div>
       </div>
@@ -67,8 +74,19 @@ export function BrowsePage() {
         <JobDetailPane
           item={selectedItem}
           onBack={() => setMobileShowDetail(false)}
+          onApplyTriggered={handleApplyTriggered}
         />
       </div>
+
+      {/* Confirmation Modal */}
+      {confirmJob && (
+        <ApplyConfirmModal
+          jobId={confirmJob.id}
+          jobTitle={confirmJob.title}
+          jobCompany={confirmJob.company}
+          onClose={() => setConfirmJob(null)}
+        />
+      )}
     </div>
   );
 }

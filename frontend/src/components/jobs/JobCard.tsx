@@ -1,4 +1,4 @@
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Check } from "lucide-react";
 import { cn, TIER_COLORS, TIER_ACCENT, formatRelativeTime, formatYen } from "@/lib/utils";
 import { TierBadge } from "@/components/ui/TierBadge";
 import type { BrowseItem } from "@/lib/types";
@@ -7,11 +7,19 @@ interface Props {
   item: BrowseItem;
   isSelected: boolean;
   onClick: () => void;
+  onApplyTriggered?: (jobId: number, title: string, company: string) => void;
 }
 
-export function JobCard({ item, isSelected, onClick }: Props) {
+export function JobCard({ item, isSelected, onClick, onApplyTriggered }: Props) {
   const { job } = item;
   const tc = TIER_COLORS[item.match_tier];
+
+  const handleApplyClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    window.open(job.url, "_blank", "noopener,noreferrer");
+    onApplyTriggered?.(job.id, job.title, job.company);
+  };
 
   return (
     <div
@@ -29,12 +37,18 @@ export function JobCard({ item, isSelected, onClick }: Props) {
       )}
     >
       <div className="px-3 py-3">
-        {/* Top row: tier + company + source tag + time */}
+        {/* Top row: tier + company + status badge + time */}
         <div className="flex items-center gap-2 mb-1.5 min-w-0">
           <TierBadge tier={item.match_tier} size="sm" />
           <span className="text-xs font-semibold text-ink-secondary truncate flex-1 min-w-0">
             {job.company}
           </span>
+          {job.is_applied && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.6rem] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0">
+              <Check className="w-2.5 h-2.5" />
+              Applied
+            </span>
+          )}
           <span className="text-[0.6rem] text-ink-muted shrink-0">
             {formatRelativeTime(job.scraped_at)}
           </span>
@@ -48,13 +62,12 @@ export function JobCard({ item, isSelected, onClick }: Props) {
           )}>
             {job.title}
           </h3>
-          {/* Apply button — always visible, stops card click */}
+          {/* Apply button — always visible, stops card click and triggers confirmation */}
           <a
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
+            onClick={handleApplyClick}
             className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.65rem] font-semibold bg-brand text-white hover:bg-brand-secondary transition-colors"
             aria-label={`Apply for ${job.title}`}
           >

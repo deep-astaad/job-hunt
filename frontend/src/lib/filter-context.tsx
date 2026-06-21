@@ -19,6 +19,7 @@ function defaultFilters(profileId: string, params: URLSearchParams): BrowseFilte
     language: params.get("language") ?? "",
     location: params.get("location") ?? "japan",
     remote: (params.get("remote") as BrowseFilters["remote"]) ?? "",
+    applied: (params.get("applied") as BrowseFilters["applied"]) ?? "",
     date: (params.get("date") as BrowseFilters["date"]) ?? "today",
     q: params.get("q") ?? "",
     page: 1,
@@ -38,6 +39,7 @@ const FilterContext = createContext<FilterContextValue>({
     language: "",
     location: "japan",
     remote: "",
+    applied: "",
     date: "today",
     q: "",
     page: 1,
@@ -72,6 +74,7 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
           if (next.language) p.set("language", next.language);
           if (next.location) p.set("location", next.location);
           if (next.remote) p.set("remote", next.remote);
+          if (next.applied) p.set("applied", next.applied);
           if (next.date !== "today") p.set("date", next.date);
           if (next.q) p.set("q", next.q);
           const qs = p.toString();

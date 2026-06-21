@@ -335,3 +335,64 @@ class LocationAndScoringTests(TestCase):
         self.assertContains(resp, "/100")
 
 
+class JobAppliedTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username="testuser", password="password")
+        self.client.force_login(self.user)
+
+        self.job_applied = Job.objects.create(
+            title="Applied Job",
+            company="Company A",
+            url="https://a.com",
+            url_hash="hash_a",
+            is_applied=True,
+            is_active=True,
+        )
+        self.ranking_applied = JobRanking.objects.create(
+            job=self.job_applied,
+            profile_id="test_profile",
+            match_tier="S",
+            rank=1,
+        )
+
+        self.job_not_applied = Job.objects.create(
+            title="Not Applied Job",
+            company="Company B",
+            url="https://b.com",
+            url_hash="hash_b",
+            is_applied=False,
+            is_active=True,
+        )
+        self.ranking_not_applied = JobRanking.objects.create(
+            job=self.job_not_applied,
+            profile_id="test_profile",
+            match_tier="S",
+            rank=2,
+        )
+
+    def test_applied_filtering_true(self):
+        url = reverse("browse")
+        response = self.client.get(f"{url}?profile_id=test_profile&applied=true&date=all")
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["job"]["id"], self.job_applied.id)
+
+    def test_applied_filtering_false(self):
+        url = reverse("browse")
+        response = self.client.get(f"{url}?profile_id=test_profile&applied=false&date=all")
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["job"]["id"], self.job_not_applied.id)
+
+    def test_applied_filtering_all(self):
+        url = reverse("browse")
+        response = self.client.get(f"{url}?profile_id=test_profile&applied=&date=all")
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+
+
+

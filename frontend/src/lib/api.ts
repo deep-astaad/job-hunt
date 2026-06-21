@@ -39,6 +39,7 @@ export async function fetchBrowsePage(
   if (filters.language) p.set("language", filters.language);
   if (filters.location) p.set("location", filters.location);
   if (filters.remote) p.set("remote", filters.remote);
+  if (filters.applied) p.set("applied", filters.applied);
   p.set("date", filters.date);
   if (filters.q) p.set("q", filters.q);
   p.set("page", String(page));
@@ -48,6 +49,16 @@ export async function fetchBrowsePage(
 
 export async function fetchJobDetail(jobId: number) {
   return djFetch<Record<string, unknown>>(`/jobs/${jobId}/`);
+}
+
+export async function patchJob(
+  jobId: number,
+  data: { is_applied?: boolean }
+) {
+  return djFetch(`/jobs/${jobId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 // ── Rankings ──────────────────────────────────────────────────────────────

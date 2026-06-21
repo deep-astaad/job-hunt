@@ -53,6 +53,7 @@ class Job(models.Model):
     is_formatted = models.BooleanField(default=False, db_index=True)
     is_ranked = models.BooleanField(default=False, db_index=True)
     alert_sent = models.BooleanField(default=False, db_index=True)
+    is_applied = models.BooleanField(default=False, db_index=True)
 
     scraped_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
