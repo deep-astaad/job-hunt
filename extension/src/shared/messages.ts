@@ -82,7 +82,17 @@ export type Message =
   // popup -> content: fill repeating work-history / education sections.
   | { type: "FILL_WORK_HISTORY" }
   // popup -> content: run the pre-submit validation pass and show the checklist.
-  | { type: "VALIDATE_FORM" };
+  | { type: "VALIDATE_FORM" }
+  // content -> background: an application was submitted; log it (opt-in).
+  | {
+      type: "APPLICATION_SUBMITTED";
+      record: {
+        company?: string;
+        role?: string;
+        url?: string;
+        platform: string;
+      };
+    };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }

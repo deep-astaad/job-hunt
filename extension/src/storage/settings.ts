@@ -32,6 +32,13 @@ export interface Settings {
   siteOverrides: Record<string, boolean>;
   /** Confidence below this is badged "review me" and never silently committed. */
   lowConfidenceThreshold: number;
+  // Application log (opt-in). When enabled, submissions are POSTed to a backend.
+  /** Off by default — keeps AppFill fully self-contained / offline. */
+  appLogEnabled: boolean;
+  /** Full endpoint URL to POST applications to (e.g. https://host/api/applications/). */
+  appLogEndpoint: string;
+  /** Optional bearer token sent as Authorization on the POST. */
+  appLogToken: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -49,6 +56,9 @@ export const DEFAULT_SETTINGS: Settings = {
   suggestOnFocus: true,
   siteOverrides: {},
   lowConfidenceThreshold: 0.6,
+  appLogEnabled: false,
+  appLogEndpoint: "",
+  appLogToken: "",
 };
 
 const KEY = "appfill:settings";
