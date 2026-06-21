@@ -7,6 +7,7 @@ import { highlight, clearHighlights } from "./highlight";
 import { installSubmissionCapture } from "./capture";
 import { installSuggestions, fillFocused } from "./suggest";
 import { fetchResumeFile } from "./resume";
+import { extractJobContext } from "./jobContext";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
@@ -86,6 +87,10 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
       sendResponse({ ok: true } satisfies MessageResponse)
     );
     return true;
+  }
+  if (msg.type === "GET_JOB_CONTEXT") {
+    sendResponse({ ok: true, job: extractJobContext() } satisfies MessageResponse);
+    return false;
   }
   if (msg.type === "GET_STATUS") {
     getSettings().then((s) => {
