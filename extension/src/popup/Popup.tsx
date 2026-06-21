@@ -12,6 +12,7 @@ import { messagesToPrompt } from "@/llm/promptText";
 import { getProvider } from "@/llm/webchat/providers";
 import { matchResumeToJob } from "@/llm/resumeMatch";
 import { profileToResumeHtml } from "@/profile/resumeHtml";
+import { addContact } from "@/storage/contacts";
 
 type Status = {
   platform: string;
@@ -72,6 +73,24 @@ export function Popup() {
       if (resp.ok && "status" in resp) setStatus(resp.status);
     } catch {
       setNote("Couldn't reach this page. Reload and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveContact() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const resp = await sendToTab(tab.id, { type: "GET_CONTACT_INFO" });
+      if (resp.ok && "contact" in resp) {
+        const c = await addContact(resp.contact);
+        setNote(`Saved ${c.name || "contact"}${c.company ? ` · ${c.company}` : ""} ✓`);
+      }
+    } catch {
+      setNote("Couldn't read this page. Open a LinkedIn/company page.");
     } finally {
       setBusy(false);
     }
@@ -306,6 +325,9 @@ export function Popup() {
         </button>
         <button onClick={checkBeforeSubmit} disabled={busy} style={btn}>
           Check before submitting
+        </button>
+        <button onClick={saveContact} disabled={busy} style={btn}>
+          Save this contact (networking)
         </button>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard

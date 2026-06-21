@@ -24,6 +24,12 @@ import { extractProfileFromMarkdown } from "@/profile/markdownImport";
 import { profileToYaml, yamlToProfile } from "@/profile/yaml";
 import { profileToResumeHtml } from "@/profile/resumeHtml";
 import { exportAll, importAll, type Backup } from "@/storage/backup";
+import {
+  getContacts,
+  removeContact,
+  searchContacts,
+  type Contact,
+} from "@/storage/contacts";
 
 export function Options() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -33,6 +39,8 @@ export function Options() {
   const [variants, setVariants] = useState<ResumeVariant[]>([]);
   const [vLabel, setVLabel] = useState("");
   const [vTags, setVTags] = useState("");
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactQuery, setContactQuery] = useState("");
   const [memory, setMemory] = useState<MemoryEntry[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,6 +54,7 @@ export function Options() {
       const rf = await getResumeFile();
       setResumeName(rf?.name ?? null);
       setVariants(await getResumeVariants());
+      setContacts(await getContacts());
       setMemory(await getAllMemory());
     })();
   }, []);
@@ -564,6 +573,60 @@ export function Options() {
             <input type="file" accept="application/json" onChange={onImport} style={{ display: "none" }} />
           </label>
         </div>
+      </Section>
+
+      <Section title="Networking contacts">
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+          Saved from LinkedIn / company pages via the toolbar popup. Used for
+          outreach and follow-up reminders.
+        </p>
+        {contacts.length > 0 && (
+          <input
+            style={{ ...input, marginBottom: 8 }}
+            placeholder="Search name / company / role…"
+            value={contactQuery}
+            onChange={(e) => setContactQuery(e.target.value)}
+          />
+        )}
+        {contacts.length === 0 ? (
+          <div style={{ color: "#6b7280", fontSize: 13 }}>
+            No contacts yet — open a LinkedIn profile and click “Save this contact”.
+          </div>
+        ) : (
+          <div style={{ maxHeight: 260, overflow: "auto" }}>
+            {searchContacts(contacts, contactQuery).map((c) => (
+              <div key={c.id} style={memRow}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    {c.name || "(no name)"}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {[c.role, c.company].filter(Boolean).join(" · ")}
+                    {c.lastContactedAt
+                      ? ` · contacted ${new Date(c.lastContactedAt).toLocaleDateString()}`
+                      : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {c.profileUrl && (
+                    <a style={linkBtn} href={c.profileUrl} target="_blank" rel="noreferrer">
+                      open
+                    </a>
+                  )}
+                  <button
+                    style={linkBtn}
+                    onClick={async () => {
+                      await removeContact(c.id);
+                      setContacts(await getContacts());
+                    }}
+                  >
+                    delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       <Section title="Application log (optional)">
