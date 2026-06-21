@@ -68,6 +68,8 @@ export function buildCoverLetterMessages(
   const system =
     "Write a concise, specific cover letter (3 short paragraphs, ~180-260 words). " +
     "Ground every claim in the candidate profile; never fabricate experience. " +
+    "Reference specifics from the JOB (its responsibilities, stack, and company) " +
+    "so the letter is clearly tailored to this posting, not generic. " +
     "Professional, warm, no clichés or filler. Return only the letter text.";
   const user =
     `CANDIDATE PROFILE:\n${profileDigest(profile)}\n\n` +
@@ -89,7 +91,8 @@ export function buildScreeningMessages(
     : " Keep it to 2-5 sentences.";
   const system =
     "Answer a job-application screening question in first person as the candidate. " +
-    "Use only facts from the profile; be specific and honest." +
+    "Use only facts from the profile; be specific and honest. Where relevant, tie " +
+    "the answer to the specific JOB and company described below." +
     lenHint +
     " Return only the answer text.";
   const user =

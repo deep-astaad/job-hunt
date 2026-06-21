@@ -16,6 +16,7 @@ import { sendToBackground, type Message, type JobContext } from "@/shared/messag
 import { buildCoverLetterMessages, buildScreeningMessages } from "@/llm/prompts";
 import { messagesToPrompt } from "@/llm/promptText";
 import { getProvider } from "@/llm/webchat/providers";
+import { extractJobContext } from "./jobContext";
 
 /**
  * On-focus assistant. When you focus a field, AppFill offers — in order of
@@ -262,7 +263,7 @@ async function generateIntoField() {
 }
 
 function jobContext(): JobContext {
-  return { title: document.title, url: location.href };
+  return extractJobContext();
 }
 
 /**

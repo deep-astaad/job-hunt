@@ -90,7 +90,15 @@ export function Popup() {
     try {
       const profile = await getProfile();
       const tab = await activeTab();
-      const job: JobContext = { url: tab?.url, title: tab?.title };
+      let job: JobContext = { url: tab?.url, title: tab?.title };
+      if (tab?.id != null) {
+        try {
+          const jc = await sendToTab(tab.id, { type: "GET_JOB_CONTEXT" });
+          if (jc.ok && "job" in jc) job = jc.job;
+        } catch {
+          /* not a content-script page; fall back to title/url */
+        }
+      }
 
       if (settings?.llmMode === "webchat") {
         const prompt = messagesToPrompt(buildCoverLetterMessages(profile, job));

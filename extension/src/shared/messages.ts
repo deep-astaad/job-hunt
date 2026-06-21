@@ -66,12 +66,15 @@ export type Message =
   // provider content -> background: the captured answer to relay back.
   | { type: "WEBCHAT_RESULT"; id: string; text: string }
   // background -> origin content: fill a field with a returned web-chat answer.
-  | { type: "FILL_RESULT"; fieldHandle: string; text: string };
+  | { type: "FILL_RESULT"; fieldHandle: string; text: string }
+  // popup -> content: scrape the job posting on the page for grounding.
+  | { type: "GET_JOB_CONTEXT" };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }
   | { ok: true; text: string }
   | { ok: true; url: string }
+  | { ok: true; job: JobContext }
   | { ok: true; profile: CandidateProfile }
   | { ok: true; file?: { name: string; type: string; base64: string } }
   | {
