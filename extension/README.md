@@ -9,12 +9,17 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
 
 ## How it works
 
-1. **Two resume artifacts** (set up in the options page):
+1. **Resume artifacts** (set up in the options page):
    - A **binary resume** (PDF/DOCX) stored in IndexedDB → attached to file-upload
      fields.
-   - A **markdown resume** → the LLM-readable source of truth for text fields and
-     generated content. "Extract profile with AI" parses it into structured fields
-     you can review/edit (or fill them by hand — no LLM required).
+   - A **markdown resume** → an LLM-readable source you can paste in. "Extract
+     profile with AI" parses it into the master resume (or fill it by hand — no
+     LLM required).
+   - A **master resume (YAML)** → the single source of truth for everything
+     AppFill knows about you (contact, summary, work history, education, skills,
+     links, eligibility). Autofill and all generation derive from it; it's
+     human-editable, and **"Download / print PDF"** renders it to a clean
+     printable resume.
 2. **Hybrid field mapping** (content script): for each detected field it tries, in
    order — learned **memory** (per-domain → per-platform → global), a deterministic
    **dictionary** (labels/autocomplete → profile), then an **LLM fallback** for

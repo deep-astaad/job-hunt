@@ -13,15 +13,16 @@ import {
 } from "@/storage/resumeFile";
 import { getAllMemory, deleteMemory, clearMemory } from "@/storage/memory";
 import type { MemoryEntry } from "@/storage/memory";
-import { type CandidateProfile, emptyProfile } from "@/profile/schema";
+import { type CandidateProfile } from "@/profile/schema";
 import { extractProfileFromMarkdown } from "@/profile/markdownImport";
+import { profileToYaml, yamlToProfile } from "@/profile/yaml";
+import { profileToResumeHtml } from "@/profile/resumeHtml";
 import { exportAll, importAll, type Backup } from "@/storage/backup";
 
 export function Options() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [profile, setProfile] = useState<CandidateProfile>(emptyProfile());
   const [markdown, setMarkdown] = useState("");
-  const [advanced, setAdvanced] = useState("");
+  const [yamlText, setYamlText] = useState("");
   const [resumeName, setResumeName] = useState<string | null>(null);
   const [memory, setMemory] = useState<MemoryEntry[]>([]);
   const [msg, setMsg] = useState("");
@@ -31,9 +32,8 @@ export function Options() {
     void (async () => {
       setSettings(await getSettings());
       const p = await getProfile();
-      setProfile(p);
       setMarkdown(p.rawMarkdown ?? "");
-      setAdvanced(serializeAdvanced(p));
+      setYamlText(profileToYaml(p));
       const rf = await getResumeFile();
       setResumeName(rf?.name ?? null);
       setMemory(await getAllMemory());
@@ -54,10 +54,9 @@ export function Options() {
     setBusy(true);
     try {
       const extracted = await extractProfileFromMarkdown(markdown);
-      setProfile(extracted);
-      setAdvanced(serializeAdvanced(extracted));
+      setYamlText(profileToYaml(extracted));
       await saveProfile(extracted);
-      flash("Profile extracted ✓ Review the fields below.");
+      flash("Profile extracted ✓ Review the master resume below.");
     } catch (e) {
       flash(e instanceof Error ? e.message : "Extraction failed.");
     } finally {
@@ -66,16 +65,46 @@ export function Options() {
   }
 
   async function onSaveProfile() {
-    let merged = { ...profile, rawMarkdown: markdown };
+    let parsed: CandidateProfile;
     try {
-      merged = { ...merged, ...deserializeAdvanced(advanced) };
+      parsed = yamlToProfile(yamlText);
     } catch {
-      return flash("Advanced JSON is invalid — fix it before saving.");
+      return flash("Master resume YAML is invalid — fix it before saving.");
     }
-    setProfile(merged);
+    const merged = { ...parsed, rawMarkdown: markdown };
+    setYamlText(profileToYaml(merged));
     await saveProfile(merged);
-    flash("Profile saved ✓");
+    flash("Master resume saved ✓");
   }
+
+  /** Open the rendered resume in a new tab for the user to print/save as PDF. */
+  function onDownloadPdf() {
+    let p: CandidateProfile;
+    try {
+      p = yamlToProfile(yamlText);
+    } catch {
+      return flash("Fix the master resume YAML first.");
+    }
+    const html = profileToResumeHtml(p);
+    const w = window.open("", "_blank");
+    if (!w) return flash("Allow pop-ups to open the printable resume.");
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 350);
+  }
+
+  const parsedPreview = (() => {
+    try {
+      const p = yamlToProfile(yamlText);
+      const name =
+        p.contact.fullName ||
+        [p.contact.firstName, p.contact.lastName].filter(Boolean).join(" ") ||
+        "—";
+      return `${name} · ${p.contact.email ?? "no email"} · ${p.skills.length} skills · ${p.workExperience.length} roles`;
+    } catch {
+      return "invalid YAML";
+    }
+  })();
 
   async function onResumeUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -88,10 +117,6 @@ export function Options() {
   async function onDeleteResume() {
     await deleteResumeFile();
     setResumeName(null);
-  }
-
-  function setContact(k: keyof CandidateProfile["contact"], v: string) {
-    setProfile((p) => ({ ...p, contact: { ...p.contact, [k]: v } }));
   }
 
   async function onExport() {
@@ -114,9 +139,8 @@ export function Options() {
       // reload UI state
       setSettings(await getSettings());
       const p = await getProfile();
-      setProfile(p);
       setMarkdown(p.rawMarkdown ?? "");
-      setAdvanced(serializeAdvanced(p));
+      setYamlText(profileToYaml(p));
       const rf = await getResumeFile();
       setResumeName(rf?.name ?? null);
       setMemory(await getAllMemory());
@@ -168,27 +192,31 @@ export function Options() {
         </div>
       </Section>
 
-      <Section title="2 · Profile">
-        <div style={grid}>
-          <Field label="First name" value={profile.contact.firstName} onChange={(v) => setContact("firstName", v)} />
-          <Field label="Last name" value={profile.contact.lastName} onChange={(v) => setContact("lastName", v)} />
-          <Field label="Email" value={profile.contact.email} onChange={(v) => setContact("email", v)} />
-          <Field label="Phone" value={profile.contact.phone} onChange={(v) => setContact("phone", v)} />
-          <Field label="City" value={profile.contact.city} onChange={(v) => setContact("city", v)} />
-          <Field label="Country" value={profile.contact.country} onChange={(v) => setContact("country", v)} />
-        </div>
-        <label style={{ ...label, marginTop: 14 }}>
-          Advanced (links, work history, education, eligibility) — JSON
-        </label>
+      <Section title="2 · Master resume (YAML)">
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+          The single source of truth for everything AppFill knows about you —
+          contact, summary, work history, education, skills, links, and
+          eligibility. Autofill and generation derive from this. Edit it directly,
+          or bootstrap it from your markdown resume above with “Extract”.
+        </p>
         <textarea
-          value={advanced}
-          onChange={(e) => setAdvanced(e.target.value)}
-          rows={10}
-          style={{ ...textarea, fontFamily: "ui-monospace, monospace", fontSize: 12 }}
+          value={yamlText}
+          onChange={(e) => setYamlText(e.target.value)}
+          rows={20}
+          spellCheck={false}
+          style={{ ...textarea, fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}
         />
-        <button style={{ ...primaryBtn, marginTop: 10 }} onClick={onSaveProfile}>
-          Save profile
-        </button>
+        <div style={{ fontSize: 12, color: "#6b7280", margin: "6px 0" }}>
+          Parsed: <b>{parsedPreview}</b>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <button style={primaryBtn} onClick={onSaveProfile}>
+            Save master resume
+          </button>
+          <button style={btn} onClick={onDownloadPdf}>
+            Download / print PDF
+          </button>
+        </div>
       </Section>
 
       <Section title="3 · LLM (OpenAI-compatible)">
@@ -308,42 +336,6 @@ export function Options() {
       </Section>
     </div>
   );
-}
-
-// --- profile serialization for the "advanced" JSON box ---
-function serializeAdvanced(p: CandidateProfile): string {
-  return JSON.stringify(
-    {
-      headline: p.headline,
-      summary: p.summary,
-      yearsOfExperience: p.yearsOfExperience,
-      currentCompany: p.currentCompany,
-      currentTitle: p.currentTitle,
-      skills: p.skills,
-      links: p.links,
-      workExperience: p.workExperience,
-      education: p.education,
-      eligibility: p.eligibility,
-    },
-    null,
-    2
-  );
-}
-
-function deserializeAdvanced(s: string): Partial<CandidateProfile> {
-  const o = JSON.parse(s);
-  return {
-    headline: o.headline,
-    summary: o.summary,
-    yearsOfExperience: o.yearsOfExperience,
-    currentCompany: o.currentCompany,
-    currentTitle: o.currentTitle,
-    skills: o.skills ?? [],
-    links: o.links ?? {},
-    workExperience: o.workExperience ?? [],
-    education: o.education ?? [],
-    eligibility: o.eligibility ?? {},
-  };
 }
 
 // --- small presentational helpers ---
