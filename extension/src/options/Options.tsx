@@ -30,6 +30,12 @@ import {
   searchContacts,
   type Contact,
 } from "@/storage/contacts";
+import {
+  getTemplates,
+  saveTemplates,
+  newTemplateId,
+  type OutreachTemplate,
+} from "@/storage/templates";
 
 export function Options() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -41,6 +47,7 @@ export function Options() {
   const [vTags, setVTags] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactQuery, setContactQuery] = useState("");
+  const [templates, setTemplates] = useState<OutreachTemplate[]>([]);
   const [memory, setMemory] = useState<MemoryEntry[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,6 +62,7 @@ export function Options() {
       setResumeName(rf?.name ?? null);
       setVariants(await getResumeVariants());
       setContacts(await getContacts());
+      setTemplates(await getTemplates());
       setMemory(await getAllMemory());
     })();
   }, []);
@@ -627,6 +635,67 @@ export function Options() {
             ))}
           </div>
         )}
+      </Section>
+
+      <Section title="Outreach templates">
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+          Used by “Draft outreach” in the popup. Placeholders:{" "}
+          <code>{"{firstName} {name} {company} {role} {myName} {myTitle}"}</code>.
+          With an LLM on, these are polished; with it off, they’re filled as-is.
+        </p>
+        {templates.map((t, i) => (
+          <div key={t.id} style={{ marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #f3f4f6" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                style={{ ...input, fontWeight: 600 }}
+                value={t.name}
+                onChange={(e) => {
+                  const next = [...templates];
+                  next[i] = { ...t, name: e.target.value };
+                  setTemplates(next);
+                }}
+              />
+              <button
+                style={linkBtn}
+                onClick={() => setTemplates(templates.filter((x) => x.id !== t.id))}
+              >
+                remove
+              </button>
+            </div>
+            <textarea
+              style={{ ...textarea, marginTop: 6 }}
+              rows={3}
+              value={t.body}
+              onChange={(e) => {
+                const next = [...templates];
+                next[i] = { ...t, body: e.target.value };
+                setTemplates(next);
+              }}
+            />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            style={btn}
+            onClick={() =>
+              setTemplates([
+                ...templates,
+                { id: newTemplateId(), name: "New template", body: "Hi {firstName}, …" },
+              ])
+            }
+          >
+            Add template
+          </button>
+          <button
+            style={primaryBtn}
+            onClick={async () => {
+              await saveTemplates(templates);
+              flash("Templates saved ✓");
+            }}
+          >
+            Save templates
+          </button>
+        </div>
       </Section>
 
       <Section title="Application log (optional)">

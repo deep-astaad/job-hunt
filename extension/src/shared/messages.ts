@@ -95,6 +95,14 @@ export type Message =
     }
   // popup -> content: fill the LinkedIn connect-modal note box with text.
   | { type: "FILL_CONNECT_NOTE"; text: string }
+  // popup -> background: polish an outreach message from a template draft.
+  | {
+      type: "LLM_OUTREACH";
+      profile: CandidateProfile;
+      contact: ContactDraft;
+      draft: string;
+      job?: JobContext;
+    }
   // content -> background: an application was submitted; log it (opt-in).
   | {
       type: "APPLICATION_SUBMITTED";

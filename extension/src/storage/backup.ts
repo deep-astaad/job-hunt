@@ -10,6 +10,7 @@ import {
 } from "./resumeFile";
 import { getResumeVariants, type ResumeVariant } from "./resumeVariants";
 import { getContacts, type Contact } from "./contacts";
+import { getTemplates, saveTemplates, type OutreachTemplate } from "./templates";
 import { arrayBufferToBase64, base64ToFile } from "@/shared/encoding";
 
 /**
@@ -35,6 +36,8 @@ export interface Backup {
   resumeVariants?: BackupVariant[];
   /** Networking contacts. */
   contacts?: Contact[];
+  /** Outreach templates. */
+  templates?: OutreachTemplate[];
 }
 
 export async function exportAll(): Promise<Backup> {
@@ -62,6 +65,7 @@ export async function exportAll(): Promise<Backup> {
       : undefined,
     resumeVariants: backupVariants.length ? backupVariants : undefined,
     contacts: (await getContacts()) ?? [],
+    templates: await getTemplates(),
   };
 }
 
@@ -89,4 +93,5 @@ export async function importAll(data: Backup): Promise<void> {
   if (data.contacts?.length) {
     await chrome.storage.local.set({ "appfill:contacts": data.contacts });
   }
+  if (data.templates?.length) await saveTemplates(data.templates);
 }
