@@ -7,7 +7,11 @@ import {
   type Settings,
 } from "@/storage/settings";
 import { getProfile } from "@/storage/profile";
-import { buildCoverLetterMessages, buildTailoredResumeMessages } from "@/llm/prompts";
+import {
+  buildCoverLetterMessages,
+  buildTailoredResumeMessages,
+  buildConnectNoteMessages,
+} from "@/llm/prompts";
 import { messagesToPrompt } from "@/llm/promptText";
 import { getProvider } from "@/llm/webchat/providers";
 import { matchResumeToJob } from "@/llm/resumeMatch";
@@ -44,6 +48,7 @@ export function Popup() {
   const [domain, setDomain] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [angle, setAngle] = useState("generic");
 
   useEffect(() => {
     void (async () => {
@@ -73,6 +78,63 @@ export function Popup() {
       if (resp.ok && "status" in resp) setStatus(resp.status);
     } catch {
       setNote("Couldn't reach this page. Reload and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function draftConnectNote() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const profile = await getProfile();
+      const ci = await sendToTab(tab.id, { type: "GET_CONTACT_INFO" });
+      const contact = ci.ok && "contact" in ci ? ci.contact : {};
+
+      if (settings?.llmMode === "webchat") {
+        const prompt = messagesToPrompt(
+          buildConnectNoteMessages(profile, contact, angle as never)
+        );
+        try {
+          await navigator.clipboard.writeText(prompt);
+        } catch {
+          /* auto-inject still works */
+        }
+        const provider = getProvider(settings.webchatProvider);
+        await chrome.runtime.sendMessage({
+          type: "WEBCHAT_HANDOFF",
+          providerId: settings.webchatProvider,
+          prompt,
+        } satisfies Message);
+        setNote(`Opened ${provider?.label ?? "your LLM"} to draft the note.`);
+        return;
+      }
+      if (settings?.llmMode === "off" || !settings) {
+        setNote("Enable an LLM (settings) to draft a connection note.");
+        return;
+      }
+
+      const resp = (await chrome.runtime.sendMessage({
+        type: "LLM_CONNECT_NOTE",
+        profile,
+        contact,
+        angle,
+      } satisfies Message)) as MessageResponse;
+      if (resp.ok && "text" in resp) {
+        try {
+          await navigator.clipboard.writeText(resp.text);
+        } catch {
+          /* ignore */
+        }
+        await sendToTab(tab.id, { type: "FILL_CONNECT_NOTE", text: resp.text });
+        setNote(`Note ready (${resp.text.length}/300) — filled if the connect box is open, also copied.`);
+      } else if (!resp.ok) {
+        setNote(resp.error);
+      }
+    } catch {
+      setNote("Open a LinkedIn profile to draft a connection note.");
     } finally {
       setBusy(false);
     }
@@ -329,6 +391,24 @@ export function Popup() {
         <button onClick={saveContact} disabled={busy} style={btn}>
           Save this contact (networking)
         </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <select
+            value={angle}
+            onChange={(e) => setAngle(e.target.value)}
+            style={{ ...btn, flex: "0 0 auto" }}
+            title="Connection angle"
+          >
+            <option value="generic">Generic</option>
+            <option value="alum">Alum</option>
+            <option value="same_stack">Same stack</option>
+            <option value="hiring_manager">Hiring mgr</option>
+            <option value="mutual_interest">Shared interest</option>
+            <option value="referral">Referral</option>
+          </select>
+          <button onClick={draftConnectNote} disabled={busy} style={{ ...btn, flex: 1 }}>
+            Draft LinkedIn connect note
+          </button>
+        </div>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard
         </button>

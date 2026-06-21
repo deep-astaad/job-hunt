@@ -86,6 +86,15 @@ export type Message =
   | { type: "VALIDATE_FORM" }
   // popup -> content: scrape a contact draft from the page (LinkedIn/company).
   | { type: "GET_CONTACT_INFO" }
+  // popup -> background: draft a LinkedIn connection-request note (<300 chars).
+  | {
+      type: "LLM_CONNECT_NOTE";
+      profile: CandidateProfile;
+      contact: ContactDraft;
+      angle: string;
+    }
+  // popup -> content: fill the LinkedIn connect-modal note box with text.
+  | { type: "FILL_CONNECT_NOTE"; text: string }
   // content -> background: an application was submitted; log it (opt-in).
   | {
       type: "APPLICATION_SUBMITTED";

@@ -65,6 +65,19 @@ async function runFillPass(force = false): Promise<{
   return { fieldCount: fields.length, filledCount };
 }
 
+/** Fill the LinkedIn "Add a note" connect-modal textarea, if present. */
+function fillConnectNote(text: string): boolean {
+  const ta = document.querySelector<HTMLTextAreaElement>(
+    "#custom-message, textarea[name='message'], .connect-button-send-invite__custom-message"
+  );
+  if (!ta) return false;
+  const proto = Object.getPrototypeOf(ta);
+  Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(ta, text);
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+  ta.focus();
+  return true;
+}
+
 function jobTextForValidation(): string {
   try {
     const j = extractJobContext();
@@ -107,6 +120,11 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "GET_CONTACT_INFO") {
     sendResponse({ ok: true, contact: extractContactInfo() } satisfies MessageResponse);
+    return false;
+  }
+  if (msg.type === "FILL_CONNECT_NOTE") {
+    fillConnectNote(msg.text);
+    sendResponse({ ok: true } satisfies MessageResponse);
     return false;
   }
   if (msg.type === "FLOW_START") {
