@@ -1,0 +1,50 @@
+name: Release Extension
+
+# Publishes the AppFill Chrome extension as a GitHub Release with the packaged
+# zip attached. The zip is a release asset only — it is never committed to the repo.
+#
+# Trigger by pushing a tag like `extension-v0.1.0`:
+#   git tag extension-v0.1.0 && git push origin extension-v0.1.0
+# Or run manually from the Actions tab (workflow_dispatch).
+
+on:
+  push:
+    tags:
+      - "extension-v*"
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the release & upload assets
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build & package
+        run: npm run package
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: extension/release/*.zip
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          name: ${{ github.ref_name }}

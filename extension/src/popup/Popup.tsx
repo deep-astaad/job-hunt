@@ -1,0 +1,196 @@
+import { useEffect, useState } from "react";
+import type { Message, MessageResponse, JobContext } from "@/shared/messages";
+import {
+  getSettings,
+  saveSettings,
+  autofillEnabledForDomain,
+  type Settings,
+} from "@/storage/settings";
+import { getProfile } from "@/storage/profile";
+
+type Status = {
+  platform: string;
+  fieldCount: number;
+  filledCount: number;
+  autofillEnabled: boolean;
+};
+
+async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+function domainOf(url?: string): string {
+  try {
+    return url ? new URL(url).hostname : "";
+  } catch {
+    return "";
+  }
+}
+
+async function sendToTab(tabId: number, msg: Message): Promise<MessageResponse> {
+  return chrome.tabs.sendMessage(tabId, msg);
+}
+
+export function Popup() {
+  const [status, setStatus] = useState<Status | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [domain, setDomain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    void (async () => {
+      const s = await getSettings();
+      setSettings(s);
+      const tab = await activeTab();
+      setDomain(domainOf(tab?.url));
+      if (tab?.id) {
+        try {
+          const resp = await sendToTab(tab.id, { type: "GET_STATUS" });
+          if (resp.ok && "status" in resp) setStatus(resp.status);
+        } catch {
+          setNote("Open a job application page to use AppFill.");
+        }
+      }
+    })();
+  }, []);
+
+  async function fillNow() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    setBusy(true);
+    setNote("");
+    try {
+      await sendToTab(tab.id, { type: "FILL_NOW" });
+      const resp = await sendToTab(tab.id, { type: "GET_STATUS" });
+      if (resp.ok && "status" in resp) setStatus(resp.status);
+    } catch {
+      setNote("Couldn't reach this page. Reload and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleSite() {
+    if (!settings) return;
+    const enabled = autofillEnabledForDomain(settings, domain);
+    const next = await saveSettings({
+      siteOverrides: { ...settings.siteOverrides, [domain]: !enabled },
+    });
+    setSettings(next);
+  }
+
+  async function generateCoverLetter() {
+    setBusy(true);
+    setNote("");
+    try {
+      const profile = await getProfile();
+      const tab = await activeTab();
+      const job: JobContext = { url: tab?.url, title: tab?.title };
+      const resp = (await chrome.runtime.sendMessage({
+        type: "LLM_GENERATE",
+        kind: "cover_letter",
+        profile,
+        job,
+      } satisfies Message)) as MessageResponse;
+      if (resp.ok && "text" in resp) {
+        await navigator.clipboard.writeText(resp.text);
+        setNote("Cover letter copied to clipboard ✓");
+      } else if (!resp.ok) {
+        setNote(resp.error);
+      }
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const siteEnabled = settings ? autofillEnabledForDomain(settings, domain) : true;
+
+  return (
+    <div style={{ padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <strong style={{ fontSize: 15 }}>AppFill</strong>
+        <span style={{ marginLeft: "auto", color: "#6b7280" }}>{domain}</span>
+      </div>
+
+      <div
+        style={{
+          marginTop: 10,
+          padding: 10,
+          background: "#f9fafb",
+          borderRadius: 8,
+          fontSize: 12,
+        }}
+      >
+        {status ? (
+          <>
+            <div>Platform: <b>{status.platform}</b></div>
+            <div>
+              Fields detected: <b>{status.fieldCount}</b> · filled:{" "}
+              <b>{status.filledCount}</b>
+            </div>
+          </>
+        ) : (
+          <div style={{ color: "#6b7280" }}>{note || "Scanning page…"}</div>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+        <button onClick={fillNow} disabled={busy} style={primaryBtn}>
+          {busy ? "Working…" : "Fill this form"}
+        </button>
+        <button onClick={generateCoverLetter} disabled={busy} style={btn}>
+          Generate cover letter → clipboard
+        </button>
+        <label style={toggleRow}>
+          <input type="checkbox" checked={siteEnabled} onChange={toggleSite} />
+          Auto-fill on this site
+        </label>
+      </div>
+
+      {note && status && (
+        <div style={{ marginTop: 10, fontSize: 12, color: "#374151" }}>{note}</div>
+      )}
+
+      <button
+        onClick={() => chrome.runtime.openOptionsPage()}
+        style={{ ...linkBtn, marginTop: 12 }}
+      >
+        Edit profile & settings →
+      </button>
+    </div>
+  );
+}
+
+const btn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: 13,
+};
+const primaryBtn: React.CSSProperties = {
+  ...btn,
+  background: "#2563eb",
+  color: "#fff",
+  border: "1px solid #2563eb",
+  fontWeight: 600,
+};
+const linkBtn: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "#2563eb",
+  cursor: "pointer",
+  padding: 0,
+  fontSize: 12,
+};
+const toggleRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 12,
+};
