@@ -102,3 +102,11 @@ export async function deleteMemory(signature: string): Promise<void> {
 export async function clearMemory(): Promise<void> {
   await chrome.storage.local.remove(KEY);
 }
+
+/** Raw store access for backup export/import. */
+export async function dumpMemory(): Promise<MemoryStore> {
+  return load();
+}
+export async function restoreMemory(store: MemoryStore): Promise<void> {
+  await persist(store);
+}

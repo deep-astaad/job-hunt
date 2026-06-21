@@ -9,7 +9,20 @@ export default defineManifest({
   // Work on any platform; documented privacy tradeoff. The content script also
   // runs in all frames so embedded ATS iframes (Workday/Greenhouse) are covered.
   host_permissions: ["<all_urls>"],
-  permissions: ["storage", "scripting", "activeTab", "unlimitedStorage", "tabs"],
+  permissions: [
+    "storage",
+    "scripting",
+    "activeTab",
+    "unlimitedStorage",
+    "tabs",
+    "contextMenus",
+  ],
+  commands: {
+    "fill-form": {
+      suggested_key: { default: "Ctrl+Shift+L", mac: "Command+Shift+L" },
+      description: "AppFill: fill the current form",
+    },
+  },
   background: {
     service_worker: "src/background/service-worker.ts",
     type: "module",

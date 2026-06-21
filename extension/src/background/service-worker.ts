@@ -20,7 +20,13 @@ async function llmConfig(): Promise<LlmConfig> {
 }
 
 chrome.runtime.onMessage.addListener(
-  (msg: Message, _sender, sendResponse: (r: MessageResponse) => void) => {
+  (msg: Message, sender, sendResponse: (r: MessageResponse) => void) => {
+    // Toolbar badge: count comes from the page's top frame.
+    if (msg.type === "PAGE_FILLABLE") {
+      setBadge(sender.tab?.id, msg.count);
+      sendResponse({ ok: true });
+      return false;
+    }
     handle(msg)
       .then(sendResponse)
       .catch((e) =>
@@ -29,6 +35,43 @@ chrome.runtime.onMessage.addListener(
     return true; // async response
   }
 );
+
+function setBadge(tabId: number | undefined, count: number): void {
+  if (tabId == null) return;
+  chrome.action.setBadgeBackgroundColor({ color: "#2563eb" });
+  chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : "" });
+}
+
+// --- context menu: fill this field / this form ---
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "appfill-fill-field",
+      title: "AppFill: fill this field",
+      contexts: ["editable"],
+    });
+    chrome.contextMenus.create({
+      id: "appfill-fill-form",
+      title: "AppFill: fill this form",
+      contexts: ["page", "editable"],
+    });
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (tab?.id == null) return;
+  const type = info.menuItemId === "appfill-fill-field" ? "FILL_FOCUSED" : "FILL_NOW";
+  chrome.tabs.sendMessage(tab.id, { type } satisfies Message).catch(() => {});
+});
+
+// --- keyboard shortcut ---
+chrome.commands?.onCommand.addListener((command) => {
+  if (command !== "fill-form") return;
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (tab?.id != null)
+      chrome.tabs.sendMessage(tab.id, { type: "FILL_NOW" } satisfies Message).catch(() => {});
+  });
+});
 
 async function handle(msg: Message): Promise<MessageResponse> {
   switch (msg.type) {
