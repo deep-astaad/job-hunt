@@ -99,6 +99,9 @@ async function handle(
     case "CAPTURE_SUBMISSION":
       await remember(msg.entries, msg.domain, msg.platform);
       return { ok: true };
+    case "APPLICATION_SUBMITTED":
+      await logApplication(msg.record);
+      return { ok: true };
     case "GET_RESUME_FILE":
       return resumeFile(msg.jobText);
     case "WEBCHAT_HANDOFF":
@@ -239,6 +242,37 @@ async function tailorResume(
   tailored.contact = { ...msg.profile.contact, ...tailored.contact };
   tailored.links = { ...msg.profile.links, ...tailored.links };
   return { ok: true, profile: tailored };
+}
+
+/**
+ * Opt-in application log. POSTs the submission to the user-configured backend.
+ * Returns silently (no network) when disabled, so AppFill stays self-contained
+ * by default.
+ */
+async function logApplication(record: {
+  company?: string;
+  role?: string;
+  url?: string;
+  platform: string;
+}): Promise<void> {
+  const s = await getSettings();
+  if (!s.appLogEnabled || !s.appLogEndpoint) return;
+  try {
+    await fetch(s.appLogEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(s.appLogToken ? { Authorization: `Bearer ${s.appLogToken}` } : {}),
+      },
+      body: JSON.stringify({
+        ...record,
+        source: "appfill",
+        applied_at: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    /* best-effort; never block the user's submission */
+  }
 }
 
 async function resumeFile(jobText?: string): Promise<MessageResponse> {

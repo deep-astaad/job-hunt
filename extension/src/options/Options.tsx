@@ -566,6 +566,37 @@ export function Options() {
         </div>
       </Section>
 
+      <Section title="Application log (optional)">
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+          Off by default — AppFill stays fully self-contained. When on, each
+          submission is POSTed to your endpoint (e.g. your job-hunt tracker) as
+          JSON {`{company, role, url, platform, applied_at, source}`}. Nothing is
+          sent while this is off.
+        </p>
+        <Toggle
+          label="Log my submitted applications to a backend"
+          checked={settings.appLogEnabled}
+          onChange={(v) => patchSettings({ appLogEnabled: v })}
+        />
+        {settings.appLogEnabled && (
+          <div style={{ marginTop: 8 }}>
+            <Field
+              label="Endpoint URL"
+              value={settings.appLogEndpoint}
+              onChange={(v) => patchSettings({ appLogEndpoint: v })}
+              full
+            />
+            <Field
+              label="Bearer token (optional)"
+              value={settings.appLogToken}
+              onChange={(v) => patchSettings({ appLogToken: v })}
+              type="password"
+              full
+            />
+          </div>
+        )}
+      </Section>
+
       <Section title="7 · Tips">
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#374151" }}>
           <li>Focus any field to get a fill suggestion. If it's not in your profile, type a value once — AppFill remembers it and offers to save it.</li>
