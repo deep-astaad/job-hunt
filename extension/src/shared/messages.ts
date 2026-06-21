@@ -80,7 +80,9 @@ export type Message =
   | { type: "FLOW_START" }
   | { type: "FLOW_STOP" }
   // popup -> content: fill repeating work-history / education sections.
-  | { type: "FILL_WORK_HISTORY" };
+  | { type: "FILL_WORK_HISTORY" }
+  // popup -> content: run the pre-submit validation pass and show the checklist.
+  | { type: "VALIDATE_FORM" };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }

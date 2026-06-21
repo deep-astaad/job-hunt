@@ -77,6 +77,29 @@ export function Popup() {
     }
   }
 
+  async function checkBeforeSubmit() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const resp = await sendToTab(tab.id, { type: "VALIDATE_FORM" });
+      if (resp.ok && "status" in resp) {
+        const blocking = resp.status.filledCount;
+        setNote(
+          blocking > 0
+            ? `${blocking} blocking issue(s) — see the checklist on the page.`
+            : "Checklist shown on the page."
+        );
+        window.close();
+      }
+    } catch {
+      setNote("Couldn't reach this page. Reload and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function fillWorkHistory() {
     const tab = await activeTab();
     if (!tab?.id) return;
@@ -280,6 +303,9 @@ export function Popup() {
         </button>
         <button onClick={fillWorkHistory} disabled={busy} style={btn}>
           Fill work history & education
+        </button>
+        <button onClick={checkBeforeSubmit} disabled={busy} style={btn}>
+          Check before submitting
         </button>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard

@@ -10,6 +10,7 @@ import { fetchResumeFile } from "./resume";
 import { extractJobContext } from "./jobContext";
 import { installFlow, startFlow, stopFlow } from "./flow";
 import { fillWorkHistory } from "./workHistory";
+import { runValidation, renderValidationPanel } from "./validate";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
@@ -63,6 +64,15 @@ async function runFillPass(force = false): Promise<{
   return { fieldCount: fields.length, filledCount };
 }
 
+function jobTextForValidation(): string {
+  try {
+    const j = extractJobContext();
+    return [j.title, j.company, j.description].filter(Boolean).join("\n");
+  } catch {
+    return "";
+  }
+}
+
 /** Fill a returned web-chat answer into the field that requested it. */
 async function fillResult(fieldHandle: string, text: string): Promise<void> {
   const el = getElement(fieldHandle);
@@ -100,6 +110,26 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "FLOW_STOP") {
     stopFlow().then(() => sendResponse({ ok: true } satisfies MessageResponse));
+    return true;
+  }
+  if (msg.type === "VALIDATE_FORM") {
+    getProfile()
+      .then((p) => {
+        const issues = runValidation(p, platform.id, jobTextForValidation());
+        renderValidationPanel(issues);
+        return issues.filter((i) => i.severity === "error").length;
+      })
+      .then((errors) =>
+        sendResponse({
+          ok: true,
+          status: {
+            platform: platform.label,
+            fieldCount: detectFields().length,
+            filledCount: errors, // reused: number of blocking issues
+            autofillEnabled: true,
+          },
+        } satisfies MessageResponse)
+      );
     return true;
   }
   if (msg.type === "FILL_WORK_HISTORY") {
