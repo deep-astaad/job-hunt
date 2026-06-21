@@ -42,6 +42,10 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
   **save it to your profile** when it maps to a known field.
 - **Inline generation** — focusing a big text box (cover letter / "why this
   company?") offers **✨ Generate**, grounded in your profile + the page's job.
+- **Guided multi-page fill** — for ATS wizards (Workday, Greenhouse, …), the
+  popup’s **Guided multi-page fill** fills the page, then an on-page bar lets you
+  review and click **Next →** to advance and re-fill each step. It survives full
+  page reloads and **hard-stops at the final Submit** — you submit.
 - **Tailored resume per job** — the popup’s **Tailor resume for this job** shows a
   deterministic JD match score and (with an LLM) generates a JD-focused resume from
   your master, opened as a printable PDF. Upload multiple **resume variants** with

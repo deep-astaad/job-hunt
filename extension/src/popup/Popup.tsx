@@ -77,6 +77,17 @@ export function Popup() {
     }
   }
 
+  async function startGuidedFlow() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    try {
+      await sendToTab(tab.id, { type: "FLOW_START" });
+      window.close(); // get out of the way; the on-page bar drives the flow
+    } catch {
+      setNote("Couldn't start on this page. Reload and try again.");
+    }
+  }
+
   async function toggleSite() {
     if (!settings) return;
     const enabled = autofillEnabledForDomain(settings, domain);
@@ -245,6 +256,9 @@ export function Popup() {
       <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
         <button onClick={fillNow} disabled={busy} style={primaryBtn}>
           {busy ? "Working…" : "Fill this form"}
+        </button>
+        <button onClick={startGuidedFlow} disabled={busy} style={btn}>
+          Guided multi-page fill →
         </button>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard

@@ -75,7 +75,10 @@ export type Message =
   // background -> origin content: fill a field with a returned web-chat answer.
   | { type: "FILL_RESULT"; fieldHandle: string; text: string }
   // popup -> content: scrape the job posting on the page for grounding.
-  | { type: "GET_JOB_CONTEXT" };
+  | { type: "GET_JOB_CONTEXT" }
+  // popup -> content: start / stop the guided multi-page "Fill & Next" flow.
+  | { type: "FLOW_START" }
+  | { type: "FLOW_STOP" };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }
