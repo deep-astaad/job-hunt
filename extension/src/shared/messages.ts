@@ -78,7 +78,9 @@ export type Message =
   | { type: "GET_JOB_CONTEXT" }
   // popup -> content: start / stop the guided multi-page "Fill & Next" flow.
   | { type: "FLOW_START" }
-  | { type: "FLOW_STOP" };
+  | { type: "FLOW_STOP" }
+  // popup -> content: fill repeating work-history / education sections.
+  | { type: "FILL_WORK_HISTORY" };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }
