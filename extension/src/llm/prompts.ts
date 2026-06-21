@@ -24,6 +24,33 @@ const ANGLE_HINT: Record<OutreachAngle, string> = {
   referral: "You're hoping for a referral — be respectful and low-pressure.",
 };
 
+/**
+ * Polish/expand an outreach message (recruiter / referral / cold intro). Given a
+ * draft from a template plus context, produce a concise, warm message grounded
+ * in the sender's profile.
+ */
+export function buildOutreachMessages(
+  profile: CandidateProfile,
+  contact: ContactDraft,
+  draft: string,
+  job?: Job
+): ChatMessage[] {
+  const system =
+    "Write a concise outreach message (4-6 sentences, email/DM tone) from the " +
+    "sender to the contact, using the draft as the intent. Warm, specific, no " +
+    "filler or flattery clichés. Ground claims about the sender in their profile; " +
+    "reference the role/company when relevant. Return only the message text.";
+  const user =
+    `SENDER PROFILE:\n${profileDigest(profile)}\n\n` +
+    `CONTACT:\n${JSON.stringify(contact, null, 1)}\n\n` +
+    `JOB (optional):\n${JSON.stringify(job ?? {}, null, 1)}\n\n` +
+    `DRAFT/INTENT:\n${draft}`;
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
 export function buildConnectNoteMessages(
   profile: CandidateProfile,
   contact: ContactDraft,

@@ -11,7 +11,13 @@ import {
   buildCoverLetterMessages,
   buildTailoredResumeMessages,
   buildConnectNoteMessages,
+  buildOutreachMessages,
 } from "@/llm/prompts";
+import {
+  getTemplates,
+  renderTemplate,
+  type OutreachTemplate,
+} from "@/storage/templates";
 import { messagesToPrompt } from "@/llm/promptText";
 import { getProvider } from "@/llm/webchat/providers";
 import { matchResumeToJob } from "@/llm/resumeMatch";
@@ -49,11 +55,16 @@ export function Popup() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [angle, setAngle] = useState("generic");
+  const [templates, setTemplates] = useState<OutreachTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("");
 
   useEffect(() => {
     void (async () => {
       const s = await getSettings();
       setSettings(s);
+      const tpls = await getTemplates();
+      setTemplates(tpls);
+      setTemplateId(tpls[0]?.id ?? "");
       const tab = await activeTab();
       setDomain(domainOf(tab?.url));
       if (tab?.id) {
@@ -78,6 +89,78 @@ export function Popup() {
       if (resp.ok && "status" in resp) setStatus(resp.status);
     } catch {
       setNote("Couldn't reach this page. Reload and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function draftOutreach() {
+    const tab = await activeTab();
+    setBusy(true);
+    setNote("");
+    try {
+      const profile = await getProfile();
+      let contact: { name?: string; role?: string; company?: string } = {};
+      if (tab?.id != null) {
+        try {
+          const ci = await sendToTab(tab.id, { type: "GET_CONTACT_INFO" });
+          if (ci.ok && "contact" in ci) contact = ci.contact;
+        } catch {
+          /* not a profile page; placeholders may be blank */
+        }
+      }
+      const job = await getJobContext();
+      const tpl = templates.find((t) => t.id === templateId) ?? templates[0];
+      if (!tpl) return setNote("No outreach templates configured.");
+      const myName =
+        profile.contact.fullName ||
+        [profile.contact.firstName, profile.contact.lastName].filter(Boolean).join(" ");
+      const draft = renderTemplate(tpl.body, {
+        name: contact.name,
+        firstName: contact.name?.split(" ")[0],
+        company: contact.company || job.company,
+        role: contact.role || job.title,
+        myName,
+        myTitle: profile.headline || profile.currentTitle,
+      });
+
+      if (settings?.llmMode === "webchat") {
+        const prompt = messagesToPrompt(buildOutreachMessages(profile, contact, draft, job));
+        try {
+          await navigator.clipboard.writeText(prompt);
+        } catch {
+          /* ignore */
+        }
+        const provider = getProvider(settings.webchatProvider);
+        await chrome.runtime.sendMessage({
+          type: "WEBCHAT_HANDOFF",
+          providerId: settings.webchatProvider,
+          prompt,
+        } satisfies Message);
+        setNote(`Opened ${provider?.label ?? "your LLM"} to draft the outreach.`);
+        return;
+      }
+
+      let text = draft;
+      if (settings?.llmMode === "direct" && settings.openaiApiKey) {
+        const resp = (await chrome.runtime.sendMessage({
+          type: "LLM_OUTREACH",
+          profile,
+          contact,
+          draft,
+          job,
+        } satisfies Message)) as MessageResponse;
+        if (resp.ok && "text" in resp) text = resp.text;
+        else if (!resp.ok) setNote(resp.error);
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setNote(`Outreach copied to clipboard ✓ (${tpl.name})`);
+      } catch {
+        setNote("Generated, but clipboard was blocked.");
+      }
+    } catch {
+      setNote("Outreach failed.");
     } finally {
       setBusy(false);
     }
@@ -407,6 +490,23 @@ export function Popup() {
           </select>
           <button onClick={draftConnectNote} disabled={busy} style={{ ...btn, flex: 1 }}>
             Draft LinkedIn connect note
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <select
+            value={templateId}
+            onChange={(e) => setTemplateId(e.target.value)}
+            style={{ ...btn, flex: "0 0 auto" }}
+            title="Outreach template"
+          >
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <button onClick={draftOutreach} disabled={busy} style={{ ...btn, flex: 1 }}>
+            Draft outreach → clipboard
           </button>
         </div>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
