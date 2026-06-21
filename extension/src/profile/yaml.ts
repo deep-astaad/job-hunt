@@ -425,6 +425,7 @@ function pickEligibility(o: Record<string, unknown>): CandidateProfile["eligibil
     requiresSponsorship: bool(o.requiresSponsorship),
     willingToRelocate: bool(o.willingToRelocate),
     noticePeriod: str(o.noticePeriod),
+    availableStartDate: str(o.availableStartDate),
     desiredSalary: str(o.desiredSalary),
     gender: str(o.gender),
     raceEthnicity: str(o.raceEthnicity),

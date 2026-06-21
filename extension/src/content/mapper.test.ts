@@ -70,6 +70,31 @@ describe("mapFieldDeterministic", () => {
     expect(m?.key).toBe("requiresSponsorship");
   });
 
+  it("maps common EEO and eligibility phrasings", () => {
+    const key = (label: string) => mapFieldDeterministic(field({ label }))?.key;
+    expect(key("Are you legally authorized to work in the US?")).toBe(
+      "workAuthorization"
+    );
+    expect(key("Do you now or in the future require sponsorship?")).toBe(
+      "requiresSponsorship"
+    );
+    expect(key("Are you open to relocation?")).toBe("willingToRelocate");
+    expect(key("What is your notice period?")).toBe("noticePeriod");
+    expect(key("Earliest start date")).toBe("availableStartDate");
+    expect(key("When can you start?")).toBe("availableStartDate");
+    expect(key("Expected salary")).toBe("desiredSalary");
+    expect(key("Gender identity")).toBe("gender");
+    expect(key("Veteran status")).toBe("veteranStatus");
+    expect(key("Disability status")).toBe("disabilityStatus");
+    expect(key("Race / Ethnicity")).toBe("raceEthnicity");
+  });
+
+  it("keeps start date and notice period distinct", () => {
+    const key = (label: string) => mapFieldDeterministic(field({ label }))?.key;
+    expect(key("Available start date")).toBe("availableStartDate");
+    expect(key("Notice period")).toBe("noticePeriod");
+  });
+
   it("returns undefined for unknown fields", () => {
     expect(
       mapFieldDeterministic(field({ label: "What is your spirit animal?" }))
