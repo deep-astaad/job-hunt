@@ -86,6 +86,10 @@ export type Message =
   | { type: "VALIDATE_FORM" }
   // popup -> content: scrape a contact draft from the page (LinkedIn/company).
   | { type: "GET_CONTACT_INFO" }
+  // popup -> content: collect candidate contact emails on the page.
+  | { type: "GET_PAGE_EMAILS" }
+  // popup -> background: draft a cold outreach email (subject + body).
+  | { type: "LLM_COLD_EMAIL"; profile: CandidateProfile; job?: JobContext }
   // popup -> background: draft a LinkedIn connection-request note (<300 chars).
   | {
       type: "LLM_CONNECT_NOTE";
@@ -120,6 +124,7 @@ export type MessageResponse =
   | { ok: true; url: string }
   | { ok: true; job: JobContext }
   | { ok: true; contact: ContactDraft }
+  | { ok: true; emails: string[] }
   | { ok: true; profile: CandidateProfile }
   | { ok: true; file?: { name: string; type: string; base64: string } }
   | {

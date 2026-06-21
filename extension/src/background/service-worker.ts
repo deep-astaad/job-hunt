@@ -16,6 +16,7 @@ import {
   buildTailoredResumeMessages,
   buildConnectNoteMessages,
   buildOutreachMessages,
+  buildColdEmailMessages,
   type OutreachAngle,
 } from "@/llm/prompts";
 import { emptyProfile, type CandidateProfile } from "@/profile/schema";
@@ -103,6 +104,8 @@ async function handle(
       return connectNote(msg);
     case "LLM_OUTREACH":
       return outreach(msg);
+    case "LLM_COLD_EMAIL":
+      return coldEmail(msg);
     case "CAPTURE_SUBMISSION":
       await remember(msg.entries, msg.domain, msg.platform);
       return { ok: true };
@@ -303,6 +306,19 @@ async function outreach(
   const text = await chatCompletion(
     cfg,
     buildOutreachMessages(msg.profile, msg.contact, msg.draft, msg.job),
+    { temperature: 0.5 }
+  );
+  return { ok: true, text: text.trim() };
+}
+
+async function coldEmail(
+  msg: Extract<Message, { type: "LLM_COLD_EMAIL" }>
+): Promise<MessageResponse> {
+  const cfg = await llmConfig();
+  if (!cfg.apiKey) return { ok: false, error: "No OpenAI API key configured." };
+  const text = await chatCompletion(
+    cfg,
+    buildColdEmailMessages(msg.profile, msg.job),
     { temperature: 0.5 }
   );
   return { ok: true, text: text.trim() };
