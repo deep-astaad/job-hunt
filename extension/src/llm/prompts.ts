@@ -51,6 +51,29 @@ export function buildOutreachMessages(
   ];
 }
 
+/**
+ * Cold intro email to a company without an ATS. Returns a subject line then the
+ * body, grounded in the sender's profile + the job/company.
+ */
+export function buildColdEmailMessages(
+  profile: CandidateProfile,
+  job?: Job
+): ChatMessage[] {
+  const system =
+    "Write a short cold outreach email applying to a company (no formal ATS). " +
+    "Format: first line 'Subject: <subject>', then a blank line, then a 4-6 " +
+    "sentence body. Warm, specific, grounded in the sender's profile; reference " +
+    "the role/company when known; mention that the resume is attached. No filler " +
+    "or clichés. Return only the subject line and body.";
+  const user =
+    `SENDER PROFILE:\n${profileDigest(profile)}\n\n` +
+    `JOB / COMPANY:\n${JSON.stringify(job ?? {}, null, 1)}`;
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
 export function buildConnectNoteMessages(
   profile: CandidateProfile,
   contact: ContactDraft,

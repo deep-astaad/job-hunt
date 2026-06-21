@@ -56,6 +56,10 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
   deterministic JD match score and (with an LLM) generates a JD-focused resume from
   your master, opened as a printable PDF. Upload multiple **resume variants** with
   labels/tags (e.g. “Backend”, “ML”) and AppFill attaches the best match per posting.
+- **Networking suite** — from the popup: **Save this contact** (CRM-lite), draft a
+  **LinkedIn connection note** by angle, **outreach** from editable templates,
+  **follow-up reminders** when contacts go cold, and **cold emails** for careers
+  pages without an ATS (detects the contact address, opens your mail client).
 - **Bring your own LLM (no API key)** — set LLM mode to **Web chat** (options §3)
   to generate via a logged-in **Claude / ChatGPT / Gemini / Kimi** tab instead of
   an API key. AppFill opens the chat with your prompt (also copied to clipboard),

@@ -12,7 +12,9 @@ import {
   buildTailoredResumeMessages,
   buildConnectNoteMessages,
   buildOutreachMessages,
+  buildColdEmailMessages,
 } from "@/llm/prompts";
+import { pickBestEmail, parseSubjectBody } from "@/content/emails";
 import {
   getTemplates,
   renderTemplate,
@@ -142,6 +144,77 @@ export function Popup() {
   async function snooze(contact: Contact) {
     await markContacted(contact.id);
     await refreshDue();
+  }
+
+  async function draftColdEmail() {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const profile = await getProfile();
+      const job = await getJobContext();
+      let emails: string[] = [];
+      try {
+        const e = await sendToTab(tab.id, { type: "GET_PAGE_EMAILS" });
+        if (e.ok && "emails" in e) emails = e.emails;
+      } catch {
+        /* no content script here */
+      }
+      const to = pickBestEmail(emails);
+
+      if (settings?.llmMode === "webchat") {
+        const prompt = messagesToPrompt(buildColdEmailMessages(profile, job));
+        try {
+          await navigator.clipboard.writeText(prompt);
+        } catch {
+          /* ignore */
+        }
+        const provider = getProvider(settings.webchatProvider);
+        await chrome.runtime.sendMessage({
+          type: "WEBCHAT_HANDOFF",
+          providerId: settings.webchatProvider,
+          prompt,
+        } satisfies Message);
+        setNote(
+          `Opened ${provider?.label ?? "your LLM"} to draft the email${to ? ` (to ${to})` : ""}.`
+        );
+        return;
+      }
+      if (settings?.llmMode === "off" || !settings) {
+        setNote(
+          to ? `Found ${to}. Enable an LLM to draft the email.` : "No contact email found on this page."
+        );
+        return;
+      }
+
+      const resp = (await chrome.runtime.sendMessage({
+        type: "LLM_COLD_EMAIL",
+        profile,
+        job,
+      } satisfies Message)) as MessageResponse;
+      if (resp.ok && "text" in resp) {
+        const { subject, body } = parseSubjectBody(resp.text);
+        try {
+          await navigator.clipboard.writeText(resp.text);
+        } catch {
+          /* ignore */
+        }
+        if (to) {
+          const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+          await chrome.tabs.create({ url });
+          setNote(`Email drafted to ${to} (also copied). Attach your resume before sending.`);
+        } else {
+          setNote("Email drafted & copied — no address found, paste it into your mail client.");
+        }
+      } else if (!resp.ok) {
+        setNote(resp.error);
+      }
+    } catch {
+      setNote("Cold-email draft failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function draftOutreach() {
@@ -592,6 +665,9 @@ export function Popup() {
             Draft outreach → clipboard
           </button>
         </div>
+        <button onClick={draftColdEmail} disabled={busy} style={btn}>
+          Draft cold email (no-ATS page)
+        </button>
         <button onClick={generateCoverLetter} disabled={busy} style={btn}>
           Generate cover letter → clipboard
         </button>

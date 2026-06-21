@@ -12,6 +12,7 @@ import { installFlow, startFlow, stopFlow } from "./flow";
 import { fillWorkHistory } from "./workHistory";
 import { runValidation, renderValidationPanel } from "./validate";
 import { extractContactInfo } from "./contactInfo";
+import { findPageEmails } from "./emails";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
@@ -120,6 +121,10 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "GET_CONTACT_INFO") {
     sendResponse({ ok: true, contact: extractContactInfo() } satisfies MessageResponse);
+    return false;
+  }
+  if (msg.type === "GET_PAGE_EMAILS") {
+    sendResponse({ ok: true, emails: findPageEmails() } satisfies MessageResponse);
     return false;
   }
   if (msg.type === "FILL_CONNECT_NOTE") {
