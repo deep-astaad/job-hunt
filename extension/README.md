@@ -42,6 +42,11 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
   **save it to your profile** when it maps to a known field.
 - **Inline generation** — focusing a big text box (cover letter / "why this
   company?") offers **✨ Generate**, grounded in your profile + the page's job.
+- **Bring your own LLM (no API key)** — set LLM mode to **Web chat** (options §3)
+  to generate via a logged-in **Claude / ChatGPT / Gemini / Kimi** tab instead of
+  an API key. AppFill opens the chat with your prompt (also copied to clipboard),
+  and the answer returns to the field automatically — or paste it back. It never
+  auto-sends; you drive the chat.
 - **Right-click menu** — "AppFill: fill this field" / "fill this form".
 - **Keyboard shortcut** — `Ctrl/Cmd+Shift+L` fills the current form (rebind at
   `chrome://extensions/shortcuts`).

@@ -53,11 +53,25 @@ export type Message =
     }
   // content -> background: fetch the stored resume (IndexedDB lives in the
   // extension origin, which the page-scoped content script can't read directly)
-  | { type: "GET_RESUME_FILE" };
+  | { type: "GET_RESUME_FILE" }
+  // content/popup -> background: start a BYO-LLM web-chat handoff. Background
+  // opens the provider tab and records the prompt + return target.
+  | {
+      type: "WEBCHAT_HANDOFF";
+      providerId: string;
+      prompt: string;
+      /** Fill the answer back into this field on the originating tab. */
+      fieldHandle?: string;
+    }
+  // provider content -> background: the captured answer to relay back.
+  | { type: "WEBCHAT_RESULT"; id: string; text: string }
+  // background -> origin content: fill a field with a returned web-chat answer.
+  | { type: "FILL_RESULT"; fieldHandle: string; text: string };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }
   | { ok: true; text: string }
+  | { ok: true; url: string }
   | { ok: true; profile: CandidateProfile }
   | { ok: true; file?: { name: string; type: string; base64: string } }
   | {

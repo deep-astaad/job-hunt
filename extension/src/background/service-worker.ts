@@ -13,6 +13,13 @@ import {
   buildProfileExtractionMessages,
 } from "@/llm/prompts";
 import { emptyProfile, type CandidateProfile } from "@/profile/schema";
+import { getProvider, webChatTarget } from "@/llm/webchat/providers";
+import {
+  setHandoff,
+  getHandoff,
+  clearHandoff,
+  newHandoffId,
+} from "@/storage/handoff";
 
 async function llmConfig(): Promise<LlmConfig> {
   const s = await getSettings();
@@ -27,7 +34,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
-    handle(msg)
+    handle(msg, sender)
       .then(sendResponse)
       .catch((e) =>
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
@@ -73,7 +80,10 @@ chrome.commands?.onCommand.addListener((command) => {
   });
 });
 
-async function handle(msg: Message): Promise<MessageResponse> {
+async function handle(
+  msg: Message,
+  sender?: chrome.runtime.MessageSender
+): Promise<MessageResponse> {
   switch (msg.type) {
     case "LLM_MAP_FIELDS":
       return mapFields(msg.fields, msg.profile);
@@ -86,9 +96,56 @@ async function handle(msg: Message): Promise<MessageResponse> {
       return { ok: true };
     case "GET_RESUME_FILE":
       return resumeFile();
+    case "WEBCHAT_HANDOFF":
+      return startWebchatHandoff(msg, sender?.tab?.id);
+    case "WEBCHAT_RESULT":
+      return relayWebchatResult(msg.id, msg.text);
     default:
       return { ok: false, error: "Unhandled message" };
   }
+}
+
+async function startWebchatHandoff(
+  msg: Extract<Message, { type: "WEBCHAT_HANDOFF" }>,
+  originTabId?: number
+): Promise<MessageResponse> {
+  const provider = getProvider(msg.providerId);
+  if (!provider) return { ok: false, error: `Unknown provider: ${msg.providerId}` };
+  const { url } = webChatTarget(provider, msg.prompt);
+  const id = newHandoffId();
+  await setHandoff({
+    id,
+    providerId: provider.id,
+    prompt: msg.prompt,
+    originTabId,
+    fieldHandle: msg.fieldHandle,
+    consumed: false,
+    createdAt: Date.now(),
+  });
+  await chrome.tabs.create({ url });
+  return { ok: true, url };
+}
+
+async function relayWebchatResult(
+  id: string,
+  text: string
+): Promise<MessageResponse> {
+  const h = await getHandoff();
+  if (!h || h.id !== id) return { ok: true }; // stale / already handled
+  if (h.originTabId != null && h.fieldHandle) {
+    try {
+      await chrome.tabs.sendMessage(h.originTabId, {
+        type: "FILL_RESULT",
+        fieldHandle: h.fieldHandle,
+        text,
+      } satisfies Message);
+      await chrome.tabs.update(h.originTabId, { active: true }).catch(() => {});
+    } catch {
+      /* origin tab gone — user can still copy/paste manually */
+    }
+  }
+  await clearHandoff();
+  return { ok: true };
 }
 
 async function mapFields(

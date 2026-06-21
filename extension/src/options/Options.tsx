@@ -334,29 +334,75 @@ export function Options() {
         </button>
       </Section>
 
-      <Section title="3 · LLM (OpenAI-compatible)">
-        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
-          Stored locally in your browser and used only from the extension's
-          background worker. With LLM features off, deterministic + learned
-          autofill still works and nothing leaves your device.
-        </p>
-        <Field
-          label="API key (single, or comma-separated pool)"
-          value={settings.openaiApiKey}
-          onChange={(v) => patchSettings({ openaiApiKey: v })}
-          type="password"
-          full
+      <Section title="3 · LLM">
+        <label style={label}>How AppFill generates text</label>
+        <Select
+          label=""
+          value={settings.llmMode}
+          onChange={(v) => patchSettings({ llmMode: v as Settings["llmMode"] })}
+          options={["direct", "webchat", "off"]}
         />
-        <div style={grid}>
-          <Field label="Base URL" value={settings.openaiBaseUrl} onChange={(v) => patchSettings({ openaiBaseUrl: v })} />
-          <Field label="Model" value={settings.openaiModel} onChange={(v) => patchSettings({ openaiModel: v })} />
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <Toggle label="LLM field mapping (ambiguous fields)" checked={settings.llmFieldMappingEnabled} onChange={(v) => patchSettings({ llmFieldMappingEnabled: v })} />
-          <Toggle label="Cover letter generation" checked={settings.coverLetterEnabled} onChange={(v) => patchSettings({ coverLetterEnabled: v })} />
-          <Toggle label="Screening-question answers" checked={settings.screeningAnswersEnabled} onChange={(v) => patchSettings({ screeningAnswersEnabled: v })} />
-          <Toggle label="Field-value tailoring" checked={settings.fieldTailoringEnabled} onChange={(v) => patchSettings({ fieldTailoringEnabled: v })} />
-        </div>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: "6px 0 0" }}>
+          <b>Direct API</b>: call an OpenAI-compatible endpoint with your key.{" "}
+          <b>Web chat</b>: hand the prompt to a logged-in chat (Claude / ChatGPT /
+          Gemini / Kimi) — <i>no API key needed</i>. <b>Off</b>: deterministic +
+          learned autofill only.
+        </p>
+
+        {settings.llmMode === "webchat" && (
+          <div style={{ marginTop: 12, padding: 12, background: "#f9fafb", borderRadius: 8 }}>
+            <Select
+              label="Chat provider"
+              value={settings.webchatProvider}
+              onChange={(v) => patchSettings({ webchatProvider: v })}
+              options={["claude", "chatgpt", "gemini", "kimi"]}
+            />
+            <div style={{ marginTop: 8 }}>
+              <Toggle
+                label="Auto-paste the prompt into the chat (best effort)"
+                checked={settings.webchatAutoInject}
+                onChange={(v) => patchSettings({ webchatAutoInject: v })}
+              />
+            </div>
+            <p style={{ fontSize: 12, color: "#6b7280", margin: "6px 0 0" }}>
+              “Generate with {settings.webchatProvider}” opens the chat with your
+              prompt (also copied to your clipboard). The answer returns to the
+              field automatically when possible, or paste it back yourself. Nothing
+              is sent until you submit the chat — AppFill never auto-sends.
+            </p>
+          </div>
+        )}
+
+        {settings.llmMode === "direct" && (
+          <div style={{ marginTop: 12 }}>
+            <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+              Key stored locally and used only from the background worker. Any
+              OpenAI-compatible base URL works (OpenAI, DeepSeek, local vLLM…).
+            </p>
+            <Field
+              label="API key (single, or comma-separated pool)"
+              value={settings.openaiApiKey}
+              onChange={(v) => patchSettings({ openaiApiKey: v })}
+              type="password"
+              full
+            />
+            <div style={grid}>
+              <Field label="Base URL" value={settings.openaiBaseUrl} onChange={(v) => patchSettings({ openaiBaseUrl: v })} />
+              <Field label="Model" value={settings.openaiModel} onChange={(v) => patchSettings({ openaiModel: v })} />
+            </div>
+          </div>
+        )}
+
+        {settings.llmMode !== "off" && (
+          <div style={{ marginTop: 10 }}>
+            {settings.llmMode === "direct" && (
+              <Toggle label="LLM field mapping (ambiguous fields)" checked={settings.llmFieldMappingEnabled} onChange={(v) => patchSettings({ llmFieldMappingEnabled: v })} />
+            )}
+            <Toggle label="Cover letter generation" checked={settings.coverLetterEnabled} onChange={(v) => patchSettings({ coverLetterEnabled: v })} />
+            <Toggle label="Screening-question answers" checked={settings.screeningAnswersEnabled} onChange={(v) => patchSettings({ screeningAnswersEnabled: v })} />
+            <Toggle label="Field-value tailoring" checked={settings.fieldTailoringEnabled} onChange={(v) => patchSettings({ fieldTailoringEnabled: v })} />
+          </div>
+        )}
       </Section>
 
       <Section title="4 · Fill behavior">
@@ -485,6 +531,19 @@ function Field(props: {
 
 const yesNoOptions = ["", "yes", "no"];
 
+const OPTION_LABELS: Record<string, string> = {
+  "": "—",
+  yes: "Yes",
+  no: "No",
+  direct: "Direct API (your key)",
+  webchat: "Web chat (no key)",
+  off: "Off",
+  claude: "Claude",
+  chatgpt: "ChatGPT",
+  gemini: "Gemini",
+  kimi: "Kimi",
+};
+
 function Select(props: {
   label: string;
   value: string;
@@ -493,7 +552,7 @@ function Select(props: {
 }) {
   return (
     <div>
-      <label style={label}>{props.label}</label>
+      {props.label && <label style={label}>{props.label}</label>}
       <select
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
@@ -501,7 +560,7 @@ function Select(props: {
       >
         {props.options.map((o) => (
           <option key={o} value={o}>
-            {o === "" ? "—" : o === "yes" ? "Yes" : o === "no" ? "No" : o}
+            {OPTION_LABELS[o] ?? o}
           </option>
         ))}
       </select>
