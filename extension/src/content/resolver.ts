@@ -27,7 +27,7 @@ export async function resolveSingle(
   domain: string,
   platform: string
 ): Promise<FieldResolution | undefined> {
-  const det = mapFieldDeterministic(field);
+  const det = mapFieldDeterministic(field, platform);
 
   const mem = await recall(field.signature, domain, platform);
   if (mem) {
@@ -97,7 +97,7 @@ export async function resolveFields(
 
   for (const field of fields) {
     // Never auto-fill sensitive voluntary EEO selects unless remembered.
-    const det = mapFieldDeterministic(field);
+    const det = mapFieldDeterministic(field, platform);
 
     // 1. memory
     const mem = await recall(field.signature, domain, platform);

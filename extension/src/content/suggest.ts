@@ -68,7 +68,7 @@ async function onFocus(e: FocusEvent) {
 
   field = f;
   anchorEl = el;
-  canonicalKey = mapFieldDeterministic(f)?.key;
+  canonicalKey = mapFieldDeterministic(f, platformId)?.key;
 
   const resolution = await resolveSingle(f, profile, domain, platformId);
   if (resolution) renderSuggestion(resolution);
@@ -83,7 +83,7 @@ export async function fillFocused(): Promise<void> {
   if (!f) return;
   field = f;
   anchorEl = el;
-  canonicalKey = mapFieldDeterministic(f)?.key;
+  canonicalKey = mapFieldDeterministic(f, platformId)?.key;
   const r = await resolveSingle(f, profile, domain, platformId);
   if (r) {
     const ok = await applyResolution(r);

@@ -1,6 +1,7 @@
 import type { CanonicalKey } from "@/profile/schema";
 import type { FieldDescriptor } from "@/shared/types";
 import { normalizeText } from "./signature";
+import { platformFieldHint } from "./platforms";
 
 /** HTML autocomplete token -> canonical key (highest-confidence signal). */
 const AUTOCOMPLETE_MAP: Record<string, CanonicalKey> = {
@@ -156,8 +157,14 @@ export interface DeterministicMatch {
  * signal matched: autocomplete token > exact-ish label > substring.
  */
 export function mapFieldDeterministic(
-  field: FieldDescriptor
+  field: FieldDescriptor,
+  platformId?: string
 ): DeterministicMatch | undefined {
+  // 0. platform-specific id/name hint — very reliable when present.
+  if (platformId) {
+    const hinted = platformFieldHint(field, platformId);
+    if (hinted) return { key: hinted, confidence: 0.95 };
+  }
   // 1. autocomplete attribute — strongest signal.
   if (field.autocomplete) {
     const token = field.autocomplete.split(/\s+/).pop()!; // e.g. "shipping given-name"
