@@ -8,6 +8,14 @@ import type { PlatformAdapter } from "./index";
  */
 export const workdayAdapter: PlatformAdapter = {
   id: "workday",
+  nextSelectors: [
+    "button[data-automation-id='bottom-navigation-next-button']",
+    "button[data-automation-id='pageFooterNextButton']",
+  ],
+  submitSelectors: [
+    "button[data-automation-id='bottom-navigation-submit-button']",
+    "button[data-automation-id='pageFooterSubmitButton']",
+  ],
   async fillCustom(el: Element, value: string): Promise<boolean> {
     const want = value.trim().toLowerCase();
     const trigger = el.closest<HTMLElement>(
