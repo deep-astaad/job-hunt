@@ -13,7 +13,7 @@ import {
 } from "@/storage/resumeFile";
 import { getAllMemory, deleteMemory, clearMemory } from "@/storage/memory";
 import type { MemoryEntry } from "@/storage/memory";
-import { type CandidateProfile } from "@/profile/schema";
+import { type CandidateProfile, type EligibilityInfo } from "@/profile/schema";
 import { extractProfileFromMarkdown } from "@/profile/markdownImport";
 import { profileToYaml, yamlToProfile } from "@/profile/yaml";
 import { profileToResumeHtml } from "@/profile/resumeHtml";
@@ -105,6 +105,38 @@ export function Options() {
       return "invalid YAML";
     }
   })();
+
+  // Application preferences edit the eligibility block of the master resume.
+  // They read from / write back to the YAML so it stays the single source of
+  // truth; "Save" persists the whole document.
+  const elig: EligibilityInfo = (() => {
+    try {
+      return yamlToProfile(yamlText).eligibility;
+    } catch {
+      return {};
+    }
+  })();
+
+  function patchEligibility(patch: Partial<EligibilityInfo>) {
+    let p: CandidateProfile;
+    try {
+      p = yamlToProfile(yamlText);
+    } catch {
+      return flash("Fix the master resume YAML first.");
+    }
+    p.eligibility = { ...p.eligibility, ...patch };
+    setYamlText(profileToYaml(p));
+  }
+
+  function setEligText(k: keyof EligibilityInfo, v: string) {
+    patchEligibility({ [k]: v || undefined } as Partial<EligibilityInfo>);
+  }
+  function setEligBool(k: keyof EligibilityInfo, v: string) {
+    patchEligibility({
+      [k]: v === "" ? undefined : v === "yes",
+    } as Partial<EligibilityInfo>);
+  }
+  const yesNo = (b?: boolean) => (b == null ? "" : b ? "yes" : "no");
 
   async function onResumeUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -217,6 +249,89 @@ export function Options() {
             Download / print PDF
           </button>
         </div>
+      </Section>
+
+      <Section title="Application preferences (EEO · work eligibility · logistics)">
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+          Set these once. They map deterministically to the repetitive questions
+          on nearly every application (sponsorship, authorization, notice period,
+          voluntary EEO). Saved into your master resume above.
+        </p>
+        <div style={grid}>
+          <Field
+            label="Work authorization"
+            value={elig.workAuthorization}
+            onChange={(v) => setEligText("workAuthorization", v)}
+          />
+          <Select
+            label="Requires visa sponsorship?"
+            value={yesNo(elig.requiresSponsorship)}
+            onChange={(v) => setEligBool("requiresSponsorship", v)}
+            options={yesNoOptions}
+          />
+          <Select
+            label="Willing to relocate?"
+            value={yesNo(elig.willingToRelocate)}
+            onChange={(v) => setEligBool("willingToRelocate", v)}
+            options={yesNoOptions}
+          />
+          <Field
+            label="Notice period"
+            value={elig.noticePeriod}
+            onChange={(v) => setEligText("noticePeriod", v)}
+          />
+          <Field
+            label="Available start date"
+            value={elig.availableStartDate}
+            onChange={(v) => setEligText("availableStartDate", v)}
+          />
+          <Field
+            label="Desired salary"
+            value={elig.desiredSalary}
+            onChange={(v) => setEligText("desiredSalary", v)}
+          />
+        </div>
+        <p style={{ ...label, marginTop: 14, marginBottom: 6, color: "#6b7280" }}>
+          Voluntary EEO (optional — leave blank or “Prefer not to say”)
+        </p>
+        <div style={grid}>
+          <Select
+            label="Gender"
+            value={elig.gender ?? ""}
+            onChange={(v) => setEligText("gender", v)}
+            options={["", "Male", "Female", "Non-binary", "Prefer not to say"]}
+          />
+          <Field
+            label="Race / ethnicity"
+            value={elig.raceEthnicity}
+            onChange={(v) => setEligText("raceEthnicity", v)}
+          />
+          <Select
+            label="Veteran status"
+            value={elig.veteranStatus ?? ""}
+            onChange={(v) => setEligText("veteranStatus", v)}
+            options={[
+              "",
+              "I am not a protected veteran",
+              "I am a protected veteran",
+              "Prefer not to say",
+            ]}
+          />
+          <Select
+            label="Disability status"
+            value={elig.disabilityStatus ?? ""}
+            onChange={(v) => setEligText("disabilityStatus", v)}
+            options={[
+              "",
+              "No, I do not have a disability",
+              "Yes, I have a disability",
+              "Prefer not to say",
+            ]}
+          />
+        </div>
+        <button style={{ ...primaryBtn, marginTop: 12 }} onClick={onSaveProfile}>
+          Save preferences
+        </button>
       </Section>
 
       <Section title="3 · LLM (OpenAI-compatible)">
@@ -364,6 +479,32 @@ function Field(props: {
         onChange={(e) => props.onChange(e.target.value)}
         style={input}
       />
+    </div>
+  );
+}
+
+const yesNoOptions = ["", "yes", "no"];
+
+function Select(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  return (
+    <div>
+      <label style={label}>{props.label}</label>
+      <select
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        style={input}
+      >
+        {props.options.map((o) => (
+          <option key={o} value={o}>
+            {o === "" ? "—" : o === "yes" ? "Yes" : o === "no" ? "No" : o}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

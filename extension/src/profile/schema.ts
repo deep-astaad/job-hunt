@@ -43,6 +43,7 @@ export interface EligibilityInfo {
   requiresSponsorship?: boolean;
   willingToRelocate?: boolean;
   noticePeriod?: string;
+  availableStartDate?: string; // e.g. "Immediately" or "2026-08-01"
   desiredSalary?: string;
   gender?: string;
   raceEthnicity?: string;
@@ -122,6 +123,7 @@ export type CanonicalKey =
   | "requiresSponsorship"
   | "willingToRelocate"
   | "noticePeriod"
+  | "availableStartDate"
   | "desiredSalary"
   | "gender"
   | "raceEthnicity"
@@ -192,6 +194,8 @@ export function resolveCanonicalValue(
       return boolToText(profile.eligibility.willingToRelocate);
     case "noticePeriod":
       return profile.eligibility.noticePeriod;
+    case "availableStartDate":
+      return profile.eligibility.availableStartDate;
     case "desiredSalary":
       return profile.eligibility.desiredSalary;
     case "gender":
@@ -236,6 +240,7 @@ export const STORABLE_KEYS: CanonicalKey[] = [
   "currentTitle",
   "workAuthorization",
   "noticePeriod",
+  "availableStartDate",
   "desiredSalary",
 ];
 
@@ -297,6 +302,9 @@ export function setCanonicalValue(
       break;
     case "noticePeriod":
       next.eligibility.noticePeriod = value;
+      break;
+    case "availableStartDate":
+      next.eligibility.availableStartDate = value;
       break;
     case "desiredSalary":
       next.eligibility.desiredSalary = value;
