@@ -184,7 +184,13 @@ export function Options() {
       </Section>
 
       <Section title="4 · Fill behavior">
-        <Toggle label="Auto-fill forms on page load" checked={settings.autofillOnLoad} onChange={(v) => patchSettings({ autofillOnLoad: v })} />
+        <Toggle label="Suggest a value when I focus a field (recommended)" checked={settings.suggestOnFocus} onChange={(v) => patchSettings({ suggestOnFocus: v })} />
+        <Toggle label="Auto-fill the whole form on page load (off by default)" checked={settings.autofillOnLoad} onChange={(v) => patchSettings({ autofillOnLoad: v })} />
+        <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
+          By default AppFill stays passive: it only offers a suggestion when you
+          click into a field. Turn on auto-fill globally here, or per-site from
+          the toolbar popup.
+        </p>
         <label style={{ ...label, marginTop: 10 }}>
           Low-confidence threshold: {settings.lowConfidenceThreshold.toFixed(2)} (below
           this, values are badged “review”)

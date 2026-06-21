@@ -105,11 +105,96 @@ async function fillCombobox(
     const handled = await adapter.fillCustom(el, value);
     if (handled) return true;
   }
-  // Generic best-effort: focus, type, dispatch — works for many combobox impls.
-  el.focus();
-  setNativeValue(el as unknown as HTMLInputElement, value);
-  fireInputEvents(el);
-  return false; // not certain; caller flags as low confidence
+  return typeAndSelect(el, value);
+}
+
+/**
+ * Type into a searchable dropdown and click the matching option. Handles the
+ * common "type to filter, pick from a popup list" pattern used by react-select,
+ * Ashby, headless-ui comboboxes, etc. Returns true only when an option was
+ * actually selected.
+ */
+export async function typeAndSelect(
+  el: HTMLElement,
+  value: string
+): Promise<boolean> {
+  const input = findTextInput(el);
+  const target = input ?? el;
+  target.focus();
+  target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  target.click?.();
+
+  if (input) {
+    setNativeValue(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    // Some widgets only filter in response to keyboard events.
+    const last = value.slice(-1) || "a";
+    for (const type of ["keydown", "keyup"]) {
+      input.dispatchEvent(
+        new KeyboardEvent(type, { key: last, bubbles: true })
+      );
+    }
+  }
+
+  const option = await waitForOption(value, 1500);
+  if (option) {
+    option.scrollIntoView?.({ block: "nearest" });
+    option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    option.click();
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  // Last resort: commit the typed value with Enter (some widgets accept it).
+  if (input) {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+  }
+  return false;
+}
+
+function findTextInput(el: HTMLElement): HTMLInputElement | null {
+  if (el.tagName === "INPUT") return el as HTMLInputElement;
+  const inside = el.querySelector<HTMLInputElement>("input");
+  if (inside) return inside;
+  // react-select renders the input as a sibling within the control container.
+  const container = el.closest<HTMLElement>(
+    "[class*='select'], [class*='combobox'], [role='combobox']"
+  );
+  return container?.querySelector<HTMLInputElement>("input") ?? null;
+}
+
+const OPTION_SELECTORS =
+  "[role='option'], [class*='option'], li[role], li, [data-automation-id='promptOption']";
+
+function waitForOption(
+  value: string,
+  timeoutMs: number
+): Promise<HTMLElement | null> {
+  const want = value.trim().toLowerCase();
+  const pick = (): HTMLElement | null => {
+    const nodes = Array.from(
+      document.querySelectorAll<HTMLElement>(OPTION_SELECTORS)
+    ).filter((n) => n.offsetParent !== null && (n.textContent ?? "").trim());
+    const byText = (pred: (t: string) => boolean) =>
+      nodes.find((n) => pred((n.textContent ?? "").trim().toLowerCase()));
+    return (
+      byText((t) => t === want) ??
+      byText((t) => t.startsWith(want)) ??
+      byText((t) => t.includes(want)) ??
+      null
+    );
+  };
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      const found = pick();
+      if (found) return resolve(found);
+      if (Date.now() - start > timeoutMs) return resolve(null);
+      setTimeout(tick, 80);
+    };
+    tick();
+  });
 }
 
 function attachFile(el: HTMLInputElement, file: File): boolean {

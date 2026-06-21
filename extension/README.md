@@ -19,9 +19,12 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
    order — learned **memory** (per-domain → per-platform → global), a deterministic
    **dictionary** (labels/autocomplete → profile), then an **LLM fallback** for
    whatever's left (optional).
-3. **Auto-fill on page load** (toggleable globally and per-site). Filled fields are
-   highlighted; low-confidence/AI-guessed values are badged "review". It **never
-   submits** for you.
+3. **Passive by default** — AppFill does **not** auto-fill on load. When you focus a
+   field it shows an inline suggestion ("AppFill: <value> · Fill") you can accept,
+   with an optional **✨ AI** action for fields it can't map deterministically.
+   Whole-form **auto-fill on page load** is opt-in (globally in options, or per-site
+   from the popup); when on, filled fields are highlighted and low-confidence/AI
+   values are badged "review". It **never submits** for you.
 4. **Learning**: when you submit, every field's signature → value is captured into
    memory and reused on future forms.
 5. **LLM content** (optional toggles): cover letters and screening-question answers

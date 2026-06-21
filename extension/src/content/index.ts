@@ -5,11 +5,12 @@ import { resolveFields } from "./resolver";
 import { fillField } from "./filler";
 import { highlight, clearHighlights } from "./highlight";
 import { installSubmissionCapture } from "./capture";
+import { installSuggestions } from "./suggest";
+import { fetchResumeFile } from "./resume";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
 import type { FieldResolution } from "@/shared/types";
 import type { Message, MessageResponse } from "@/shared/messages";
-import { base64ToFile } from "@/shared/encoding";
 
 const platform = detectPlatform();
 const domain = location.hostname;
@@ -59,20 +60,6 @@ async function runFillPass(force = false): Promise<{
   return { fieldCount: fields.length, filledCount };
 }
 
-async function fetchResumeFile(): Promise<File | undefined> {
-  try {
-    const resp = (await chrome.runtime.sendMessage({
-      type: "GET_RESUME_FILE",
-    } satisfies Message)) as MessageResponse;
-    if (resp.ok && "file" in resp && resp.file) {
-      return base64ToFile(resp.file.base64, resp.file.name, resp.file.type);
-    }
-  } catch {
-    /* no resume stored */
-  }
-  return undefined;
-}
-
 // --- popup/background message handling ---
 chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   if (msg.type === "FILL_NOW") {
@@ -98,8 +85,11 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   return false;
 });
 
-// --- lifecycle: fill on load, and re-run when SPA forms appear ---
+// --- lifecycle ---
+// Default behavior is passive: on-focus suggestions only. Whole-form auto-fill
+// runs on load *only* when the user has opted in (globally or per-site).
 installSubmissionCapture(domain, platform.id);
+void installSuggestions(domain, platform.id);
 
 let debounce: number | undefined;
 function schedulePass(): void {
@@ -107,7 +97,8 @@ function schedulePass(): void {
   debounce = window.setTimeout(() => void runFillPass(false), 600);
 }
 
-// Only run in the top document or same-origin frames that actually host inputs.
+// runFillPass already no-ops when autofill is disabled for this domain, so this
+// only does work for opted-in sites.
 if (document.querySelector("input, textarea, select")) {
   schedulePass();
 }

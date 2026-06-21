@@ -1,12 +1,13 @@
 {
   "name": "appfill",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Chrome extension that autofills job-application forms on any platform using your resume, and learns from past submissions.",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "icons": "node scripts/make-icons.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "preview": "vite preview",
     "test": "vitest run",
