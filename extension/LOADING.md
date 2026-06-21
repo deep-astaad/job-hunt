@@ -37,6 +37,28 @@ content script, the popup/options pages, and icons.
 
 ---
 
+### Option B: build a distributable zip
+
+To produce a versioned, shareable artifact instead of loading the raw `dist/`:
+
+```bash
+npm run package      # runs the build, then zips dist/ → release/appfill-<version>.zip
+```
+
+This writes `extension/release/appfill-<version>.zip` with `manifest.json` at the
+zip root.
+
+> **Important:** Chrome cannot install a raw `.zip` directly — "Load unpacked"
+> needs an unpacked folder, and drag-and-drop install only ever worked for signed
+> `.crx` files. So the zip is for **distribution / Chrome Web Store upload**. To
+> run it locally, **unzip it first**, then load the unzipped folder via the steps
+> below (point "Load unpacked" at the unzipped folder instead of `dist/`).
+>
+> The zip *is* exactly what you upload at the Chrome Web Store Developer Dashboard
+> if you ever publish.
+
+---
+
 ## 2. Open the Extensions page
 
 1. Open Chrome.
