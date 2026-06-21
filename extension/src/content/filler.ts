@@ -11,13 +11,16 @@ export async function fillField(
   field: FieldDescriptor,
   value: string,
   platformId: string,
-  resumeFile?: File
+  resumeFile?: File,
+  force = false
 ): Promise<boolean> {
   const el = getElement(field.id);
   if (!el) return false;
 
-  // Don't clobber a value the user already typed.
-  if (field.existingValue && field.existingValue.trim()) return false;
+  // Don't clobber a value the user already typed — UNLESS this is a user-
+  // initiated fill (force). Native <select>/radio always report a current
+  // value, so without force an explicit "Fill" click would be a no-op.
+  if (!force && field.existingValue && field.existingValue.trim()) return false;
 
   switch (field.kind) {
     case "file":
@@ -49,17 +52,48 @@ function fillTextLike(
 }
 
 function fillSelect(el: HTMLSelectElement, value: string): boolean {
-  const want = value.trim().toLowerCase();
-  const match = Array.from(el.options).find(
-    (o) =>
-      o.value.toLowerCase() === want ||
-      (o.textContent ?? "").trim().toLowerCase() === want ||
-      (o.textContent ?? "").trim().toLowerCase().includes(want)
-  );
+  const opts = Array.from(el.options).map((o) => ({
+    value: o.value,
+    label: (o.textContent ?? o.value).trim(),
+  }));
+  const match = bestOption(value, opts);
   if (!match) return false;
   el.value = match.value;
   fireInputEvents(el);
   return true;
+}
+
+/**
+ * Pick the option that best matches a desired value: exact (value or label) →
+ * startsWith → word/contains → yes/no synonyms. Case-insensitive. Shared by the
+ * select filler and the resolver (so a suggestion can show the real option text).
+ */
+export function bestOption<T extends { value: string; label: string }>(
+  value: string,
+  options: T[]
+): T | undefined {
+  const want = value.trim().toLowerCase();
+  if (!want) return undefined;
+  const norm = (s: string) => s.trim().toLowerCase();
+  const real = options.filter((o) => o.value !== "" || norm(o.label) !== "");
+
+  const exact = real.find((o) => norm(o.value) === want || norm(o.label) === want);
+  if (exact) return exact;
+  const starts = real.find((o) => norm(o.label).startsWith(want) || want.startsWith(norm(o.label)));
+  if (starts) return starts;
+  const contains = real.find((o) => norm(o.label).includes(want) || want.includes(norm(o.label)));
+  if (contains) return contains;
+
+  // yes/no normalization (eligibility-style dropdowns)
+  const yes = /^(yes|true)$/.test(want);
+  const no = /^(no|false)$/.test(want);
+  if (yes || no) {
+    return real.find((o) => {
+      const l = norm(o.label);
+      return yes ? l.startsWith("yes") : l.startsWith("no");
+    });
+  }
+  return undefined;
 }
 
 function fillRadio(field: FieldDescriptor, value: string): boolean {

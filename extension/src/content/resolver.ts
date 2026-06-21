@@ -1,6 +1,7 @@
 import type { FieldDescriptor, FieldResolution } from "@/shared/types";
 import { type CandidateProfile, resolveCanonicalValue } from "@/profile/schema";
 import { mapFieldDeterministic } from "./mapper";
+import { bestOption } from "./filler";
 import { recall } from "@/storage/memory";
 import { sendToBackground } from "@/shared/messages";
 import type { Settings } from "@/storage/settings";
@@ -30,14 +31,19 @@ export async function resolveSingle(
 
   const mem = await recall(field.signature, domain, platform);
   if (mem) {
-    return {
-      fieldId: field.id,
-      value: mem.value,
-      confidence:
-        mem.scope === "domain" ? 0.95 : mem.scope === "platform" ? 0.85 : 0.7,
-      source: mem.scope === "global" ? "memory-global" : "memory",
-      canonicalKey: det?.key,
-    };
+    const value = toOption(field, mem.value);
+    // If this is an option field and the remembered value matches no option,
+    // there's nothing reliable to select — let the AI path try instead.
+    if (value !== undefined) {
+      return {
+        fieldId: field.id,
+        value,
+        confidence:
+          mem.scope === "domain" ? 0.95 : mem.scope === "platform" ? 0.85 : 0.7,
+        source: mem.scope === "global" ? "memory-global" : "memory",
+        canonicalKey: det?.key,
+      };
+    }
   }
 
   if (det) {
@@ -50,18 +56,33 @@ export async function resolveSingle(
         isResumeFile: true,
       };
     }
-    const value = resolveCanonicalValue(profile, det.key);
-    if (value != null && value !== "") {
-      return {
-        fieldId: field.id,
-        value,
-        confidence: det.confidence,
-        source: "deterministic",
-        canonicalKey: det.key,
-      };
+    const raw = resolveCanonicalValue(profile, det.key);
+    if (raw != null && raw !== "") {
+      const value = toOption(field, raw);
+      if (value !== undefined) {
+        return {
+          fieldId: field.id,
+          value,
+          confidence: det.confidence,
+          source: "deterministic",
+          canonicalKey: det.key,
+        };
+      }
     }
   }
   return undefined;
+}
+
+/**
+ * For option fields (select/radio/combobox with a known option list), map a raw
+ * value to the matching option label so the suggestion shows real option text
+ * and the fill selects exactly. Returns undefined when no option matches.
+ * Non-option (free-text) fields pass the value straight through.
+ */
+function toOption(field: FieldDescriptor, raw: string): string | undefined {
+  if (!field.options || field.options.length === 0) return raw;
+  const opt = bestOption(raw, field.options);
+  return opt?.label;
 }
 
 export async function resolveFields(
