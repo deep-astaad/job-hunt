@@ -22,6 +22,7 @@ export interface JobInline {
   region: string;
   country: string;
   is_remote: boolean;
+  is_applied: boolean;
 }
 
 export interface BrowseItem {
@@ -159,6 +160,7 @@ export interface BrowseFilters {
   language: string;
   location: string;
   remote: "" | "true" | "false";
+  applied: "" | "true" | "false";
   date: "today" | "3days" | "7days" | "all";
   q: string;
   page: number;

@@ -50,6 +50,7 @@ class BrowseView(APIView):
         language = request.query_params.get("language", "")
         location = request.query_params.get("location", "").strip()
         remote_param = request.query_params.get("remote", "")
+        applied_param = request.query_params.get("applied", "")
         date_param = request.query_params.get("date", "today")
         q = request.query_params.get("q", "").strip()
 
@@ -97,6 +98,11 @@ class BrowseView(APIView):
             qs = qs.filter(job__is_remote=True)
         elif remote_param == "false":
             qs = qs.filter(job__is_remote=False)
+
+        if applied_param == "true":
+            qs = qs.filter(job__is_applied=True)
+        elif applied_param == "false":
+            qs = qs.filter(job__is_applied=False)
 
         if date_param == "today":
             qs = qs.filter(job__scraped_at__date=date.today())

@@ -50,6 +50,7 @@ export function FilterBar({ filters, sourceChoices, languageChoices, resultCount
   const secondaryActiveCount =
     (filters.source ? 1 : 0) +
     (filters.language ? 1 : 0) +
+    (filters.applied ? 1 : 0) +
     (filters.date !== "today" ? 1 : 0);
 
   return (
@@ -179,6 +180,23 @@ export function FilterBar({ filters, sourceChoices, languageChoices, resultCount
             </div>
           )}
 
+          {/* Applied Status */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[0.65rem] text-ink-muted uppercase tracking-wide font-semibold">Status</span>
+            <select
+              value={filters.applied}
+              onChange={(e) => onChange({ applied: e.target.value as BrowseFilters["applied"], page: 1 })}
+              className={cn(
+                "bg-base-card border border-border rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition-colors focus:border-brand",
+                filters.applied ? "text-ink-primary border-brand/40" : "text-ink-muted"
+              )}
+            >
+              <option value="">All</option>
+              <option value="true">Applied</option>
+              <option value="false">Not Applied</option>
+            </select>
+          </div>
+
           {/* Date */}
           <div className="flex items-center gap-1.5 ml-auto">
             <span className="text-[0.65rem] text-ink-muted uppercase tracking-wide font-semibold">Posted</span>
@@ -203,7 +221,7 @@ export function FilterBar({ filters, sourceChoices, languageChoices, resultCount
           {/* Clear secondary */}
           {secondaryActiveCount > 0 && (
             <button
-              onClick={() => onChange({ source: "", language: "", date: "today", page: 1 })}
+              onClick={() => onChange({ source: "", language: "", applied: "", date: "today", page: 1 })}
               className="text-[0.65rem] text-ink-muted hover:text-red-600 transition-colors ml-1"
             >
               Clear filters

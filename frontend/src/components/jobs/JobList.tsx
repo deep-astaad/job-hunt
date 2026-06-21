@@ -14,6 +14,7 @@ interface Props {
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
   isLoading: boolean;
+  onApplyTriggered?: (jobId: number, title: string, company: string) => void;
 }
 
 export function JobList({
@@ -24,6 +25,7 @@ export function JobList({
   isFetchingNextPage,
   fetchNextPage,
   isLoading,
+  onApplyTriggered,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -92,6 +94,7 @@ export function JobList({
                   item={item}
                   isSelected={item.id === selectedId}
                   onClick={() => onSelect(item)}
+                  onApplyTriggered={onApplyTriggered}
                 />
               )}
             </div>

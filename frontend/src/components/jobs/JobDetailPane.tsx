@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Globe, DollarSign, Star, Briefcase, Bot, Pencil, ArrowLeft, MapPin } from "lucide-react";
+import { ExternalLink, Globe, DollarSign, Star, Briefcase, Bot, Pencil, ArrowLeft, MapPin, Check } from "lucide-react";
 import { cn, TIER_COLORS, ALL_TIERS, TIER_DOT_HEX, formatYen } from "@/lib/utils";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { useRankingMutation } from "@/hooks/useRankingMutation";
+import { useJobMutation } from "@/hooks/useJobMutation";
 import type { BrowseItem, Tier } from "@/lib/types";
 
 interface Props {
   item: BrowseItem | null;
   onBack?: () => void; // mobile: go back to list
+  onApplyTriggered?: (jobId: number, title: string, company: string) => void;
 }
 
-export function JobDetailPane({ item, onBack }: Props) {
+export function JobDetailPane({ item, onBack, onApplyTriggered }: Props) {
   const { mutate: patchRanking, isPending } = useRankingMutation();
+  const jobMutation = useJobMutation();
   const [editTier, setEditTier] = useState<Tier | null>(null);
   const [editRank, setEditRank] = useState<string>("");
 
@@ -54,6 +57,19 @@ export function JobDetailPane({ item, onBack }: Props) {
         rank: parseInt(editRank, 10) || 0,
       },
     });
+  };
+
+  const handleToggleApplied = () => {
+    jobMutation.mutate({
+      jobId: job.id,
+      data: { is_applied: !job.is_applied },
+    });
+  };
+
+  const handleApplyClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    window.open(job.url, "_blank", "noopener,noreferrer");
+    onApplyTriggered?.(job.id, job.title, job.company);
   };
 
   return (
@@ -99,6 +115,7 @@ export function JobDetailPane({ item, onBack }: Props) {
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleApplyClick}
             className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold bg-brand text-white hover:bg-brand-secondary shadow-sm transition-colors"
           >
             Apply
@@ -112,6 +129,27 @@ export function JobDetailPane({ item, onBack }: Props) {
 
         {/* Meta grid */}
         <div className="grid grid-cols-2 gap-2.5">
+          <MetaBox icon={<Check className="w-3.5 h-3.5" />} label="Status">
+            <button
+              onClick={handleToggleApplied}
+              disabled={jobMutation.isPending}
+              className={cn(
+                "inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all border outline-none cursor-pointer",
+                job.is_applied
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/50"
+                  : "bg-transparent text-ink-muted border-border hover:bg-base-hover hover:border-border-hover"
+              )}
+            >
+              {job.is_applied ? (
+                <>
+                  <Check className="w-3 h-3 text-emerald-700 shrink-0" />
+                  Applied
+                </>
+              ) : (
+                "Mark Applied"
+              )}
+            </button>
+          </MetaBox>
           {(job.salary_yen || job.salary) && (
             <MetaBox icon={<DollarSign className="w-3.5 h-3.5" />} label="Salary">
               <span className="font-mono font-semibold">
@@ -247,6 +285,7 @@ export function JobDetailPane({ item, onBack }: Props) {
           href={job.url}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={handleApplyClick}
           className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-semibold text-sm bg-brand text-white hover:bg-brand-secondary shadow-sm transition-colors"
         >
           Apply on {job.source}
