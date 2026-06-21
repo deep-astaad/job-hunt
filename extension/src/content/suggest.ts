@@ -1,19 +1,24 @@
 import { describeElement } from "./detector";
 import { resolveSingle } from "./resolver";
+import { mapFieldDeterministic } from "./mapper";
 import { fillField } from "./filler";
 import { fetchResumeFile } from "./resume";
-import { getProfile } from "@/storage/profile";
+import { getProfile, updateProfileField } from "@/storage/profile";
+import { remember } from "@/storage/memory";
 import { getSettings, type Settings } from "@/storage/settings";
-import type { CandidateProfile } from "@/profile/schema";
+import {
+  type CandidateProfile,
+  type CanonicalKey,
+  isStorableKey,
+} from "@/profile/schema";
 import type { FieldDescriptor, FieldResolution } from "@/shared/types";
-import { sendToBackground, type Message } from "@/shared/messages";
+import { sendToBackground, type Message, type JobContext } from "@/shared/messages";
 
 /**
- * On-focus suggestion UX (the default interaction). When the user focuses an
- * empty field, AppFill offers to fill it with a recommended value — like the
- * browser's own autofill bubble, but driven by your profile + learned answers.
- * Nothing is filled until the user clicks "Fill". An optional "✨ AI" action
- * asks the LLM for fields we can't map deterministically.
+ * On-focus assistant. When you focus a field, AppFill offers — in order of
+ * usefulness — a remembered/profile value to fill, an AI fill, inline content
+ * generation (for textareas), or a manual input box that *learns* the value for
+ * next time and optionally saves it to your profile. Nothing fills until you act.
  */
 let profile: CandidateProfile;
 let settings: Settings;
@@ -22,8 +27,9 @@ let platformId = "generic";
 
 let host: HTMLElement | null = null;
 let shadow: ShadowRoot | null = null;
-let currentField: FieldDescriptor | null = null;
-let currentEl: HTMLElement | null = null;
+let field: FieldDescriptor | null = null;
+let anchorEl: HTMLElement | null = null;
+let canonicalKey: CanonicalKey | undefined;
 
 export async function installSuggestions(domainArg: string, platform: string) {
   domain = domainArg;
@@ -45,28 +51,43 @@ export async function installSuggestions(domainArg: string, platform: string) {
 }
 
 async function onFocus(e: FocusEvent) {
-  if (!settings.suggestOnFocus) return hide();
   const el = e.target as HTMLElement | null;
-  if (!el || !isFocusableField(el)) return hide();
+  // Ignore focus moving into our own UI (shadow events retarget to the host).
+  if (!el || el === host) return;
+  if (!settings.suggestOnFocus) return hide();
+  if (!isFocusableField(el)) return hide();
 
-  const field = describeElement(el);
-  if (!field) return hide();
-  // Don't nag on free-text fields the user has already filled. Option fields
-  // (select/combobox) always report their default selection as a "value", so we
-  // still offer a suggestion there.
-  const isOption = field.kind === "select" || field.kind === "combobox";
-  if (!isOption && field.existingValue && field.existingValue.trim()) return hide();
+  const f = describeElement(el);
+  if (!f) return hide();
+  const isOption = f.kind === "select" || f.kind === "combobox";
+  if (!isOption && f.existingValue && f.existingValue.trim()) return hide();
 
-  const resolution = await resolveSingle(field, profile, domain, platformId);
-  currentField = field;
-  currentEl = el;
+  field = f;
+  anchorEl = el;
+  canonicalKey = mapFieldDeterministic(f)?.key;
 
-  if (resolution) {
-    render(el, resolution);
+  const resolution = await resolveSingle(f, profile, domain, platformId);
+  if (resolution) renderSuggestion(resolution);
+  else renderNoValue();
+}
+
+/** Fill whatever field is currently focused (driven by context menu / shortcut). */
+export async function fillFocused(): Promise<void> {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || !isFocusableField(el)) return;
+  const f = describeElement(el);
+  if (!f) return;
+  field = f;
+  anchorEl = el;
+  canonicalKey = mapFieldDeterministic(f)?.key;
+  const r = await resolveSingle(f, profile, domain, platformId);
+  if (r) {
+    const ok = await applyResolution(r);
+    if (!ok) renderSuggestion(r);
   } else if (canUseLlm()) {
-    renderAiOnly(el, field);
+    await askAi();
   } else {
-    hide();
+    renderNoValue();
   }
 }
 
@@ -82,176 +103,244 @@ function isFocusableField(el: HTMLElement): boolean {
   return false;
 }
 
-function canUseLlm(): boolean {
-  return Boolean(settings.llmFieldMappingEnabled && settings.openaiApiKey);
-}
+const canUseLlm = () =>
+  Boolean(settings.llmFieldMappingEnabled && settings.openaiApiKey);
+const canGenerate = () =>
+  Boolean(
+    settings.openaiApiKey &&
+      (settings.coverLetterEnabled || settings.screeningAnswersEnabled || settings.fieldTailoringEnabled)
+  );
 
-// --- rendering (isolated in a shadow root so host-page CSS can't touch it) ---
-function ensureHost(): ShadowRoot {
-  if (shadow) return shadow;
-  host = document.createElement("div");
-  host.style.position = "absolute";
-  host.style.zIndex = "2147483647";
-  host.style.top = "0";
-  host.style.left = "0";
-  shadow = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = `
-    .box { position:absolute; font:13px/1.4 system-ui,sans-serif; background:#111827;
-      color:#fff; border-radius:10px; padding:8px 10px; box-shadow:0 6px 24px rgba(0,0,0,.25);
-      display:flex; align-items:center; gap:8px; max-width:320px; }
-    .mark { font-weight:700; color:#93c5fd; }
-    .val { max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.9; }
-    button { font:600 12px system-ui,sans-serif; border:none; border-radius:7px; padding:5px 9px; cursor:pointer; }
-    .fill { background:#2563eb; color:#fff; }
-    .ai { background:#374151; color:#e5e7eb; }
-    .x { background:transparent; color:#9ca3af; padding:4px 6px; }
-  `;
-  shadow.appendChild(style);
-  document.body.appendChild(host);
-  return shadow;
-}
-
-function render(anchor: HTMLElement, resolution: FieldResolution) {
-  const sh = ensureHost();
-  clearBox(sh);
-  const box = document.createElement("div");
-  box.className = "box";
-
-  const mark = document.createElement("span");
-  mark.className = "mark";
-  mark.textContent = "AppFill";
-  box.appendChild(mark);
-
+// ---------------------------------------------------------------- rendering --
+function renderSuggestion(resolution: FieldResolution) {
+  const box = startBox();
   if (resolution.isResumeFile) {
     box.appendChild(text("Attach your resume?"));
   } else {
-    const v = document.createElement("span");
-    v.className = "val";
-    v.textContent = resolution.value ?? "";
-    v.title = resolution.value ?? "";
-    box.appendChild(v);
+    box.appendChild(valueChip(resolution.value ?? ""));
   }
+  box.appendChild(
+    button("fill", "Fill", async () => {
+      const ok = await applyResolution(resolution);
+      if (ok) flashSavedHint();
+      else message("Couldn't auto-select — pick it manually", true);
+    })
+  );
+  if (!resolution.isResumeFile) {
+    box.appendChild(button("ghost", "✎", () => renderInput(resolution.value ?? "")));
+    if (canUseLlm()) box.appendChild(button("ghost", "✨", askAi));
+  }
+  box.appendChild(closeBtn());
+  finishBox(box);
+}
 
-  const fill = button("fill", "Fill", async () => {
-    const ok = await applyResolution(resolution);
-    if (ok) hide();
-    else message("Couldn't auto-select — pick it manually", true);
+function renderNoValue() {
+  const box = startBox();
+  const isTextarea = field?.kind === "textarea" || field?.kind === "contenteditable";
+  box.appendChild(text(isTextarea ? "No saved value" : "Not in your profile"));
+  box.appendChild(button("fill", "Enter value", () => renderInput("")));
+  if (canUseLlm()) box.appendChild(button("ghost", "✨ AI", askAi));
+  if (isTextarea && canGenerate())
+    box.appendChild(button("ghost", "✨ Generate", generateIntoField));
+  box.appendChild(closeBtn());
+  finishBox(box);
+}
+
+/** Manual input: type a value, fill it, learn it, optionally save to profile. */
+function renderInput(prefill: string) {
+  const box = startBox();
+  const input = document.createElement("input");
+  input.className = "in";
+  input.value = prefill;
+  input.placeholder = "Type a value…";
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") void commitManual(input.value);
+    if (e.key === "Escape") hide();
   });
-  box.appendChild(fill);
+  box.appendChild(input);
+  box.appendChild(button("fill", "Fill & save", () => void commitManual(input.value)));
+  box.appendChild(closeBtn());
+  finishBox(box);
+  setTimeout(() => input.focus(), 0);
+}
 
-  if (canUseLlm() && !resolution.isResumeFile) {
-    box.appendChild(button("ai", "✨ AI", () => askAi()));
+async function commitManual(value: string) {
+  const v = value.trim();
+  if (!field || !v) return hide();
+  const ok = await fillField(field, v, platformId, undefined, true);
+  if (!ok) return message("Couldn't fill — pick it manually", true);
+  // Learn it for next time (per-domain → platform → global).
+  await remember([{ signature: field.signature, value: v }], domain, platformId);
+  // Offer to persist structured fields to the profile too.
+  if (canonicalKey && isStorableKey(canonicalKey)) {
+    const key = canonicalKey;
+    const box = startBox();
+    box.appendChild(text("Saved ✓ Add to your profile?"));
+    box.appendChild(
+      button("fill", "Save to profile", async () => {
+        await updateProfileField(key, v);
+        profile = await getProfile();
+        message("Added to profile ✓");
+        setTimeout(hide, 900);
+      })
+    );
+    box.appendChild(closeBtn());
+    finishBox(box);
+  } else {
+    message("Saved — will reuse next time ✓");
+    setTimeout(hide, 1100);
   }
-  box.appendChild(button("x", "✕", hide));
-
-  sh.appendChild(box);
-  position(box, anchor);
-}
-
-function renderAiOnly(anchor: HTMLElement, _field: FieldDescriptor) {
-  const sh = ensureHost();
-  clearBox(sh);
-  const box = document.createElement("div");
-  box.className = "box";
-  const mark = document.createElement("span");
-  mark.className = "mark";
-  mark.textContent = "AppFill";
-  box.appendChild(mark);
-  box.appendChild(text("Ask AI to fill this?"));
-  box.appendChild(button("ai", "✨ Fill with AI", () => askAi()));
-  box.appendChild(button("x", "✕", hide));
-  sh.appendChild(box);
-  position(box, anchor);
-}
-
-/** Replace the box with a short status line (transient unless `keep`). */
-function message(msg: string, keep = false) {
-  const sh = ensureHost();
-  clearBox(sh);
-  if (!currentEl) return;
-  const box = document.createElement("div");
-  box.className = "box";
-  const mark = document.createElement("span");
-  mark.className = "mark";
-  mark.textContent = "AppFill";
-  box.appendChild(mark);
-  box.appendChild(text(msg));
-  if (keep) box.appendChild(button("x", "✕", hide));
-  sh.appendChild(box);
-  position(box, currentEl);
-}
-
-async function applyResolution(resolution: FieldResolution): Promise<boolean> {
-  if (!currentField) return false;
-  if (resolution.isResumeFile) {
-    const file = await fetchResumeFile();
-    return file
-      ? fillField(currentField, "", platformId, file, true /* force */)
-      : false;
-  }
-  if (resolution.value)
-    return fillField(currentField, resolution.value, platformId, undefined, true);
-  return false;
 }
 
 async function askAi() {
-  if (!currentField || !currentEl) return;
+  if (!field) return;
   message("Asking AI…");
   try {
     const resp = await sendToBackground({
       type: "LLM_MAP_FIELDS",
-      fields: [currentField],
+      fields: [field],
       profile,
     } satisfies Message);
     const value =
       resp.ok && "resolutions" in resp ? resp.resolutions[0]?.value : undefined;
-    if (!value) return message("No AI suggestion for this field", true);
-    const ok = await fillField(currentField, value, platformId, undefined, true);
+    if (!value) return renderInput("");
+    const ok = await fillField(field, value, platformId, undefined, true);
     if (ok) {
+      await remember([{ signature: field.signature, value }], domain, platformId);
       message(`✓ ${value}`);
       setTimeout(hide, 900);
     } else {
-      // Couldn't auto-select (e.g. an option that isn't in the list).
-      message(`Couldn't auto-select “${value}” — pick it manually`, true);
+      renderInput(value); // let the user adjust & fill manually
     }
   } catch {
     message("AI request failed", true);
   }
 }
 
-function position(box: HTMLElement, anchor: HTMLElement) {
-  const r = anchor.getBoundingClientRect();
-  // Place just below the field; flip above if near the viewport bottom.
-  const below = r.bottom + 6 + window.scrollY;
-  const aboveFlip = window.innerHeight - r.bottom < 60;
-  box.style.left = `${r.left + window.scrollX}px`;
-  box.style.top = aboveFlip
-    ? `${r.top + window.scrollY - 44}px`
-    : `${below}px`;
+async function generateIntoField() {
+  if (!field) return;
+  const label = (field.label ?? "").toLowerCase();
+  const kind: "cover_letter" | "screening_answer" =
+    /cover letter|motivation/.test(label) ? "cover_letter" : "screening_answer";
+  message("Generating…");
+  try {
+    const resp = await sendToBackground({
+      type: "LLM_GENERATE",
+      kind,
+      profile,
+      job: jobContext(),
+      prompt: field.label ?? "",
+      maxLength: field.maxLength,
+    } satisfies Message);
+    if (resp.ok && "text" in resp) {
+      await fillField(field, resp.text, platformId, undefined, true);
+      message("Generated ✓ review before submitting", true);
+    } else if (!resp.ok) {
+      message(resp.error, true);
+    }
+  } catch {
+    message("Generation failed", true);
+  }
 }
 
-function reposition() {
-  if (!currentEl || !shadow) return;
-  const box = shadow.querySelector<HTMLElement>(".box");
-  if (box) position(box, currentEl);
+function jobContext(): JobContext {
+  return { title: document.title, url: location.href };
 }
 
-function hide() {
-  if (shadow) clearBox(shadow);
-  currentField = null;
-  currentEl = null;
+async function applyResolution(resolution: FieldResolution): Promise<boolean> {
+  if (!field) return false;
+  if (resolution.isResumeFile) {
+    const file = await fetchResumeFile();
+    return file ? fillField(field, "", platformId, file, true) : false;
+  }
+  if (resolution.value)
+    return fillField(field, resolution.value, platformId, undefined, true);
+  return false;
 }
 
-function clearBox(sh: ShadowRoot) {
+function flashSavedHint() {
+  // Successful suggestion fill — nothing to learn (already known), just close.
+  hide();
+}
+
+// --------------------------------------------------------------- box plumbing -
+function ensureHost(): ShadowRoot {
+  if (shadow) return shadow;
+  host = document.createElement("div");
+  host.style.cssText = "position:absolute;z-index:2147483647;top:0;left:0;";
+  shadow = host.attachShadow({ mode: "open" });
+  const style = document.createElement("style");
+  style.textContent = `
+    .box{position:absolute;font:13px/1.4 system-ui,sans-serif;background:#111827;color:#fff;
+      border-radius:10px;padding:7px 9px;box-shadow:0 6px 24px rgba(0,0,0,.28);
+      display:flex;align-items:center;gap:7px;max-width:360px;}
+    .mark{font-weight:700;color:#93c5fd;white-space:nowrap;}
+    .val{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      background:#1f2937;border-radius:6px;padding:3px 7px;opacity:.95;}
+    .msg{opacity:.92;}
+    .in{font:13px system-ui,sans-serif;border:1px solid #374151;background:#0b1220;color:#fff;
+      border-radius:7px;padding:5px 8px;min-width:150px;outline:none;}
+    .in:focus{border-color:#3b82f6;}
+    button{font:600 12px system-ui,sans-serif;border:none;border-radius:7px;padding:5px 9px;cursor:pointer;}
+    .fill{background:#2563eb;color:#fff;}
+    .ghost{background:#374151;color:#e5e7eb;}
+    .x{background:transparent;color:#9ca3af;padding:4px 6px;}
+  `;
+  shadow.appendChild(style);
+  document.body.appendChild(host);
+  return shadow;
+}
+
+function startBox(): HTMLDivElement {
+  const sh = ensureHost();
   sh.querySelectorAll(".box").forEach((b) => b.remove());
+  const box = document.createElement("div");
+  box.className = "box";
+  const mark = document.createElement("span");
+  mark.className = "mark";
+  mark.textContent = "AppFill";
+  box.appendChild(mark);
+  return box;
+}
+
+function finishBox(box: HTMLDivElement) {
+  ensureHost().appendChild(box);
+  if (anchorEl) position(box, anchorEl);
+}
+
+function message(msg: string, keep = false) {
+  const box = startBox();
+  box.appendChild(text(msg, "msg"));
+  if (keep) box.appendChild(closeBtn());
+  finishBox(box);
+}
+
+function valueChip(s: string): HTMLSpanElement {
+  const v = document.createElement("span");
+  v.className = "val";
+  v.textContent = s;
+  v.title = s;
+  return v;
+}
+
+function text(s: string, cls = "msg"): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = cls;
+  span.textContent = s;
+  return span;
+}
+
+function closeBtn(): HTMLButtonElement {
+  return button("x", "✕", hide);
 }
 
 function button(cls: string, label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = cls;
   b.textContent = label;
-  // mousedown (not click) so we act before the field's blur tears the box down.
+  // mousedown (not click) so we act before the field's blur tears the box down,
+  // except we still preventDefault to keep page focus where it is.
   b.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -260,9 +349,24 @@ function button(cls: string, label: string, onClick: () => void): HTMLButtonElem
   return b;
 }
 
-function text(s: string): HTMLSpanElement {
-  const span = document.createElement("span");
-  span.textContent = s;
-  span.style.opacity = "0.9";
-  return span;
+function position(box: HTMLElement, anchor: HTMLElement) {
+  const r = anchor.getBoundingClientRect();
+  const flipUp = window.innerHeight - r.bottom < 60;
+  box.style.left = `${r.left + window.scrollX}px`;
+  box.style.top = flipUp
+    ? `${r.top + window.scrollY - 44}px`
+    : `${r.bottom + 6 + window.scrollY}px`;
+}
+
+function reposition() {
+  if (!anchorEl || !shadow) return;
+  const box = shadow.querySelector<HTMLElement>(".box");
+  if (box) position(box, anchorEl);
+}
+
+function hide() {
+  if (shadow) shadow.querySelectorAll(".box").forEach((b) => b.remove());
+  field = null;
+  anchorEl = null;
+  canonicalKey = undefined;
 }

@@ -5,7 +5,7 @@ import { resolveFields } from "./resolver";
 import { fillField } from "./filler";
 import { highlight, clearHighlights } from "./highlight";
 import { installSubmissionCapture } from "./capture";
-import { installSuggestions } from "./suggest";
+import { installSuggestions, fillFocused } from "./suggest";
 import { fetchResumeFile } from "./resume";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
@@ -68,6 +68,10 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
     );
     return true;
   }
+  if (msg.type === "FILL_FOCUSED") {
+    fillFocused().then(() => sendResponse({ ok: true } satisfies MessageResponse));
+    return true;
+  }
   if (msg.type === "GET_STATUS") {
     getSettings().then((s) => {
       sendResponse({
@@ -91,10 +95,25 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
 installSubmissionCapture(domain, platform.id);
 void installSuggestions(domain, platform.id);
 
+const isTopFrame = window.top === window;
+
 let debounce: number | undefined;
 function schedulePass(): void {
   window.clearTimeout(debounce);
-  debounce = window.setTimeout(() => void runFillPass(false), 600);
+  debounce = window.setTimeout(() => {
+    void runFillPass(false);
+    reportFillable();
+  }, 600);
+}
+
+// Tell the background how many fillable fields are on the page so it can badge
+// the toolbar icon. Only the top frame reports, to avoid double counting.
+function reportFillable(): void {
+  if (!isTopFrame) return;
+  const count = detectFields().length;
+  void chrome.runtime
+    .sendMessage({ type: "PAGE_FILLABLE", count } satisfies Message)
+    .catch(() => {});
 }
 
 // runFillPass already no-ops when autofill is disabled for this domain, so this

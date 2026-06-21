@@ -15,6 +15,7 @@ import { getAllMemory, deleteMemory, clearMemory } from "@/storage/memory";
 import type { MemoryEntry } from "@/storage/memory";
 import { type CandidateProfile, emptyProfile } from "@/profile/schema";
 import { extractProfileFromMarkdown } from "@/profile/markdownImport";
+import { exportAll, importAll, type Backup } from "@/storage/backup";
 
 export function Options() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -91,6 +92,38 @@ export function Options() {
 
   function setContact(k: keyof CandidateProfile["contact"], v: string) {
     setProfile((p) => ({ ...p, contact: { ...p.contact, [k]: v } }));
+  }
+
+  async function onExport() {
+    const data = await exportAll();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `appfill-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text()) as Backup;
+      await importAll(data);
+      // reload UI state
+      setSettings(await getSettings());
+      const p = await getProfile();
+      setProfile(p);
+      setMarkdown(p.rawMarkdown ?? "");
+      setAdvanced(serializeAdvanced(p));
+      const rf = await getResumeFile();
+      setResumeName(rf?.name ?? null);
+      setMemory(await getAllMemory());
+      flash("Backup imported ✓");
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "Import failed.");
+    }
   }
 
   return (
@@ -249,6 +282,29 @@ export function Options() {
             setMemory([]);
           }}>Clear all learned answers</button>
         )}
+      </Section>
+
+      <Section title="6 · Backup">
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+          Export everything (profile, resume, learned answers, settings) to a JSON
+          file, or restore from one. The file includes your API key — keep it safe.
+        </p>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button style={btn} onClick={onExport}>Export backup</button>
+          <label style={{ ...btn, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Import backup
+            <input type="file" accept="application/json" onChange={onImport} style={{ display: "none" }} />
+          </label>
+        </div>
+      </Section>
+
+      <Section title="7 · Tips">
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#374151" }}>
+          <li>Focus any field to get a fill suggestion. If it's not in your profile, type a value once — AppFill remembers it and offers to save it.</li>
+          <li>Right-click a field → <b>AppFill: fill this field</b>, or a page → <b>fill this form</b>.</li>
+          <li>Keyboard: <b>Ctrl/Cmd+Shift+L</b> fills the current form (rebind at <code>chrome://extensions/shortcuts</code>).</li>
+          <li>On big text boxes (cover letter / “why this company”), use <b>✨ Generate</b>.</li>
+        </ul>
       </Section>
     </div>
   );

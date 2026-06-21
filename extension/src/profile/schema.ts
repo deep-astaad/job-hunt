@@ -212,3 +212,97 @@ function boolToText(v?: boolean): string | undefined {
   if (v == null) return undefined;
   return v ? "Yes" : "No";
 }
+
+/** Keys that store a free-text value we can confidently write back to the profile. */
+export const STORABLE_KEYS: CanonicalKey[] = [
+  "firstName",
+  "lastName",
+  "fullName",
+  "email",
+  "phone",
+  "addressLine1",
+  "addressLine2",
+  "city",
+  "state",
+  "postalCode",
+  "country",
+  "linkedin",
+  "github",
+  "portfolio",
+  "website",
+  "summary",
+  "headline",
+  "currentCompany",
+  "currentTitle",
+  "workAuthorization",
+  "noticePeriod",
+  "desiredSalary",
+];
+
+export function isStorableKey(key: CanonicalKey): boolean {
+  return STORABLE_KEYS.includes(key);
+}
+
+/**
+ * Inverse of `resolveCanonicalValue`: write a value into the right slot of the
+ * profile. Returns a NEW profile object. Only handles directly-storable keys
+ * (see STORABLE_KEYS) — derived/structured keys (skills, work history) are left
+ * to manual editing in the options page.
+ */
+export function setCanonicalValue(
+  profile: CandidateProfile,
+  key: CanonicalKey,
+  value: string
+): CandidateProfile {
+  const next: CandidateProfile = {
+    ...profile,
+    contact: { ...profile.contact },
+    links: { ...profile.links },
+    eligibility: { ...profile.eligibility },
+  };
+  switch (key) {
+    case "firstName":
+    case "lastName":
+    case "fullName":
+    case "email":
+    case "phone":
+    case "addressLine1":
+    case "addressLine2":
+    case "city":
+    case "state":
+    case "postalCode":
+    case "country":
+      next.contact[key] = value;
+      break;
+    case "linkedin":
+    case "github":
+    case "portfolio":
+    case "website":
+      next.links[key] = value;
+      break;
+    case "summary":
+      next.summary = value;
+      break;
+    case "headline":
+      next.headline = value;
+      break;
+    case "currentCompany":
+      next.currentCompany = value;
+      break;
+    case "currentTitle":
+      next.currentTitle = value;
+      break;
+    case "workAuthorization":
+      next.eligibility.workAuthorization = value;
+      break;
+    case "noticePeriod":
+      next.eligibility.noticePeriod = value;
+      break;
+    case "desiredSalary":
+      next.eligibility.desiredSalary = value;
+      break;
+    default:
+      break; // non-storable: ignore
+  }
+  return next;
+}

@@ -30,6 +30,20 @@ key all live in your browser. It does not depend on the job-hunt Django backend.
 5. **LLM content** (optional toggles): cover letters and screening-question answers
    from the popup, grounded in your profile.
 
+### Power features
+
+- **Manual input that learns** — if a field isn't in your profile, the focus bubble
+  lets you type a value; it fills, **remembers it** for next time, and offers to
+  **save it to your profile** when it maps to a known field.
+- **Inline generation** — focusing a big text box (cover letter / "why this
+  company?") offers **✨ Generate**, grounded in your profile + the page's job.
+- **Right-click menu** — "AppFill: fill this field" / "fill this form".
+- **Keyboard shortcut** — `Ctrl/Cmd+Shift+L` fills the current form (rebind at
+  `chrome://extensions/shortcuts`).
+- **Toolbar badge** — shows how many fillable fields AppFill sees on the page.
+- **Backup** — export/import everything (profile, resume, learned answers, settings)
+  as a JSON file from the options page.
+
 ## Develop
 
 ```bash

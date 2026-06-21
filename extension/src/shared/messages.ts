@@ -36,10 +36,14 @@ export type Message =
       type: "LLM_EXTRACT_PROFILE";
       markdown: string;
     }
-  // popup -> content: run a fill pass now
+  // popup/background -> content: run a whole-form fill pass now
   | { type: "FILL_NOW" }
+  // background -> content: fill the currently focused field (context menu / shortcut)
+  | { type: "FILL_FOCUSED" }
   // popup -> content: ask the content script for current page status
   | { type: "GET_STATUS" }
+  // content -> background: report fillable-field count so the toolbar badge updates
+  | { type: "PAGE_FILLABLE"; count: number }
   // content -> background: persist captured answers on submit
   | {
       type: "CAPTURE_SUBMISSION";
