@@ -42,11 +42,14 @@ def compute_stats(profile_id=None):
     """Overall counts + tier breakdown (per-profile, or aggregated for 'all') + today sub-stats."""
     today = date.today()
 
+    from datetime import timedelta
+    tomorrow = today + timedelta(days=1)
+
     total_jobs = Job.objects.count()
     active_jobs = Job.objects.filter(is_active=True).count()
-    scraped_today = Job.objects.filter(scraped_at__date=today).count()
-    formatted_today = Job.objects.filter(scraped_at__date=today, is_formatted=True).count()
-    ranked_today = Job.objects.filter(scraped_at__date=today, is_ranked=True).count()
+    scraped_today = Job.objects.filter(scraped_at__gte=today, scraped_at__lt=tomorrow).count()
+    formatted_today = Job.objects.filter(scraped_at__gte=today, scraped_at__lt=tomorrow, is_formatted=True).count()
+    ranked_today = Job.objects.filter(scraped_at__gte=today, scraped_at__lt=tomorrow, is_ranked=True).count()
 
     from django.db.models import Count
     by_source = list(
@@ -70,7 +73,7 @@ def compute_stats(profile_id=None):
             tiers_count[t] = row["count"]
 
     for row in (
-        tier_qs.filter(job__scraped_at__date=today)
+        tier_qs.filter(job__scraped_at__gte=today, job__scraped_at__lt=tomorrow)
         .values("match_tier")
         .annotate(count=Count("id"))
     ):
@@ -239,8 +242,9 @@ def compute_growth_insights(profile, profile_id=None, all_profiles=None):
     recent_counter = Counter()
     prior_counter = Counter()
     cutoff_recent = today - timedelta(days=7)
+    cutoff_prior = today - timedelta(days=14)
     for job in Job.objects.filter(
-        scraped_at__date__gte=today - timedelta(days=14)
+        scraped_at__gte=cutoff_prior
     ).values("tech_stack", "scraped_at"):
         stack = job["tech_stack"]
         if not (stack and isinstance(stack, list)):

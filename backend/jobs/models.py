@@ -65,7 +65,7 @@ class Job(models.Model):
     is_applied = models.BooleanField(default=False, db_index=True)
 
     scraped_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
     class Meta:
         ordering = ["-scraped_at"]

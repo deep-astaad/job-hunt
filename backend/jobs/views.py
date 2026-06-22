@@ -33,7 +33,7 @@ class TodayRankedJobFilter(django_filters.FilterSet):
 
 
 class JobFilter(django_filters.FilterSet):
-    updated_at = django_filters.DateFilter(field_name="updated_at", lookup_expr="date")
+    updated_at = django_filters.DateFilter(method="filter_updated_at")
 
     class Meta:
         model = Job
@@ -50,8 +50,19 @@ class JobFilter(django_filters.FilterSet):
                 data["to_date"] = data.pop("to")
         super().__init__(data=data, *args, **kwargs)
 
-    from_date = django_filters.DateFilter(field_name="updated_at", lookup_expr="date__gte")
-    to_date = django_filters.DateFilter(field_name="updated_at", lookup_expr="date__lte")
+    from_date = django_filters.DateFilter(method="filter_from_date")
+    to_date = django_filters.DateFilter(method="filter_to_date")
+
+    def filter_updated_at(self, queryset, name, value):
+        from datetime import timedelta
+        return queryset.filter(updated_at__gte=value, updated_at__lt=value + timedelta(days=1))
+
+    def filter_from_date(self, queryset, name, value):
+        return queryset.filter(updated_at__gte=value)
+
+    def filter_to_date(self, queryset, name, value):
+        from datetime import timedelta
+        return queryset.filter(updated_at__lt=value + timedelta(days=1))
 
 
 TIER_SORT_MAP = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
@@ -206,12 +217,14 @@ class JobViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="today-ranked")
     def today_ranked(self, request):
         today = date.today()
+        from datetime import timedelta
+        tomorrow = today + timedelta(days=1)
 
         tiers_param = request.query_params.get("tiers", "S,A")
         tiers = [t.strip().upper() for t in tiers_param.split(",") if t.strip()] or ["S", "A"]
 
         # Apply FilterSet for profile_id and tiers filtering
-        base_qs = Job.objects.filter(is_active=True, scraped_at__date=today).distinct()
+        base_qs = Job.objects.filter(is_active=True, scraped_at__gte=today, scraped_at__lt=tomorrow).distinct()
         filterset = TodayRankedJobFilter(request.query_params, queryset=base_qs)
         jobs = filterset.qs.distinct().prefetch_related("rankings")
 
@@ -258,8 +271,10 @@ class JobViewSet(viewsets.ModelViewSet):
     def today_all_rankings(self, request):
         """Return today's jobs with ALL per-profile rankings (not just primary)."""
         today = date.today()
+        from datetime import timedelta
+        tomorrow = today + timedelta(days=1)
         jobs = Job.objects.filter(
-            is_active=True, scraped_at__date=today
+            is_active=True, scraped_at__gte=today, scraped_at__lt=tomorrow
         ).prefetch_related("rankings").distinct()
 
         results = []
