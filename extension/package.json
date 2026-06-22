@@ -1,6 +1,6 @@
 {
   "name": "appfill",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Chrome extension that autofills job-application forms on any platform using your resume, and learns from past submissions.",
   "private": true,
   "type": "module",
