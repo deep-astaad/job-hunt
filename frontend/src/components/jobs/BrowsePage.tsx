@@ -4,15 +4,12 @@ import { useEffect, useState } from "react";
 import { JobList } from "./JobList";
 import { JobDetailPane } from "./JobDetailPane";
 import { ApplyConfirmModal } from "./ApplyConfirmModal";
-import { FilterBar } from "./FilterBar";
 import { useJobs } from "@/hooks/useJobs";
 import { useFilters } from "@/lib/filter-context";
-import { useProfiles } from "@/hooks/useProfiles";
 import type { BrowseItem } from "@/lib/types";
 
 export function BrowsePage() {
-  const { filters, updateFilters } = useFilters();
-  const { data: profilesData } = useProfiles();
+  const { filters } = useFilters();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [confirmJob, setConfirmJob] = useState<{ id: number; title: string; company: string } | null>(null);
@@ -20,8 +17,6 @@ export function BrowsePage() {
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useJobs(filters);
 
   const items = data?.pages.flatMap((p) => p.results) ?? [];
-  const sourceChoices = profilesData?.source_choices ?? [];
-  const languageChoices = profilesData?.language_choices ?? [];
 
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
 
@@ -49,13 +44,15 @@ export function BrowsePage() {
         "w-full md:w-[340px] lg:w-[380px]",
         mobileShowDetail ? "hidden md:flex" : "flex"
       )}>
-        <FilterBar
-          filters={filters}
-          sourceChoices={sourceChoices}
-          languageChoices={languageChoices}
-          resultCount={data?.pages[0]?.count}
-          onChange={updateFilters}
-        />
+        {/* Result count header */}
+        <div className="px-3 py-2 border-b border-border bg-base-surface flex items-center justify-between shrink-0">
+          <span className="text-xs font-semibold text-ink-secondary">Jobs</span>
+          {!isLoading && (
+            <span className="text-xs text-ink-muted tabular-nums">
+              {(data?.pages[0]?.count ?? 0).toLocaleString()} results
+            </span>
+          )}
+        </div>
 
         <div className="flex-1 overflow-hidden">
           <JobList

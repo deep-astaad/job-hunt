@@ -201,6 +201,31 @@ export function Sidebar({ isOpen, onClose, onOpenSettings }: Props) {
           </div>
         </div>
 
+        {/* Status */}
+        <div>
+          <FilterLabel>Status</FilterLabel>
+          <div className="flex gap-1">
+            {(["", "true", "false"] as const).map((val) => {
+              const label = val === "" ? "Any" : val === "true" ? "Applied" : "Not Applied";
+              const active = filters.applied === val;
+              return (
+                <button
+                  key={val}
+                  onClick={() => updateFilters({ applied: val })}
+                  className={cn(
+                    "flex-1 py-1.5 rounded-md text-xs font-medium border transition-all",
+                    active
+                      ? "bg-brand/8 text-brand border-brand/30 font-semibold"
+                      : "bg-base-card text-ink-muted border-border hover:border-border-hover"
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Date */}
         <div>
           <FilterLabel>Posted</FilterLabel>
