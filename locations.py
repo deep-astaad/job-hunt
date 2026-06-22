@@ -19,7 +19,7 @@ _DEFAULT = {
             "aliases": ["tokyo", "japan", "jp"],
             "linkedin_geo_id": "103925994", "linkedin_location": "Tokyo, Japan",
             "indeed_country": "JP", "indeed_location": "Tokyo",
-            "schedule_frequency": "daily",
+            "linkedin_scrape_limit": 500, "indeed_scrape_limit": 1000,
         }
     },
 }

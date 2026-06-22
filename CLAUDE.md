@@ -25,7 +25,7 @@ The Celery side (`tasks/`, `persistence.py`) is **not** a Django app. It persist
 
 Nothing blocks waiting on a scraper. Flow:
 
-1. **`schedule_daily_scrapers`** (Celery Beat entry point) reads `actor-config.json`, filters actors by `schedule_frequency` (`daily` / `every_2_days` / `weekly`), and calls `run_pipeline`.
+1. **`run_pipeline_from_config`** (Celery Beat entry point) reads `actor-config.json` and triggers `run_pipeline` for all configured actors.
 2. **`run_pipeline`** mints a `pipeline_run_id` (uuid), seeds Redis counters, schedules the reconciler, and spawns one **`start_actor`** per config.
 3. **`start_actor`** launches the Apify actor and dispatches **`poll_actor_dataset`**.
 4. **`poll_actor_dataset`** is a self-retrying task that pages through the actor's dataset (`offset` carried in retry kwargs). For each new job it saves a stub, skips if `is_formatted` is already true, takes a Redis lock, and dispatches a `chain(format_and_persist_job → rank_job_multi_profile)`. It retries until the actor reaches a terminal status AND no new items remain.
@@ -159,7 +159,11 @@ Mock the LLM (no API calls, simulated latency/fallbacks) by setting `MOCK_LLM=1`
 
 ### Scheduling
 
-Schedules are **not** in code. `schedule_daily_scrapers` is registered as a periodic task through the Django admin (`/admin/` → django-celery-beat Crontabs + Periodic Tasks); `actor-config.json` only decides which actors run on a given day.
+Schedules are **not** in code. They are configured via Celery Beat (e.g. Django admin `/admin/` -> django-celery-beat Crontabs + Periodic Tasks). Available periodic tasks:
+- **`run_pipeline_from_config`**: Executes all scrapers defined in `actor-config.json` plus local scrapers.
+- **`run_linkedin_pipeline`**: Executes only the LinkedIn scrapers (excludes local scrapers). Ideal for frequent/hourly runs.
+- **`run_indeed_pipeline`**: Executes only the Indeed scrapers (excludes local scrapers).
+- **`run_local_pipeline`**: Executes only the free local scrapers.
 
 ## Endpoints
 

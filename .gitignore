@@ -14,3 +14,6 @@ celerybeat-schedule
 .gitignore
 celerybeat-schedule-wal
 celerybeat-schedule-shm
+.agents/
+.understand-anything/
+.claude/

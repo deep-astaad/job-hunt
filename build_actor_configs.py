@@ -17,6 +17,7 @@ single dead actor no longer silently drops a whole source.
 NOTE: fallback actor IDs are best-effort public alternatives; verify they exist
 in your Apify account and adjust as needed.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,22 +31,40 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # pairs), senior/non-target roles removed, JP-context noise dropped.
 # 34 → 16 unique queries; paired with count=100 this cuts Apify volume ~88%.
 ROLES = [
-    "AI Engineer",
+    "API Developer",
     "API Engineer",
+    "AI Engineer",
+    "Application Engineer",
+    "Automation Engineer",
+    "AWS Engineer",
+    "Backend Developer",
     "Backend Engineer",
     "Cloud Engineer",
+    "Cloud Solutions Architect",
     "Data Engineer",
     "DevOps Engineer",
+    "Django Developer",
     "Django Engineer",
+    "Engineering Lead",
+    "English Speaking Software Engineer",
+    "Full Stack Developer",
     "Full Stack Engineer",
     "Go Engineer",
+    "Golang Engineer",
     "Infrastructure Engineer",
     "Machine Learning Engineer",
     "Platform Engineer",
+    "Python Developer",
     "Python Engineer",
+    "Remote Backend Engineer",
+    "Server Side Engineer",
     "Site Reliability Engineer",
+    "Software Developer",
     "Software Engineer",
     "Solutions Architect",
+    "Systems Engineer",
+    "Technical Lead",
+    "Web Developer",
 ]
 
 # Recent-postings window (LinkedIn f_TPR): r86400 = last 24h.
@@ -54,7 +73,7 @@ _LINKEDIN_TPR = "r3600"
 
 def _linkedin_url(keyword, loc_cfg, append_english):
     kw = keyword + (" English" if append_english else "")
-    
+
     url = (
         "https://www.linkedin.com/jobs/search?"
         f"keywords={quote(kw)}"
@@ -62,96 +81,65 @@ def _linkedin_url(keyword, loc_cfg, append_english):
         f"&geoId={loc_cfg.get('linkedin_geo_id', '')}"
         f"&f_TPR={_LINKEDIN_TPR}"
     )
-    
+
     # Add experience levels (default: 2=Entry, 4=Mid-Senior for remote, none for others)
     default_f_e = "2%2C4" if loc_cfg.get("remote") else ""
     f_e = loc_cfg.get("linkedin_f_E", default_f_e)
     if f_e:
         url += f"&f_E={f_e}"
-        
+
     # Add remote filter if location is remote (2=Remote)
     if loc_cfg.get("remote"):
         url += "&f_WT=2"
-        
+
     url += "&position=1&pageNum=0"
     return url
 
 
 def _linkedin_config(loc_cfg):
+    append_english = False
+    #BUG: Reason to avoid is english jobs do not have english keyword so they are not scraped
     # Japan: bias toward English-speaking roles (most JP listings need Japanese).
-    append_english = loc_cfg.get("region") == "japan"
+    # is_japan = loc_cfg.get("region") == "japan"
+    # append_english = is_japan
     urls = [_linkedin_url(r, loc_cfg, append_english) for r in ROLES]
+    count = loc_cfg.get("linkedin_scrape_limit", 100)
     return {
         "actor_id": "curious_coder/linkedin-jobs-scraper",
         "source": "linkedin",
         "location": loc_cfg["id"],
-        "schedule_frequency": loc_cfg.get("schedule_frequency", "daily"),
         "input": {
-            "count": 100,
+            "count": count,
             "scrapeCompany": False,
             "splitByLocation": False,
             "splitCountry": loc_cfg.get("country", "") or "JP",
             "urls": urls,
             "saveOnlyUniqueItems": True,
         },
-        # Cross-source redundancy: if LinkedIn fails, pull the same location via Indeed.
-        "fallback_actors": [
-            {
-                "actor_id": "bebity/linkedin-jobs-scraper",
-                "input": {"urls": urls, "count": 100, "scrapeCompany": False},
-            }
-        ],
     }
 
 
 def _indeed_config(loc_cfg):
-    english_clause = ' AND ("English")' if loc_cfg.get("region") == "japan" else ""
-    position = (
-        '("Software Engineer" OR "Software Developer" OR "Backend Engineer" OR '
-        '"Cloud Engineer" OR "DevOps" OR "Python" OR "Platform Engineer")'
-        + english_clause
-    )
+    is_japan = loc_cfg.get("region") == "japan"
+    if is_japan:
+        title = '(Backend OR Python OR Django OR AWS OR DevOps OR "Solutions Architect") ("No Japanese" OR English)'
+    else:
+        title = '(Backend OR Python OR Django OR AWS OR DevOps OR "Solutions Architect")'
+        
+    limit = loc_cfg.get("indeed_scrape_limit", 100)
     inp = {
-        "followApplyRedirects": False,
-        "maxItemsPerSearch": 150,
-        "parseCompanyDetails": False,
-        "position": position,
-        "saveOnlyUniqueItems": True,
+        "country": (loc_cfg.get("indeed_country") or "JP").lower(),
+        "datePosted": "1",
+        "limit": limit,
+        "location": loc_cfg.get("indeed_location", ""),
+        "title": title,
     }
-    country = loc_cfg.get("indeed_country", "")
-    if country:
-        inp["country"] = country
-    location = loc_cfg.get("indeed_location", "")
-    if location:
-        inp["location"] = location
     return {
-        "actor_id": "misceres/indeed-scraper",
+        "actor_id": "valig/indeed-jobs-scraper",
         "source": "indeed",
         "location": loc_cfg["id"],
-        "schedule_frequency": loc_cfg.get("schedule_frequency", "daily"),
         "input": inp,
     }
-
-
-def _japan_niche_configs(loc_cfg):
-    """Japan-specific English-friendly boards (japan-dev, tokyo-dev, daijob)."""
-    freq = loc_cfg.get("schedule_frequency", "daily")
-    return [
-        {
-            "actor_id": "jungle_synthesizer/japan-dev-scraper",
-            "source": "japan_dev", "location": loc_cfg["id"], "schedule_frequency": freq,
-            "input": {"maxItems": 150, "searchQuery": "Python"},
-        },
-        {
-            "actor_id": "jungle_synthesizer/tokyo-dev-scraper",
-            "source": "tokyo_dev", "location": loc_cfg["id"], "schedule_frequency": freq,
-            "input": {
-                "japaneseRequired": "no-japanese-required", "maxItems": 150,
-                "proxyConfiguration": {"useApifyProxy": False}, "scrapeMode": "jobs",
-            },
-        },
-    ]
-
 
 def build():
     with open(os.path.join(BASE_DIR, "locations.json"), "r", encoding="utf-8") as f:
@@ -177,8 +165,12 @@ def build():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--print", action="store_true", dest="print_only",
-                        help="print to stdout instead of writing actor-config.json")
+    parser.add_argument(
+        "--print",
+        action="store_true",
+        dest="print_only",
+        help="print to stdout instead of writing actor-config.json",
+    )
     args = parser.parse_args()
 
     configs = build()
@@ -189,8 +181,10 @@ def main():
     out_path = os.path.join(BASE_DIR, "actor-config.json")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text + "\n")
-    print(f"Wrote {len(configs)} actor configs across "
-          f"{len(set(c['location'] for c in configs))} locations -> {out_path}")
+    print(
+        f"Wrote {len(configs)} actor configs across "
+        f"{len(set(c['location'] for c in configs))} locations -> {out_path}"
+    )
 
 
 if __name__ == "__main__":

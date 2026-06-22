@@ -30,7 +30,8 @@
       "linkedin_f_E": "",
       "indeed_country": "JP",
       "indeed_location": "Tokyo",
-      "schedule_frequency": "daily"
+      "linkedin_scrape_limit": 500,
+      "indeed_scrape_limit": 1000
     },
     "remote_global": {
       "id": "remote_global",
@@ -53,7 +54,8 @@
       "linkedin_f_E": "2%2C4",
       "indeed_country": "",
       "indeed_location": "Remote",
-      "schedule_frequency": "daily"
+      "linkedin_scrape_limit": 100,
+      "indeed_scrape_limit": 100
     },
     "india_bangalore": {
       "id": "india_bangalore",
@@ -82,7 +84,8 @@
       "linkedin_f_E": "2%2C4",
       "indeed_country": "IN",
       "indeed_location": "Bengaluru",
-      "schedule_frequency": "daily"
+      "linkedin_scrape_limit": 500,
+      "indeed_scrape_limit": 1000
     },
     "europe_berlin": {
       "id": "europe_berlin",
@@ -104,7 +107,8 @@
       "linkedin_f_E": "",
       "indeed_country": "DE",
       "indeed_location": "Berlin",
-      "schedule_frequency": "every_2_days"
+      "linkedin_scrape_limit": 100,
+      "indeed_scrape_limit": 100
     },
     "europe_amsterdam": {
       "id": "europe_amsterdam",
@@ -129,7 +133,8 @@
       "linkedin_f_E": "",
       "indeed_country": "NL",
       "indeed_location": "Amsterdam",
-      "schedule_frequency": "weekly"
+      "linkedin_scrape_limit": 100,
+      "indeed_scrape_limit": 100
     },
     "us_remote": {
       "id": "us_remote",
@@ -156,7 +161,8 @@
       "linkedin_f_E": "2%2C4",
       "indeed_country": "US",
       "indeed_location": "Remote",
-      "schedule_frequency": "weekly"
+      "linkedin_scrape_limit": 100,
+      "indeed_scrape_limit": 100
     }
   }
 }
