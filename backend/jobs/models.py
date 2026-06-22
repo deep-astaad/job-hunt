@@ -64,7 +64,7 @@ class Job(models.Model):
     alert_sent = models.BooleanField(default=False, db_index=True)
     is_applied = models.BooleanField(default=False, db_index=True)
 
-    scraped_at = models.DateTimeField(auto_now_add=True)
+    scraped_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
