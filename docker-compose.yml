@@ -147,6 +147,24 @@ services:
       django:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: jobhunt-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      BACKEND_INTERNAL_URL: http://django:8000
+      NEXT_PUBLIC_BASE_PATH: /v2
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      django:
+        condition: service_healthy
+
 volumes:
   mysql_data:
   redis_data:

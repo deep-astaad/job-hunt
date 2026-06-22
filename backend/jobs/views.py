@@ -38,7 +38,7 @@ class JobFilter(django_filters.FilterSet):
     class Meta:
         model = Job
         fields = ["source", "is_active", "language", "company", "is_formatted", "url",
-                  "alert_sent", "region", "country", "is_remote"]
+                  "alert_sent", "region", "country", "is_remote", "is_applied"]
 
     def __init__(self, data=None, *args, **kwargs):
         # Alias ?from=... and ?to=... to updated_at date lookups
