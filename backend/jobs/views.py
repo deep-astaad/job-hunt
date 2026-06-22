@@ -66,14 +66,14 @@ class JobViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if self.action == "list":
-            tier_case = Case(
-                *[When(rankings__match_tier=t, then=Value(i)) for t, i in TIER_SORT_MAP.items()],
-                default=Value(99),
-                output_field=IntegerField(),
-            )
-            qs = qs.annotate(_best_tier_int=Min(tier_case)).distinct()
             ordering = self.request.query_params.get("ordering", "")
             if "best_tier" in ordering:
+                tier_case = Case(
+                    *[When(rankings__match_tier=t, then=Value(i)) for t, i in TIER_SORT_MAP.items()],
+                    default=Value(99),
+                    output_field=IntegerField(),
+                )
+                qs = qs.annotate(_best_tier_int=Min(tier_case)).distinct()
                 desc = ordering.startswith("-")
                 qs = qs.order_by(("-" if desc else "") + "_best_tier_int", "-scraped_at", "-id")
             else:
