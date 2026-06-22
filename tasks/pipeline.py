@@ -448,17 +448,21 @@ def send_discord_summary(pipeline_run_id):
 
 
 @app.task(name='tasks.pipeline.run_pipeline')
-def run_pipeline(actor_configs, profile_ids):
+def run_pipeline(actor_configs, profile_ids, run_local=True):
     """Entry point: initialize run, setup redis state, dispatch actor triggers."""
     pipeline_run_id = str(uuid.uuid4())
     r = redis.Redis.from_url(CELERY_BROKER_URL)
     # Assume the Apify key is healthy for this run; a quota failure below re-flags it.
     r.delete(APIFY_QUOTA_ALERT_KEY)
-    # +1 active actor for the local scrapers task
-    r.set(f"pipeline:{pipeline_run_id}:active_actors", len(actor_configs) + 1)
+    
+    num_actors = len(actor_configs)
+    if run_local:
+        num_actors += 1
+        
+    r.set(f"pipeline:{pipeline_run_id}:active_actors", num_actors)
     r.set(f"pipeline:{pipeline_run_id}:total_jobs", 0)
     
-    print(f"Booting Pipeline Run ID: {pipeline_run_id} for {len(actor_configs)} apify actors + 1 local scraper...")
+    print(f"Booting Pipeline Run ID: {pipeline_run_id} for {len(actor_configs)} apify actors" + (" + 1 local scraper..." if run_local else "..."))
     
     # Schedule reconciliation task to run in 60 seconds
     check_pipeline_completion.apply_async(args=[pipeline_run_id], countdown=60)
@@ -474,46 +478,51 @@ def run_pipeline(actor_configs, profile_ids):
         )
         
     # Trigger local scrapers
-    run_local_scrapers.delay(profile_ids, pipeline_run_id)
+    if run_local:
+        run_local_scrapers.delay(profile_ids, pipeline_run_id)
 
 @app.task(bind=True, name='tasks.pipeline.run_local_scrapers')
 def run_local_scrapers(self, profile_ids, pipeline_run_id):
     """Runs local python scrapers synchronously within Celery task."""
     logger.info("Starting local scrapers for all supported job boards...")
+    from locations import get_location
+    japan_cfg = get_location("japan_tokyo") or {}
+    limit = japan_cfg.get("local_scrape_limit", japan_cfg.get("linkedin_scrape_limit", 100))
+    
     all_jobs = []
     
     try:
-        all_jobs.extend(scrape_japan_dev(limit=100))
+        all_jobs.extend(scrape_japan_dev(limit=limit))
     except Exception as e:
         logger.error(f"Japan-Dev scraper failed: {e}")
         
     try:
-        all_jobs.extend(scrape_tokyo_dev(limit=100))
+        all_jobs.extend(scrape_tokyo_dev(limit=limit))
     except Exception as e:
         logger.error(f"Tokyo-Dev scraper failed: {e}")
         
     try:
-        all_jobs.extend(scrape_gaijinpot(limit=100))
+        all_jobs.extend(scrape_gaijinpot(limit=limit))
     except Exception as e:
         logger.error(f"GaijinPot scraper failed: {e}")
         
     try:
-        all_jobs.extend(scrape_careercross(limit=100))
+        all_jobs.extend(scrape_careercross(limit=limit))
     except Exception as e:
         logger.error(f"CareerCross scraper failed: {e}")
         
     try:
-        all_jobs.extend(scrape_green(limit=100))
+        all_jobs.extend(scrape_green(limit=limit))
     except Exception as e:
         logger.error(f"Green scraper failed: {e}")
         
     try:
-        all_jobs.extend(scrape_daijob(limit=100))
+        all_jobs.extend(scrape_daijob(limit=limit))
     except Exception as e:
         logger.error(f"Daijob scraper failed: {e}")
         
     try:
-        all_jobs.extend(scrape_wantedly(limit=100))
+        all_jobs.extend(scrape_wantedly(limit=limit))
     except Exception as e:
         logger.error(f"Wantedly scraper failed: {e}")
         
@@ -580,12 +589,11 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
         r.delete(f"pipeline:{pipeline_run_id}:in_flight")
         r.delete(f"pipeline:{pipeline_run_id}:dispatched_at")
 
-@app.task(name='tasks.pipeline.schedule_daily_scrapers')
-def schedule_daily_scrapers():
-    """Reads actor-config.json and triggers actors based on their schedule_frequency."""
+@app.task(name='tasks.pipeline.run_pipeline_from_config')
+def run_pipeline_from_config():
+    """Reads actor-config.json and triggers the pipeline for all defined actors."""
     import json
     import os
-    from datetime import date
     
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(base_dir, "actor-config.json")
@@ -603,28 +611,81 @@ def schedule_daily_scrapers():
     profiles = _load_profiles_for_ranking(None)
     profile_ids = [p["id"] for p in profiles]
     
-    today = date.today()
-    day_of_year = today.timetuple().tm_yday
-    weekday = today.weekday() # Monday is 0, Sunday is 6
-    
-    to_run = []
-    for config in actor_configs:
-        freq = config.get("schedule_frequency", "daily")
-        
-        if freq == "daily":
-            to_run.append(config)
-        elif freq == "every_2_days":
-            if day_of_year % 2 == 0:
-                to_run.append(config)
-        elif freq == "weekly":
-            if weekday == 0: # Monday
-                to_run.append(config)
-                
-    if to_run:
-        logger.info(f"Scheduled {len(to_run)} scrapers for today.")
-        run_pipeline.delay(to_run, profile_ids)
+    if actor_configs:
+        logger.info(f"Triggering pipeline for all {len(actor_configs)} scrapers.")
+        run_pipeline.delay(actor_configs, profile_ids)
     else:
-        logger.info("No scrapers scheduled to run today.")
+        logger.info("No scrapers configured in actor-config.json.")
+
+
+@app.task(name='tasks.pipeline.run_linkedin_pipeline')
+def run_linkedin_pipeline():
+    """Reads actor-config.json, filters for LinkedIn scrapers, and triggers the pipeline (excludes local scrapers)."""
+    import json
+    import os
+    
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(base_dir, "actor-config.json")
+    if not os.path.exists(config_path):
+        logger.warning(f"Actor config {config_path} not found.")
+        return
+        
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            actor_configs = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read {config_path}: {e}")
+        return
+        
+    linkedin_configs = [c for c in actor_configs if c.get("source") == "linkedin"]
+    profiles = _load_profiles_for_ranking(None)
+    profile_ids = [p["id"] for p in profiles]
+    
+    if linkedin_configs:
+        logger.info(f"Triggering LinkedIn-only pipeline for all {len(linkedin_configs)} scrapers.")
+        run_pipeline.delay(linkedin_configs, profile_ids, run_local=False)
+    else:
+        logger.info("No LinkedIn scrapers configured in actor-config.json.")
+
+
+@app.task(name='tasks.pipeline.run_indeed_pipeline')
+def run_indeed_pipeline():
+    """Reads actor-config.json, filters for Indeed scrapers, and triggers the pipeline (excludes local scrapers)."""
+    import json
+    import os
+    
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(base_dir, "actor-config.json")
+    if not os.path.exists(config_path):
+        logger.warning(f"Actor config {config_path} not found.")
+        return
+        
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            actor_configs = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read {config_path}: {e}")
+        return
+        
+    indeed_configs = [c for c in actor_configs if c.get("source") == "indeed"]
+    profiles = _load_profiles_for_ranking(None)
+    profile_ids = [p["id"] for p in profiles]
+    
+    if indeed_configs:
+        logger.info(f"Triggering Indeed-only pipeline for all {len(indeed_configs)} scrapers.")
+        run_pipeline.delay(indeed_configs, profile_ids, run_local=False)
+    else:
+        logger.info("No Indeed scrapers configured in actor-config.json.")
+
+
+@app.task(name='tasks.pipeline.run_local_pipeline')
+def run_local_pipeline():
+    """Triggers only local scrapers (no Apify actors)."""
+    profiles = _load_profiles_for_ranking(None)
+    profile_ids = [p["id"] for p in profiles]
+    
+    logger.info("Triggering local scrapers-only pipeline.")
+    run_pipeline.delay([], profile_ids, run_local=True)
 
 
 @app.task(bind=True, name='tasks.pipeline.check_pipeline_completion', max_retries=1000)

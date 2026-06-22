@@ -1,15 +1,13 @@
 [
   {
-    "actor_id": "misceres/indeed-scraper",
+    "actor_id": "valig/indeed-jobs-scraper",
     "source": "indeed",
     "input": {
-      "country": "JP",
-      "followApplyRedirects": false,
+      "country": "jp",
+      "datePosted": "1",
+      "limit": 100,
       "location": "Tokyo",
-      "maxItemsPerSearch": 100,
-      "parseCompanyDetails": false,
-      "position": "(\"Software Engineer\" OR \"Software Developer\" OR \"Backend Engineer\" OR \"Cloud Engineer\" OR \"Python\") AND (\"English\")",
-      "saveOnlyUniqueItems": true
+      "title": "(Backend OR Python OR Django OR AWS OR DevOps OR \"Solutions Architect\") (\"No Japanese\" OR English)"
     }
   },
   {
