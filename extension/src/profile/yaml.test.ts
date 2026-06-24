@@ -104,4 +104,13 @@ unknownTopLevel: ignored
     const p = yamlToProfile(`headline: "Engineer: backend"\n`);
     expect(p.headline).toBe("Engineer: backend");
   });
+
+  it("preserves blank lines in summary block", () => {
+    const p = emptyProfile();
+    p.summary = "First paragraph about me.\n\nSecond paragraph about me.";
+    const yaml = profileToYaml(p);
+    const round = yamlToProfile(yaml);
+    expect(round.summary).toBe("First paragraph about me.\n\nSecond paragraph about me.");
+  });
 });
+
