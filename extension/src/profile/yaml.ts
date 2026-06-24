@@ -227,14 +227,16 @@ function toEducation(v: unknown): Education {
 
 // --- generic YAML -> JS for our subset -------------------------------------
 
-/** Tokenize into non-empty, non-comment lines with their indent depth. */
+/** Tokenize into non-empty, non-comment lines (including blank lines) with their indent depth. */
 function tokenize(text: string): Line[] {
   const out: Line[] = [];
   for (const rawLine of text.replace(/\t/g, "  ").split("\n")) {
-    if (!rawLine.trim()) continue;
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith("#")) continue;
+    
+    const isBlank = !trimmed;
     const indent = rawLine.length - rawLine.replace(/^\s+/, "").length;
-    const content = rawLine.slice(indent);
-    if (content.startsWith("#")) continue;
+    const content = isBlank ? "" : rawLine.slice(indent);
     out.push({ indent, raw: content });
   }
   return out;
@@ -251,6 +253,9 @@ function parseYaml(text: string): unknown {
  * Returns the parsed value and the index of the first unconsumed line.
  */
 function parseBlock(lines: Line[], i: number, baseIndent: number): [unknown, number] {
+  while (i < lines.length && lines[i].raw === "") {
+    i++;
+  }
   if (i >= lines.length) return [null, i];
   const indent = lines[i].indent;
   if (lines[i].raw.startsWith("- ") || lines[i].raw === "-") {
@@ -261,7 +266,14 @@ function parseBlock(lines: Line[], i: number, baseIndent: number): [unknown, num
 
 function parseMap(lines: Line[], i: number, indent: number): [Record<string, unknown>, number] {
   const map: Record<string, unknown> = {};
-  while (i < lines.length && lines[i].indent === indent && !lines[i].raw.startsWith("- ")) {
+  while (i < lines.length) {
+    if (lines[i].raw === "") {
+      i++;
+      continue;
+    }
+    if (lines[i].indent !== indent || lines[i].raw.startsWith("- ")) {
+      break;
+    }
     const { key, value, isBlock, blockChar } = splitKey(lines[i].raw);
     i++;
     if (isBlock) {
@@ -283,7 +295,14 @@ function parseMap(lines: Line[], i: number, indent: number): [Record<string, unk
 
 function parseList(lines: Line[], i: number, indent: number): [unknown[], number] {
   const list: unknown[] = [];
-  while (i < lines.length && lines[i].indent === indent && (lines[i].raw.startsWith("- ") || lines[i].raw === "-")) {
+  while (i < lines.length) {
+    if (lines[i].raw === "") {
+      i++;
+      continue;
+    }
+    if (lines[i].indent !== indent || (!lines[i].raw.startsWith("- ") && lines[i].raw !== "-")) {
+      break;
+    }
     const rest = lines[i].raw === "-" ? "" : lines[i].raw.slice(2);
     if (rest === "" || rest === "{}") {
       // Either a nested block on following deeper lines, or an empty entry.
@@ -308,9 +327,25 @@ function parseList(lines: Line[], i: number, indent: number): [unknown[], number
       const virtualIndent = indent + 2;
       const folded: Line[] = [{ indent: virtualIndent, raw: rest }];
       let j = i + 1;
-      while (j < lines.length && lines[j].indent >= virtualIndent && !(lines[j].indent === indent)) {
-        folded.push(lines[j]);
-        j++;
+      while (j < lines.length) {
+        const line = lines[j];
+        if (line.raw === "") {
+          let nextIdx = j + 1;
+          while (nextIdx < lines.length && lines[nextIdx].raw === "") {
+            nextIdx++;
+          }
+          if (nextIdx < lines.length && lines[nextIdx].indent >= virtualIndent && lines[nextIdx].indent !== indent) {
+            folded.push(line);
+            j++;
+          } else {
+            break;
+          }
+        } else if (line.indent >= virtualIndent && line.indent !== indent) {
+          folded.push(line);
+          j++;
+        } else {
+          break;
+        }
       }
       const [map, _] = parseMap(normalizeIndent(folded, virtualIndent), 0, virtualIndent);
       void _;
@@ -326,7 +361,10 @@ function parseList(lines: Line[], i: number, indent: number): [unknown[], number
 
 /** Does the list item have continuation map keys on following lines? */
 function isMapContinuation(lines: Line[], i: number, indent: number): boolean {
-  const j = i + 1;
+  let j = i + 1;
+  while (j < lines.length && lines[j].raw === "") {
+    j++;
+  }
   return j < lines.length && lines[j].indent > indent;
 }
 
@@ -344,10 +382,27 @@ function parseBlockScalar(
 ): [string, number] {
   const collected: string[] = [];
   let contentIndent = -1;
-  while (i < lines.length && lines[i].indent > parentIndent) {
-    if (contentIndent < 0) contentIndent = lines[i].indent;
-    collected.push(" ".repeat(Math.max(0, lines[i].indent - contentIndent)) + lines[i].raw);
-    i++;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.raw === "") {
+      // Look ahead to check if the next non-blank line belongs to this block scalar
+      let nextIdx = i + 1;
+      while (nextIdx < lines.length && lines[nextIdx].raw === "") {
+        nextIdx++;
+      }
+      if (nextIdx < lines.length && lines[nextIdx].indent > parentIndent) {
+        collected.push("");
+        i++;
+      } else {
+        break;
+      }
+    } else if (line.indent > parentIndent) {
+      if (contentIndent < 0) contentIndent = line.indent;
+      collected.push(" ".repeat(Math.max(0, line.indent - contentIndent)) + line.raw);
+      i++;
+    } else {
+      break;
+    }
   }
   return [collected.join("\n"), i];
 }
