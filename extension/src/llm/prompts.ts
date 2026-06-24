@@ -252,7 +252,8 @@ export function buildProfileExtractionMessages(markdown: string): ChatMessage[] 
     "location,startDate,endDate,current,bullets:[]}], education:[{school,degree," +
     "field,startDate,endDate,gpa}], links:{linkedin,github,portfolio,website}, " +
     "eligibility:{workAuthorization,requiresSponsorship,willingToRelocate," +
-    "noticePeriod,desiredSalary}}. Do not invent data not present in the resume.";
+    "noticePeriod,desiredSalary,availableStartDate,gender,raceEthnicity," +
+    "veteranStatus,disabilityStatus}}. Do not invent data not present in the resume.";
   return [
     { role: "system", content: system },
     { role: "user", content: markdown.slice(0, 12000) },
