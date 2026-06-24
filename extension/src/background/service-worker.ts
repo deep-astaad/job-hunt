@@ -267,6 +267,7 @@ async function logApplication(record: {
   url?: string;
   platform: string;
 }): Promise<void> {
+  await import("@/storage/applications").then(m => m.saveLocalApplication(record)).catch(() => {});
   const s = await getSettings();
   if (!s.appLogEnabled || !s.appLogEndpoint) return;
   try {

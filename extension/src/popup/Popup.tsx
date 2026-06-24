@@ -43,6 +43,7 @@ type Status = {
     "memory-global": number;
     llm: number;
   };
+  priorApplicationDate?: string;
 };
 
 async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
@@ -630,6 +631,20 @@ export function Popup() {
           <div style={{ color: "#6b7280" }}>{note || "Scanning page…"}</div>
         )}
       </div>
+
+      {status?.priorApplicationDate && (
+        <div style={{
+          marginTop: 12,
+          padding: 10,
+          background: "#fef2f2",
+          border: "1px solid #fecaca",
+          borderRadius: 8,
+          fontSize: 12,
+          color: "#991b1b"
+        }}>
+          ⚠️ You already applied to this role on {new Date(status.priorApplicationDate).toLocaleDateString()}.
+        </div>
+      )}
 
       {due.length > 0 && (
         <div

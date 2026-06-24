@@ -15,6 +15,7 @@ import { extractContactInfo } from "./contactInfo";
 import { findPageEmails } from "./emails";
 import { getSettings, autofillEnabledForDomain } from "@/storage/settings";
 import { getProfile, hasProfile } from "@/storage/profile";
+import { checkPriorApplication } from "@/storage/applications";
 import type { FieldResolution } from "@/shared/types";
 import type { Message, MessageResponse } from "@/shared/messages";
 
@@ -194,7 +195,17 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
     return true;
   }
   if (msg.type === "GET_STATUS") {
-    getSettings().then((s) => {
+    Promise.all([
+      getSettings(),
+      (async () => {
+        try {
+          const job = extractJobContext();
+          return await checkPriorApplication(job.url, job.company, job.title);
+        } catch {
+          return await checkPriorApplication(location.href);
+        }
+      })()
+    ]).then(([s, priorApp]) => {
       const sources = { deterministic: 0, memory: 0, "memory-global": 0, llm: 0 };
       for (const r of lastResolutions) {
         if (r.source) sources[r.source]++;
@@ -207,6 +218,7 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
           filledCount: lastResolutions.length,
           autofillEnabled: autofillEnabledForDomain(s, domain),
           sources,
+          priorApplicationDate: priorApp?.appliedAt,
         },
       } satisfies MessageResponse);
     });
