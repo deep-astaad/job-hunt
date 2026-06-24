@@ -24,16 +24,25 @@ if (provider) void run(provider);
 
 async function run(p: WebChatProvider): Promise<void> {
   const handoff = await getHandoff();
-  if (!handoff || handoff.consumed || handoff.providerId !== p.id) return;
-  await markHandoffConsumed(handoff.id);
+  if (!handoff || handoff.providerId !== p.id) return;
 
-  const settings = await getSettings();
   banner(p, handoff);
 
-  if (settings.webchatAutoInject) {
-    // Give the SPA a moment to mount its composer.
-    await waitFor(() => firstMatch(p.composerSelectors), 8000);
-    void injectPrompt(p, handoff.prompt);
+  if (!handoff.consumed) {
+    const settings = await getSettings();
+    if (settings.webchatAutoInject) {
+      // Give the SPA a moment to mount its composer.
+      const composer = await waitFor(() => firstMatch(p.composerSelectors), 8000);
+      if (composer) {
+        await markHandoffConsumed(handoff.id);
+        void injectPrompt(p, handoff.prompt);
+      }
+    } else {
+      await markHandoffConsumed(handoff.id);
+      observeResponse(p);
+    }
+  } else {
+    observeResponse(p);
   }
 }
 
@@ -48,8 +57,10 @@ async function injectPrompt(p: WebChatProvider, prompt: string): Promise<void> {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   } else {
     // contenteditable
-    el.textContent = prompt;
-    el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    el.focus();
+    document.execCommand("selectAll", false);
+    document.execCommand("insertText", false, prompt);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   }
   await sleep(400);
   const send = firstMatch(p.sendSelectors) as HTMLButtonElement | null;
