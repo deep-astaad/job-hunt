@@ -363,7 +363,7 @@ function ensureHost(): ShadowRoot {
     .ta{font:13px system-ui,sans-serif;border:1px solid #374151;background:#0b1220;color:#fff;
       border-radius:7px;padding:6px 8px;min-width:230px;min-height:64px;outline:none;resize:vertical;}
     .ta:focus{border-color:#3b82f6;}
-    button{font:600 12px system-ui,sans-serif;border:none;border-radius:7px;padding:5px 9px;cursor:pointer;}
+    button{font:600 12px system-ui,sans-serif;border:none;border-radius:7px;padding:5px 9px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
     .fill{background:#2563eb;color:#fff;}
     .ghost{background:#374151;color:#e5e7eb;}
     .x{background:transparent;color:#9ca3af;padding:4px 6px;}
