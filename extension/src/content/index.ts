@@ -20,6 +20,7 @@ import type { Message, MessageResponse } from "@/shared/messages";
 
 const platform = detectPlatform();
 const domain = location.hostname;
+const isTopFrame = window.top === window;
 let lastResolutions: FieldResolution[] = [];
 
 /** Run a full detect -> resolve -> fill -> highlight pass. */
@@ -99,6 +100,22 @@ async function fillResult(fieldHandle: string, text: string): Promise<void> {
 
 // --- popup/background message handling ---
 chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
+  const topFrameOnlyTypes = [
+    "FILL_NOW",
+    "GET_JOB_CONTEXT",
+    "GET_CONTACT_INFO",
+    "GET_PAGE_EMAILS",
+    "FILL_CONNECT_NOTE",
+    "FLOW_START",
+    "FLOW_STOP",
+    "VALIDATE_FORM",
+    "FILL_WORK_HISTORY",
+    "GET_STATUS"
+  ];
+  if (topFrameOnlyTypes.includes(msg.type) && !isTopFrame) {
+    return false;
+  }
+
   if (msg.type === "FILL_NOW") {
     runFillPass(true).then(() =>
       sendResponse({ ok: true } satisfies MessageResponse)
@@ -199,8 +216,6 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
 installSubmissionCapture(domain, platform.id);
 void installSuggestions(domain, platform.id);
 installFlow({ fill: () => runFillPass(true), platformId: platform.id, domain });
-
-const isTopFrame = window.top === window;
 
 let debounce: number | undefined;
 function schedulePass(): void {
