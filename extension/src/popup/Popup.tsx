@@ -37,6 +37,12 @@ type Status = {
   fieldCount: number;
   filledCount: number;
   autofillEnabled: boolean;
+  sources?: {
+    deterministic: number;
+    memory: number;
+    "memory-global": number;
+    llm: number;
+  };
 };
 
 async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
@@ -592,9 +598,13 @@ export function Popup() {
           <>
             <div>Platform: <b>{status.platform}</b></div>
             <div>
-              Fields detected: <b>{status.fieldCount}</b> · filled:{" "}
-              <b>{status.filledCount}</b>
+              Fields: <b>{status.fieldCount}</b> detected · <b>{status.filledCount}</b> filled
             </div>
+            {status.sources && status.filledCount > 0 && (
+              <div style={{ color: "#6b7280", marginTop: 4 }}>
+                Sources: {status.sources.deterministic} exact, {status.sources.memory + status.sources["memory-global"]} memory, {status.sources.llm} AI
+              </div>
+            )}
           </>
         ) : (
           <div style={{ color: "#6b7280" }}>{note || "Scanning page…"}</div>

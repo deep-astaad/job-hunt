@@ -134,6 +134,12 @@ export type MessageResponse =
         fieldCount: number;
         filledCount: number;
         autofillEnabled: boolean;
+        sources?: {
+          deterministic: number;
+          memory: number;
+          "memory-global": number;
+          llm: number;
+        };
       };
     }
   | { ok: true }
