@@ -42,7 +42,7 @@ describe("rowsToAdd", () => {
   it("computes how many rows to add, capped", () => {
     expect(rowsToAdd(3, 1)).toBe(2);
     expect(rowsToAdd(1, 1)).toBe(0);
-    expect(rowsToAdd(5, 0)).toBe(4); // treat 0 existing as 1 baseline row
+    expect(rowsToAdd(5, 0)).toBe(5); // 0 existing means we need to add all 5 rows
     expect(rowsToAdd(20, 1, 10)).toBe(9); // respects max
   });
 });
