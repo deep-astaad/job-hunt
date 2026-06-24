@@ -142,8 +142,16 @@ export function Popup() {
   }
 
   async function snooze(contact: Contact) {
-    await markContacted(contact.id);
-    await refreshDue();
+    setBusy(true);
+    try {
+      await markContacted(contact.id);
+      await refreshDue();
+      setNote(`${contact.name ?? "Contact"} snoozed ✓`);
+    } catch {
+      setNote("Couldn't update this contact — try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function draftColdEmail() {
