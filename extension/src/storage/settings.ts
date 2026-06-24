@@ -37,8 +37,11 @@ export interface Settings {
   appLogEnabled: boolean;
   /** Full endpoint URL to POST applications to (e.g. https://host/api/applications/). */
   appLogEndpoint: string;
-  /** Optional bearer token sent as Authorization on the POST. */
   appLogToken: string;
+  /** Full endpoint URL to POST captured jobs to (e.g. https://host/api/jobs/bulk_create/). */
+  jobCaptureEndpoint: string;
+  /** Optional bearer token sent as Authorization on the POST to capture jobs. */
+  jobCaptureToken: string;
   /** Days after last contact before a networking follow-up is "due". */
   followUpCadenceDays: number;
 }
@@ -61,6 +64,8 @@ export const DEFAULT_SETTINGS: Settings = {
   appLogEnabled: false,
   appLogEndpoint: "",
   appLogToken: "",
+  jobCaptureEndpoint: "",
+  jobCaptureToken: "",
   followUpCadenceDays: 7,
 };
 
