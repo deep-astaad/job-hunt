@@ -195,6 +195,10 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
   if (msg.type === "GET_STATUS") {
     getSettings().then((s) => {
+      const sources = { deterministic: 0, memory: 0, "memory-global": 0, llm: 0 };
+      for (const r of lastResolutions) {
+        if (r.source) sources[r.source]++;
+      }
       sendResponse({
         ok: true,
         status: {
@@ -202,6 +206,7 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
           fieldCount: detectFields().length,
           filledCount: lastResolutions.length,
           autofillEnabled: autofillEnabledForDomain(s, domain),
+          sources,
         },
       } satisfies MessageResponse);
     });
