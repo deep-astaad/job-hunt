@@ -29,17 +29,21 @@ export function extractJobContext(): JobContext {
   const description =
     fromLd?.description || metaContent(["og:description"]) || scanDescription();
 
+  const location =
+    fromLd?.location || undefined;
+
   return {
     title: clean(title),
     company: company ? clean(company) : undefined,
     description: description
       ? truncate(normalizeBlock(description), MAX_DESCRIPTION)
       : undefined,
-    url: location.href,
+    url: globalThis.location?.href,
+    location: location ? clean(location) : undefined,
   };
 }
 
-function fromJsonLd(): { title?: string; company?: string; description?: string } | undefined {
+function fromJsonLd(): { title?: string; company?: string; description?: string; location?: string } | undefined {
   const blocks = document.querySelectorAll<HTMLScriptElement>(
     'script[type="application/ld+json"]'
   );
@@ -56,7 +60,7 @@ function fromJsonLd(): { title?: string; company?: string; description?: string 
  */
 export function parseJsonLdJob(
   jsonText: string
-): { title?: string; company?: string; description?: string } | undefined {
+): { title?: string; company?: string; description?: string; location?: string } | undefined {
   let data: unknown;
   try {
     data = JSON.parse(jsonText);
@@ -76,7 +80,18 @@ export function parseJsonLdJob(
     company: typeof company === "string" ? company : undefined,
     description:
       typeof p.description === "string" ? stripHtml(p.description) : undefined,
+    location: extractLdLocation(p.jobLocation),
   };
+}
+
+function extractLdLocation(loc: any): string | undefined {
+  if (!loc) return undefined;
+  if (Array.isArray(loc)) return extractLdLocation(loc[0]);
+  if (typeof loc === "string") return loc;
+  const addr = loc.address;
+  if (!addr) return typeof loc.name === "string" ? loc.name : undefined;
+  if (typeof addr === "string") return addr;
+  return [addr.addressLocality, addr.addressRegion, addr.addressCountry].filter(Boolean).join(", ") || undefined;
 }
 
 function flatten(data: unknown): Record<string, unknown>[] {

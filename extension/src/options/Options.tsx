@@ -726,15 +726,29 @@ export function Options() {
         {settings.appLogEnabled && (
           <div style={{ marginTop: 8 }}>
             <Field
-              label="Endpoint URL"
+              label="Application Log Endpoint URL"
               value={settings.appLogEndpoint}
               onChange={(v) => patchSettings({ appLogEndpoint: v })}
               full
             />
             <Field
-              label="Bearer token (optional)"
+              label="Application Log Token (optional)"
               value={settings.appLogToken}
               onChange={(v) => patchSettings({ appLogToken: v })}
+              type="password"
+              full
+            />
+            <div style={{ marginTop: 12, marginBottom: 4, fontWeight: 600 }}>Job Capture (Save to Pipeline)</div>
+            <Field
+              label="Job Capture Endpoint URL"
+              value={settings.jobCaptureEndpoint}
+              onChange={(v) => patchSettings({ jobCaptureEndpoint: v })}
+              full
+            />
+            <Field
+              label="Job Capture Token (optional)"
+              value={settings.jobCaptureToken}
+              onChange={(v) => patchSettings({ jobCaptureToken: v })}
               type="password"
               full
             />

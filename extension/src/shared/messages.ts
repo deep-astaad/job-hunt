@@ -14,6 +14,7 @@ export type JobContext = {
   company?: string;
   description?: string;
   url?: string;
+  location?: string;
 };
 
 export type Message =
@@ -116,7 +117,9 @@ export type Message =
         url?: string;
         platform: string;
       };
-    };
+    }
+  // popup -> background: Capture a job posting to the pipeline
+  | { type: "CAPTURE_JOB"; job: JobContext };
 
 export type MessageResponse =
   | { ok: true; resolutions: FieldResolution[] }

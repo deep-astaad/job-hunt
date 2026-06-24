@@ -1,4 +1,4 @@
-import type { Message, MessageResponse } from "@/shared/messages";
+import type { Message, MessageResponse, JobContext } from "@/shared/messages";
 import type { FieldDescriptor, FieldResolution } from "@/shared/types";
 import { getSettings } from "@/storage/settings";
 import { remember } from "@/storage/memory";
@@ -112,6 +112,8 @@ async function handle(
     case "APPLICATION_SUBMITTED":
       await logApplication(msg.record);
       return { ok: true };
+    case "CAPTURE_JOB":
+      return captureJob(msg.job);
     case "GET_RESUME_FILE":
       return resumeFile(msg.jobText);
     case "WEBCHAT_HANDOFF":
@@ -282,6 +284,34 @@ async function logApplication(record: {
     });
   } catch {
     /* best-effort; never block the user's submission */
+  }
+}
+
+async function captureJob(job: JobContext): Promise<MessageResponse> {
+  const s = await getSettings();
+  if (!s.jobCaptureEndpoint) return { ok: false, error: "No capture endpoint configured." };
+  try {
+    const res = await fetch(s.jobCaptureEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(s.jobCaptureToken ? { Authorization: `Bearer ${s.jobCaptureToken}` } : {}),
+      },
+      body: JSON.stringify({
+        jobs: [{
+          url: job.url,
+          title: job.title || "Unknown",
+          company: job.company || "Unknown",
+          description: job.description || "",
+          location: job.location || "",
+          source: "appfill",
+        }]
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Capture failed" };
   }
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Message, MessageResponse, JobContext } from "@/shared/messages";
+import { sendToBackground, type Message, type MessageResponse, type JobContext } from "@/shared/messages";
 import {
   getSettings,
   saveSettings,
@@ -576,6 +576,26 @@ export function Popup() {
     }
   }
 
+  async function saveJob() {
+    setBusy(true);
+    setNote("");
+    try {
+      const tab = await activeTab();
+      if (!tab?.id) throw new Error("No active tab");
+      const res = await chrome.tabs.sendMessage(tab.id, { type: "GET_JOB_CONTEXT" } satisfies Message) as MessageResponse;
+      if (!res || !res.ok || !("job" in res)) throw new Error("Could not extract job from page.");
+      
+      const bgRes = await sendToBackground({ type: "CAPTURE_JOB", job: res.job } satisfies Message);
+      if (!bgRes.ok) throw new Error("error" in bgRes ? bgRes.error : "Backend rejected capture.");
+      
+      setNote("Job saved to pipeline!");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Failed to save job.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const siteEnabled = settings ? autofillEnabledForDomain(settings, domain) : true;
 
   return (
@@ -659,6 +679,9 @@ export function Popup() {
         </button>
         <button onClick={saveContact} disabled={busy} style={btn}>
           Save this contact (networking)
+        </button>
+        <button onClick={saveJob} disabled={busy} style={btn}>
+          Save job to pipeline
         </button>
         <div style={{ display: "flex", gap: 6 }}>
           <select
