@@ -4,6 +4,7 @@ from .views import JobViewSet, JobRankingViewSet, SettingsAPIView, AuthMeView, A
 from .api_views import (
     BrowseView,
     ProfilesView,
+    ProfileGenerateView,
     DashboardView,
     DashboardAlertView,
     TriggerScrapeView,
@@ -22,6 +23,7 @@ urlpatterns = router.urls + [
     # New endpoints for Next.js frontend
     path("browse/", BrowseView.as_view(), name="browse"),
     path("profiles/", ProfilesView.as_view(), name="profiles"),
+    path("profiles/generate/", ProfileGenerateView.as_view(), name="profiles-generate"),
     path("dashboard/", DashboardView.as_view(), name="dashboard"),
     path("dashboard/alert/", DashboardAlertView.as_view(), name="dashboard-alert"),
     path("pipeline/trigger-scrape/", TriggerScrapeView.as_view(), name="trigger-scrape"),

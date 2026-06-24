@@ -162,6 +162,75 @@ class ProfilesView(APIView):
             "location_choices": [{"value": r, "label": r} for r in region_choices],
         })
 
+    def post(self, request):
+        profiles = _load_profiles()
+        new_profile = request.data
+        if "id" not in new_profile:
+            return Response({"error": "id is required"}, status=400)
+        profiles.append(new_profile)
+        self._save_profiles(profiles)
+        return Response(new_profile)
+
+    def put(self, request):
+        profiles = _load_profiles()
+        updated = request.data
+        profile_id = request.query_params.get("id") or updated.get("id")
+        for i, p in enumerate(profiles):
+            if p["id"] == profile_id:
+                profiles[i] = updated
+                self._save_profiles(profiles)
+                return Response(updated)
+        return Response({"error": "Profile not found"}, status=404)
+
+    def delete(self, request):
+        profiles = _load_profiles()
+        profile_id = request.query_params.get("id")
+        profiles = [p for p in profiles if p["id"] != profile_id]
+        self._save_profiles(profiles)
+        return Response({"status": "deleted"})
+
+    def _save_profiles(self, profiles):
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        path = os.path.join(base, "user-profiles.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(profiles, f, indent=2)
+
+
+from rest_framework.parsers import MultiPartParser
+
+class ProfileGenerateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        if 'resume' not in request.FILES:
+            return Response({"error": "No resume file provided"}, status=400)
+        try:
+            resume_file = request.FILES['resume']
+            resume_text = resume_file.read().decode('utf-8')
+        except Exception as e:
+            return Response({"error": f"Failed to read file: {e}"}, status=400)
+        
+        import sys
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from llm import chat_completion
+        
+        prompt = f"""Extract the candidate's professional profile from this resume into JSON.
+Include exactly these keys: id (a short snake_case slug of their name/role), title (string), experience (string), experience_years (number), languages (list of strings), target_locations (list of strings), min_salary_yen (number), core_skills (list of strings), language_requirements (string), preferences (string).
+Return ONLY valid JSON.
+
+Resume text:
+{resume_text}
+"""
+        try:
+            resp = chat_completion([{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+            profile_data = json.loads(resp)
+            return Response(profile_data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
 
 class DashboardView(APIView):
     permission_classes = [IsAuthenticated]

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Briefcase, BarChart2, X, Settings, LogOut,
-  AlertTriangle, Play, RefreshCw, Search,
+  AlertTriangle, Play, RefreshCw, Search, User,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { triggerScrape, triggerProcessing } from "@/lib/api";
@@ -34,6 +34,7 @@ const DATE_OPTS = [
 const NAV = [
   { href: "/", label: "Browse", icon: Briefcase },
   { href: "/insights", label: "Insights", icon: BarChart2 },
+  { href: "/profiles", label: "Profiles", icon: User },
 ];
 
 export function Sidebar({ isOpen, onClose, onOpenSettings }: Props) {
