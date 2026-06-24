@@ -143,6 +143,7 @@ export type MessageResponse =
           "memory-global": number;
           llm: number;
         };
+        priorApplicationDate?: string;
       };
     }
   | { ok: true }
