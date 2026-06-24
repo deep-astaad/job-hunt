@@ -55,7 +55,7 @@ export function classifyEducationField(text: string): EducationField | undefined
 
 /** Number of "Add another" clicks needed to host all entries. Pure. */
 export function rowsToAdd(entries: number, existingRows: number, max = 10): number {
-  return Math.max(0, Math.min(entries, max) - Math.max(existingRows, 1));
+  return Math.max(0, Math.min(entries, max) - existingRows);
 }
 
 const EXPERIENCE_WORDS = ["experience", "employment", "work history", "work experience"];
