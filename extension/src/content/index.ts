@@ -65,6 +65,21 @@ async function runFillPass(force = false): Promise<{
   clearHighlights();
   highlight(resolutions, settings.lowConfidenceThreshold);
   lastResolutions = resolutions;
+
+  if (
+    settings.autoSubmitDomains.includes(domain) &&
+    fields.length > 0 &&
+    resolutions.length === fields.length &&
+    filledCount > 0
+  ) {
+    const isSafe = resolutions.every(
+      (r) => r.source !== "llm" && r.confidence >= settings.lowConfidenceThreshold
+    );
+    if (isSafe) {
+      startAutoSubmitCountdown();
+    }
+  }
+
   return { fieldCount: fields.length, filledCount };
 }
 
@@ -262,3 +277,49 @@ const observer = new MutationObserver(() => {
   if (document.querySelector("input, textarea, select")) schedulePass();
 });
 observer.observe(document.documentElement, { childList: true, subtree: true });
+
+let submitTimer: number | undefined;
+
+function startAutoSubmitCountdown(): void {
+  if (submitTimer) return;
+
+  const submitBtn = Array.from(document.querySelectorAll<HTMLElement>("button, [role='button'], input[type='submit']")).find(btn => {
+    const text = (btn.textContent || (btn as HTMLInputElement).value || "").trim().toLowerCase();
+    return /(submit|apply|send application|finish|complete application)/.test(text);
+  });
+
+  if (!submitBtn) return;
+
+  const banner = document.createElement("div");
+  banner.style.cssText = "position:fixed;bottom:20px;right:20px;background:#991b1b;color:white;padding:16px 20px;border-radius:8px;font-family:system-ui,sans-serif;z-index:999999;box-shadow:0 10px 25px rgba(0,0,0,0.2);display:flex;align-items:center;gap:16px;";
+  
+  const textDiv = document.createElement("div");
+  textDiv.style.fontWeight = "bold";
+  banner.appendChild(textDiv);
+  
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.style.cssText = "background:rgba(255,255,255,0.2);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:bold;";
+  cancelBtn.onclick = () => {
+    window.clearInterval(submitTimer);
+    submitTimer = undefined;
+    banner.remove();
+  };
+  banner.appendChild(cancelBtn);
+  document.body.appendChild(banner);
+
+  let seconds = 5;
+  textDiv.textContent = `Auto-submitting in ${seconds}s (all fields highly confident)...`;
+  
+  submitTimer = window.setInterval(() => {
+    seconds--;
+    if (seconds <= 0) {
+      window.clearInterval(submitTimer);
+      submitTimer = undefined;
+      banner.remove();
+      submitBtn.click();
+    } else {
+      textDiv.textContent = `Auto-submitting in ${seconds}s (all fields highly confident)...`;
+    }
+  }, 1000);
+}

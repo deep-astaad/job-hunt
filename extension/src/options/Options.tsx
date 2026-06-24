@@ -521,6 +521,18 @@ export function Options() {
           value={settings.lowConfidenceThreshold}
           onChange={(e) => patchSettings({ lowConfidenceThreshold: Number(e.target.value) })}
         />
+        <div style={{ marginTop: 16, padding: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
+          <label style={{ ...label, color: "#991b1b", marginTop: 0 }}>⚠️ Danger Zone: Auto-submit allowlist</label>
+          <p style={{ fontSize: 12, color: "#7f1d1d", margin: "4px 0 10px" }}>
+            List domains (e.g. <code>boards.greenhouse.io</code>) where AppFill should <b>automatically submit the application</b> if every single field is filled deterministically or from memory (no AI/low-confidence guesses). A cancellable countdown will appear.
+          </p>
+          <Field
+            label="Domains (comma separated)"
+            value={settings.autoSubmitDomains.join(", ")}
+            onChange={(v) => patchSettings({ autoSubmitDomains: v.split(",").map(d => d.trim()).filter(Boolean) })}
+            full
+          />
+        </div>
         {Object.keys(settings.siteOverrides).length > 0 && (
           <div style={{ marginTop: 12, fontSize: 13 }}>
             <b>Per-site overrides</b>
