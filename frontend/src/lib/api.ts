@@ -9,12 +9,12 @@ import type {
 } from "./types";
 import { proxyUrl } from "./utils";
 
-async function djFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function djFetchRaw(path: string, init?: RequestInit): Promise<Response> {
   const url = proxyUrl(path);
   const res = await fetch(url, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(init?.headers as Record<string, string>),
     },
   });
@@ -22,6 +22,11 @@ async function djFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => "");
     throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
   }
+  return res;
+}
+
+async function djFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await djFetchRaw(path, init);
   return res.json() as Promise<T>;
 }
 
