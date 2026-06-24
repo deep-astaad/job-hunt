@@ -44,7 +44,13 @@ export function pickBestEmail(emails: string[]): string | undefined {
   if (!emails.length) return undefined;
   const score = (e: string) => {
     const local = e.split("@")[0];
-    return PREFERRED.reduce((s, w) => (local.includes(w) ? s + 1 : s), 0);
+    return PREFERRED.reduce((s, w) => {
+      if (w === "hr") {
+        const isWholeHrWord = local === "hr" || /(^|[-_.]+)hr([-_.]+|\d+$|$)/.test(local);
+        return isWholeHrWord ? s + 1 : s;
+      }
+      return local.includes(w) ? s + 1 : s;
+    }, 0);
   };
   return [...emails].sort((a, b) => score(b) - score(a))[0];
 }
