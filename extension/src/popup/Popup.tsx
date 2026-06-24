@@ -179,14 +179,18 @@ export function Popup() {
           /* ignore */
         }
         const provider = getProvider(settings.webchatProvider);
-        await chrome.runtime.sendMessage({
+        const resp = (await chrome.runtime.sendMessage({
           type: "WEBCHAT_HANDOFF",
           providerId: settings.webchatProvider,
           prompt,
-        } satisfies Message);
-        setNote(
-          `Opened ${provider?.label ?? "your LLM"} to draft the email${to ? ` (to ${to})` : ""}.`
-        );
+        } satisfies Message)) as MessageResponse;
+        if (resp.ok) {
+          setNote(
+            `Opened ${provider?.label ?? "your LLM"} to draft the email${to ? ` (to ${to})` : ""}.`
+          );
+        } else {
+          setNote(resp.error);
+        }
         return;
       }
       if (settings?.llmMode === "off" || !settings) {
@@ -263,12 +267,16 @@ export function Popup() {
           /* ignore */
         }
         const provider = getProvider(settings.webchatProvider);
-        await chrome.runtime.sendMessage({
+        const resp = (await chrome.runtime.sendMessage({
           type: "WEBCHAT_HANDOFF",
           providerId: settings.webchatProvider,
           prompt,
-        } satisfies Message);
-        setNote(`Opened ${provider?.label ?? "your LLM"} to draft the outreach.`);
+        } satisfies Message)) as MessageResponse;
+        if (resp.ok) {
+          setNote(`Opened ${provider?.label ?? "your LLM"} to draft the outreach.`);
+        } else {
+          setNote(resp.error);
+        }
         return;
       }
 
@@ -317,12 +325,16 @@ export function Popup() {
           /* auto-inject still works */
         }
         const provider = getProvider(settings.webchatProvider);
-        await chrome.runtime.sendMessage({
+        const resp = (await chrome.runtime.sendMessage({
           type: "WEBCHAT_HANDOFF",
           providerId: settings.webchatProvider,
           prompt,
-        } satisfies Message);
-        setNote(`Opened ${provider?.label ?? "your LLM"} to draft the note.`);
+        } satisfies Message)) as MessageResponse;
+        if (resp.ok) {
+          setNote(`Opened ${provider?.label ?? "your LLM"} to draft the note.`);
+        } else {
+          setNote(resp.error);
+        }
         return;
       }
       if (settings?.llmMode === "off" || !settings) {
