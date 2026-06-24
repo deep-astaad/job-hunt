@@ -9,7 +9,17 @@ const KEY = "appfill:profile";
 
 export async function getProfile(): Promise<CandidateProfile> {
   const raw = await chrome.storage.local.get(KEY);
-  return { ...emptyProfile(), ...(raw[KEY] ?? {}) };
+  const data = raw[KEY] ?? {};
+  return {
+    ...emptyProfile(),
+    ...data,
+    contact: data.contact ? { ...data.contact } : {},
+    skills: data.skills ?? [],
+    workExperience: data.workExperience ?? [],
+    education: data.education ?? [],
+    links: data.links ? { ...data.links } : {},
+    eligibility: data.eligibility ? { ...data.eligibility } : {},
+  };
 }
 
 export async function saveProfile(profile: CandidateProfile): Promise<void> {
