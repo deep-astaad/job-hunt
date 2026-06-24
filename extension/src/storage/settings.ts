@@ -30,6 +30,8 @@ export interface Settings {
   suggestOnFocus: boolean;
   /** Per-site override of autofill: domain -> enabled. Absent = use global. */
   siteOverrides: Record<string, boolean>;
+  /** Domains explicitly allowed to auto-submit the form after a high-confidence fill. */
+  autoSubmitDomains: string[];
   /** Confidence below this is badged "review me" and never silently committed. */
   lowConfidenceThreshold: number;
   // Application log (opt-in). When enabled, submissions are POSTed to a backend.
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autofillOnLoad: false,
   suggestOnFocus: true,
   siteOverrides: {},
+  autoSubmitDomains: [],
   lowConfidenceThreshold: 0.6,
   appLogEnabled: false,
   appLogEndpoint: "",
