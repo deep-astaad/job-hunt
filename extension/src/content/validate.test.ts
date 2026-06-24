@@ -12,6 +12,16 @@ describe("parseRequiredYears", () => {
     expect(parseRequiredYears("at least 3 yrs in backend")).toBe(3);
     expect(parseRequiredYears("no number here")).toBeUndefined();
   });
+
+  it("handles range queries correctly (picking the minimum/lower bound)", () => {
+    expect(parseRequiredYears("Requires 3-5 years of experience")).toBe(3);
+    expect(parseRequiredYears("2 - 4 yrs")).toBe(2);
+  });
+
+  it("handles spelled-out English numbers correctly", () => {
+    expect(parseRequiredYears("at least three years")).toBe(3);
+    expect(parseRequiredYears("five yrs")).toBe(5);
+  });
 });
 
 describe("collectIssues", () => {
