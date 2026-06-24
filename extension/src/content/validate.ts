@@ -27,12 +27,24 @@ export interface ValIssue {
   message: string;
 }
 
+const WORD_TO_NUM: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5,
+  six: 6, seven: 7, eight: 8, nine: 9, ten: 10
+};
+
 /** Parse a rough "required years of experience" from a job description. */
 export function parseRequiredYears(jobText: string): number | undefined {
-  const m = jobText
-    .toLowerCase()
-    .match(/(\d{1,2})\s*\+?\s*(?:years|yrs)\b/);
-  return m ? Number(m[1]) : undefined;
+  const normalized = jobText.toLowerCase();
+  const rangeMatch = normalized.match(/(\d{1,2})\s*(?:-\s*\d{1,2})?\s*\+?\s*(?:years|yrs)\b/);
+  if (rangeMatch) {
+    return Number(rangeMatch[1]);
+  }
+  const words = Object.keys(WORD_TO_NUM).join("|");
+  const wordMatch = normalized.match(new RegExp(`\\b(${words})\\s*(?:-\\s*(?:\\d{1,2}|${words}))?\\s*\\+?\\s*(?:years|yrs)\\b`));
+  if (wordMatch) {
+    return WORD_TO_NUM[wordMatch[1]];
+  }
+  return undefined;
 }
 
 const SENSITIVE: CanonicalKey[] = [
