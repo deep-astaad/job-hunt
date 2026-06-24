@@ -172,8 +172,16 @@ export function mapFieldDeterministic(
     if (key) return { key, confidence: 0.97 };
   }
   if (field.kind === "file") {
-    // A bare file input on an application is almost always the resume.
     const hay = haystack(field);
+    // Cover letter check
+    if (hay && (containsPhrase(hay, "cover letter") || containsPhrase(hay, "motivation letter") || hay.includes("cover_letter") || hay.includes("coverletter"))) {
+      return { key: "coverLetter", confidence: 0.95 };
+    }
+    // Check if it matches non-resume file types
+    if (hay && /portfolio|transcript|sample|certificate|photo|passport|degree|id /i.test(hay)) {
+      return undefined;
+    }
+    // A bare file input on an application is almost always the resume.
     if (!hay || /resume|cv|curriculum|upload|file|attach/.test(hay)) {
       return { key: "resumeFile", confidence: hay ? 0.9 : 0.7 };
     }
