@@ -6,7 +6,7 @@
       "country": "jp",
       "datePosted": "1",
       "limit": 100,
-      "location": "Tokyo",
+      "location": "Japan",
       "title": "(Backend OR Python OR Django OR AWS OR DevOps OR \"Solutions Architect\") (\"No Japanese\" OR English)"
     }
   },
@@ -39,11 +39,11 @@
       "splitByLocation": false,
       "splitCountry": "JP",
       "urls": [
-          "https://www.linkedin.com/jobs/search?keywords=Python%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
-          "https://www.linkedin.com/jobs/search?keywords=Backend%20Engineer%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
-          "https://www.linkedin.com/jobs/search?keywords=AWS%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
-          "https://www.linkedin.com/jobs/search?keywords=Cloud%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0",
-        "https://www.linkedin.com/jobs/search?keywords=Software%20Engineer%20English&location=Tokyo&f_TPR=r86400&geoId=103925994&position=1&pageNum=0"
+          "https://www.linkedin.com/jobs/search?keywords=Python%20English&location=Japan&f_TPR=r86400&geoId=101355337&position=1&pageNum=0",
+          "https://www.linkedin.com/jobs/search?keywords=Backend%20Engineer%20English&location=Japan&f_TPR=r86400&geoId=101355337&position=1&pageNum=0",
+          "https://www.linkedin.com/jobs/search?keywords=AWS%20English&location=Japan&f_TPR=r86400&geoId=101355337&position=1&pageNum=0",
+          "https://www.linkedin.com/jobs/search?keywords=Cloud%20English&location=Japan&f_TPR=r86400&geoId=101355337&position=1&pageNum=0",
+        "https://www.linkedin.com/jobs/search?keywords=Software%20Engineer%20English&location=Japan&f_TPR=r86400&geoId=101355337&position=1&pageNum=0"
       ],
       "saveOnlyUniqueItems": true
     }

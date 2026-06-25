@@ -17,7 +17,7 @@ _DEFAULT = {
             "country": "JP", "city": "Tokyo", "remote": False,
             "local_language": "japanese", "local_language_hard_fail": True,
             "aliases": ["tokyo", "japan", "jp"],
-            "linkedin_geo_id": "103925994", "linkedin_location": "Tokyo, Japan",
+            "linkedin_geo_id": "101355337", "linkedin_location": "Japan",
             "indeed_country": "JP", "indeed_location": "Tokyo",
             "linkedin_scrape_limit": 500, "indeed_scrape_limit": 1000,
         }
