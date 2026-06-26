@@ -3,13 +3,13 @@ import json
 import os
 from datetime import date, timedelta
 
-from django.db.models import Case, F, IntegerField, Subquery, OuterRef, Value, When
+from django.db.models import BooleanField, Case, Exists, F, IntegerField, OuterRef, Subquery, Value, When
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Job, JobRanking
+from .models import Job, JobApplicationStatus, JobRanking
 from .serializers import JobRankingBrowseSerializer
 
 
@@ -20,6 +20,18 @@ class BrowsePagination(PageNumberPagination):
 
 
 TIER_SORT = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
+
+
+def annotate_job_application_status(qs, user, job_field="pk"):
+    if not getattr(user, "is_authenticated", False):
+        return qs.annotate(user_is_applied=Value(False, output_field=BooleanField()))
+
+    application_sq = JobApplicationStatus.objects.filter(
+        user=user,
+        job_id=OuterRef(job_field),
+        is_applied=True,
+    )
+    return qs.annotate(user_is_applied=Exists(application_sq))
 
 
 class BrowseView(APIView):
@@ -76,6 +88,8 @@ class BrowseView(APIView):
             if profile_id:
                 qs = qs.filter(profile_id=profile_id)
 
+        qs = annotate_job_application_status(qs, request.user, job_field="job_id")
+
         if tiers_param:
             tiers = [t.strip().upper() for t in tiers_param.split(",") if t.strip()]
             if tiers:
@@ -100,9 +114,9 @@ class BrowseView(APIView):
             qs = qs.filter(job__is_remote=False)
 
         if applied_param == "true":
-            qs = qs.filter(job__is_applied=True)
+            qs = qs.filter(user_is_applied=True)
         elif applied_param == "false":
-            qs = qs.filter(job__is_applied=False)
+            qs = qs.filter(user_is_applied=False)
 
         if date_param == "today":
             qs = qs.filter(job__scraped_at__date=date.today())
@@ -127,7 +141,7 @@ class BrowseView(APIView):
 
         paginator = BrowsePagination()
         page = paginator.paginate_queryset(qs, request)
-        serializer = JobRankingBrowseSerializer(page, many=True)
+        serializer = JobRankingBrowseSerializer(page, many=True, context={"request": request})
         return paginator.get_paginated_response(serializer.data)
 
 

@@ -3,7 +3,7 @@ from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
 from unittest.mock import patch, MagicMock
-from jobs.models import Job, JobRanking
+from jobs.models import Job, JobApplicationStatus, JobRanking
 
 
 class JobModelTests(TestCase):
@@ -713,6 +713,7 @@ class JobAppliedTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = User.objects.create_user(username="testuser", password="password")
+        self.other_user = User.objects.create_user(username="otheruser", password="password")
         self.client.force_login(self.user)
 
         self.job_applied = Job.objects.create(
@@ -720,7 +721,6 @@ class JobAppliedTests(TestCase):
             company="Company A",
             url="https://a.com",
             url_hash="hash_a",
-            is_applied=True,
             is_active=True,
         )
         self.ranking_applied = JobRanking.objects.create(
@@ -735,7 +735,6 @@ class JobAppliedTests(TestCase):
             company="Company B",
             url="https://b.com",
             url_hash="hash_b",
-            is_applied=False,
             is_active=True,
         )
         self.ranking_not_applied = JobRanking.objects.create(
@@ -743,6 +742,17 @@ class JobAppliedTests(TestCase):
             profile_id="test_profile",
             match_tier="S",
             rank=2,
+        )
+
+        JobApplicationStatus.objects.create(
+            user=self.user,
+            job=self.job_applied,
+            is_applied=True,
+        )
+        JobApplicationStatus.objects.create(
+            user=self.other_user,
+            job=self.job_not_applied,
+            is_applied=True,
         )
 
     def test_applied_filtering_true(self):
@@ -767,6 +777,40 @@ class JobAppliedTests(TestCase):
         self.assertEqual(response.status_code, 200)
         results = response.json()["results"]
         self.assertEqual(len(results), 2)
+
+    def test_applied_filtering_is_user_scoped(self):
+        self.client.force_login(self.other_user)
+        url = reverse("browse")
+        response = self.client.get(f"{url}?profile_id=test_profile&applied=true&date=all")
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["job"]["id"], self.job_not_applied.id)
+
+    def test_patch_updates_only_current_user_application_status(self):
+        url = reverse("job-detail", kwargs={"pk": self.job_not_applied.id})
+        response = self.client.patch(
+            url,
+            data='{"is_applied": true}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["is_applied"])
+
+        self.assertTrue(
+            JobApplicationStatus.objects.filter(
+                user=self.user,
+                job=self.job_not_applied,
+                is_applied=True,
+            ).exists()
+        )
+        self.assertTrue(
+            JobApplicationStatus.objects.filter(
+                user=self.other_user,
+                job=self.job_not_applied,
+                is_applied=True,
+            ).exists()
+        )
 
 
 class NormalizeUrlTests(TestCase):
