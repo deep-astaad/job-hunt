@@ -1,6 +1,8 @@
 import hashlib
 
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from .parsers import (
     parse_salary_to_yen,
@@ -110,6 +112,40 @@ class Job(models.Model):
 
     def __str__(self):
         return f"{self.title} @ {self.company}"
+
+
+class JobApplicationStatus(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="job_application_statuses",
+    )
+    job = models.ForeignKey(
+        Job,
+        on_delete=models.CASCADE,
+        related_name="application_statuses",
+    )
+    is_applied = models.BooleanField(default=False, db_index=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["user", "job"]
+        indexes = [
+            models.Index(fields=["user", "is_applied"]),
+            models.Index(fields=["job", "user"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.is_applied and self.applied_at is None:
+            self.applied_at = timezone.now()
+        elif not self.is_applied:
+            self.applied_at = None
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.user_id}:{self.job_id} applied={self.is_applied}"
 
 
 class JobRanking(models.Model):

@@ -1,5 +1,21 @@
 from rest_framework import serializers
-from .models import Job, JobRanking
+from .models import Job, JobApplicationStatus, JobRanking
+
+
+class UserAppliedStatusSerializerMixin(serializers.ModelSerializer):
+    is_applied = serializers.SerializerMethodField()
+
+    def get_is_applied(self, obj):
+        annotated = getattr(obj, "user_is_applied", None)
+        if annotated is not None:
+            return bool(annotated)
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            return False
+
+        return JobApplicationStatus.objects.filter(user=user, job=obj, is_applied=True).exists()
 
 
 class JobRankingSerializer(serializers.ModelSerializer):
@@ -9,7 +25,7 @@ class JobRankingSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "llm_tier"]
 
 
-class JobSerializer(serializers.ModelSerializer):
+class JobSerializer(UserAppliedStatusSerializerMixin):
     rankings = JobRankingSerializer(many=True, read_only=True)
 
     class Meta:
@@ -18,7 +34,7 @@ class JobSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "url_hash", "scraped_at", "updated_at", "salary_yen", "jlpt_level"]
 
 
-class JobListSerializer(serializers.ModelSerializer):
+class JobListSerializer(UserAppliedStatusSerializerMixin):
     class Meta:
         model = Job
         fields = [
@@ -28,7 +44,7 @@ class JobListSerializer(serializers.ModelSerializer):
         ]
 
 
-class TodayRankedJobSerializer(serializers.ModelSerializer):
+class TodayRankedJobSerializer(UserAppliedStatusSerializerMixin):
     ranking = serializers.SerializerMethodField()
     matched_profiles = serializers.SerializerMethodField()
 
@@ -58,7 +74,7 @@ class TodayRankedJobSerializer(serializers.ModelSerializer):
         ]
 
 
-class JobInlineSerializer(serializers.ModelSerializer):
+class JobInlineSerializer(UserAppliedStatusSerializerMixin):
     """Compact job representation embedded inside a browse ranking row."""
 
     class Meta:
@@ -74,7 +90,13 @@ class JobInlineSerializer(serializers.ModelSerializer):
 class JobRankingBrowseSerializer(serializers.ModelSerializer):
     """Ranking row with the full job object nested — used by BrowseView."""
 
-    job = JobInlineSerializer(read_only=True)
+    job = serializers.SerializerMethodField()
+
+    def get_job(self, obj):
+        job = obj.job
+        if hasattr(obj, "user_is_applied"):
+            job.user_is_applied = obj.user_is_applied
+        return JobInlineSerializer(job, context=self.context).data
 
     class Meta:
         model = JobRanking

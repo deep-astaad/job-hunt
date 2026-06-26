@@ -2,12 +2,11 @@ import hashlib
 from datetime import date
 
 import django_filters
-from django.db.models import Q
+from django.db.models import BooleanField, Case, Count, Exists, IntegerField, Min, OuterRef, Q, Value, When
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Count, Min, Case, When, Value, IntegerField
-from .models import Job, JobRanking
+from .models import Job, JobApplicationStatus, JobRanking
 from .serializers import (
     JobSerializer,
     JobListSerializer,
@@ -34,11 +33,12 @@ class TodayRankedJobFilter(django_filters.FilterSet):
 
 class JobFilter(django_filters.FilterSet):
     updated_at = django_filters.DateFilter(method="filter_updated_at")
+    applied = django_filters.CharFilter(method="filter_applied")
 
     class Meta:
         model = Job
         fields = ["source", "is_active", "language", "company", "is_formatted", "url",
-                  "alert_sent", "region", "country", "is_remote", "is_applied"]
+                  "alert_sent", "region", "country", "is_remote"]
 
     def __init__(self, data=None, *args, **kwargs):
         # Alias ?from=... and ?to=... to updated_at date lookups
@@ -48,6 +48,8 @@ class JobFilter(django_filters.FilterSet):
                 data["from_date"] = data.pop("from")
             if "to" in data:
                 data["to_date"] = data.pop("to")
+            if "is_applied" in data and "applied" not in data:
+                data["applied"] = data.pop("is_applied")
         super().__init__(data=data, *args, **kwargs)
 
     from_date = django_filters.DateFilter(method="filter_from_date")
@@ -64,8 +66,37 @@ class JobFilter(django_filters.FilterSet):
         from datetime import timedelta
         return queryset.filter(updated_at__lt=value + timedelta(days=1))
 
+    def filter_applied(self, queryset, name, value):
+        user = getattr(self.request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            return queryset if value != "true" else queryset.none()
+
+        applied_sq = JobApplicationStatus.objects.filter(
+            user=user,
+            job_id=OuterRef("pk"),
+            is_applied=True,
+        )
+        queryset = queryset.annotate(user_is_applied=Exists(applied_sq))
+        if value == "true":
+            return queryset.filter(user_is_applied=True)
+        if value == "false":
+            return queryset.filter(user_is_applied=False)
+        return queryset
+
 
 TIER_SORT_MAP = {t: i for i, t in enumerate(["S", "A", "B", "C", "F"])}
+
+
+def annotate_job_application_status(qs, user):
+    if not getattr(user, "is_authenticated", False):
+        return qs.annotate(user_is_applied=Value(False, output_field=BooleanField()))
+
+    applied_sq = JobApplicationStatus.objects.filter(
+        user=user,
+        job_id=OuterRef("pk"),
+        is_applied=True,
+    )
+    return qs.annotate(user_is_applied=Exists(applied_sq))
 
 
 class JobViewSet(viewsets.ModelViewSet):
@@ -75,7 +106,7 @@ class JobViewSet(viewsets.ModelViewSet):
     ordering_fields = ["scraped_at", "company", "title", "best_tier"]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = annotate_job_application_status(super().get_queryset(), self.request.user)
         if self.action == "list":
             ordering = self.request.query_params.get("ordering", "")
             if "best_tier" in ordering:
@@ -95,6 +126,34 @@ class JobViewSet(viewsets.ModelViewSet):
         if self.action == "list":
             return JobListSerializer
         return JobSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+
+    def partial_update(self, request, *args, **kwargs):
+        if "is_applied" in request.data:
+            if not request.user.is_authenticated:
+                return Response({"detail": "Authentication credentials were not provided."}, status=401)
+
+            job = self.get_object()
+            raw_applied = request.data.get("is_applied")
+            applied = raw_applied if isinstance(raw_applied, bool) else str(raw_applied).lower() == "true"
+            status_obj, _ = JobApplicationStatus.objects.get_or_create(
+                user=request.user,
+                job=job,
+                defaults={"is_applied": applied},
+            )
+            if status_obj.is_applied != applied:
+                status_obj.is_applied = applied
+                status_obj.save()
+
+            job.user_is_applied = applied
+            serializer = self.get_serializer(job)
+            return Response(serializer.data)
+
+        return super().partial_update(request, *args, **kwargs)
 
     @action(detail=False, methods=["post"])
     def bulk_create(self, request):
@@ -224,7 +283,10 @@ class JobViewSet(viewsets.ModelViewSet):
         tiers = [t.strip().upper() for t in tiers_param.split(",") if t.strip()] or ["S", "A"]
 
         # Apply FilterSet for profile_id and tiers filtering
-        base_qs = Job.objects.filter(is_active=True, scraped_at__gte=today, scraped_at__lt=tomorrow).distinct()
+        base_qs = annotate_job_application_status(
+            Job.objects.filter(is_active=True, scraped_at__gte=today, scraped_at__lt=tomorrow).distinct(),
+            request.user,
+        )
         filterset = TodayRankedJobFilter(request.query_params, queryset=base_qs)
         jobs = filterset.qs.distinct().prefetch_related("rankings")
 
@@ -260,7 +322,7 @@ class JobViewSet(viewsets.ModelViewSet):
             job._matched_rankings = list(matching_rankings)
             results.append(job)
 
-        serializer = TodayRankedJobSerializer(results, many=True)
+        serializer = TodayRankedJobSerializer(results, many=True, context={"request": request})
         return Response({
             "count": len(results),
             "date": today.isoformat(),
