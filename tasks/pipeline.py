@@ -8,7 +8,7 @@ from persistence import DjangoPersistence, normalize_url
 from config import get_apify_api_token, CELERY_BROKER_URL
 import redis
 import requests as req
-from apify_client import ApifyClient
+from clients import get_apify_client
 from apify_client._errors import ApifyApiError
 from requests.exceptions import RequestException
 
@@ -260,7 +260,7 @@ def _load_profiles_for_ranking(profile_ids):
 @app.task(bind=True, name='tasks.pipeline.poll_actor_dataset', max_retries=1000)
 def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, pipeline_run_id, offset, location=None):
     """Async polling: fetches a batch of items, dispatches format/rank, and retries if more items exist or actor is running."""
-    client = ApifyClient(get_apify_api_token())
+    client = get_apify_client(get_apify_api_token())
     persister = DjangoPersistence()
     ranker_profiles = _load_profiles_for_ranking(profile_ids)
     r = redis.Redis.from_url(CELERY_BROKER_URL)
@@ -375,7 +375,7 @@ def start_actor(self, actor_id, run_input, source, profile_ids, pipeline_run_id,
     counted as a lost actor. This keeps a single dead actor from silently
     dropping a whole source/location for the day.
     """
-    client = ApifyClient(get_apify_api_token())
+    client = get_apify_client(get_apify_api_token())
 
     # Primary first, then any configured fallbacks.
     candidates = [{"actor_id": actor_id, "input": run_input}]

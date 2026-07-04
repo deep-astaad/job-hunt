@@ -1,3 +1,4 @@
+import functools
 import logging
 import time
 import cloudscraper
@@ -6,9 +7,23 @@ from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
 
-def scrape_tokyo_dev(limit=50):
+
+def _with_session(fn):
+    """Create a cloudscraper session for the call and close it afterwards.
+
+    Sessions hold keep-alive sockets; leaving them unclosed leaks one fd per
+    scraper per run until the worker hits its open-file limit.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with cloudscraper.create_scraper() as scraper:
+            return fn(scraper, *args, **kwargs)
+    return wrapper
+
+
+@_with_session
+def scrape_tokyo_dev(scraper, limit=50):
     """Scrape recent jobs from Tokyo-Dev."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://www.tokyodev.com"
     jobs_url = f"{base_url}/jobs"
     
@@ -72,9 +87,9 @@ def scrape_tokyo_dev(limit=50):
     return scraped_jobs
 
 
-def scrape_japan_dev(limit=50):
+@_with_session
+def scrape_japan_dev(scraper, limit=50):
     """Scrape recent jobs from Japan-Dev."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://japan-dev.com"
     jobs_url = f"{base_url}/jobs"
     
@@ -142,9 +157,9 @@ def scrape_japan_dev(limit=50):
     return scraped_jobs
 
 
-def scrape_gaijinpot(limit=50):
+@_with_session
+def scrape_gaijinpot(scraper, limit=50):
     """Scrape recent IT jobs from GaijinPot."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://jobs.gaijinpot.com"
     jobs_url = f"{base_url}/job/index/category/17/lang/en"
     
@@ -211,9 +226,9 @@ def scrape_gaijinpot(limit=50):
     return scraped_jobs
 
 
-def scrape_careercross(limit=50):
+@_with_session
+def scrape_careercross(scraper, limit=50):
     """Scrape recent IT jobs from CareerCross."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://www.careercross.com"
     jobs_url = f"{base_url}/en/job-search/result?search%5Bjob_category_ids%5D%5B%5D=1"
     
@@ -278,9 +293,9 @@ def scrape_careercross(limit=50):
     return scraped_jobs
 
 
-def scrape_green(limit=50):
+@_with_session
+def scrape_green(scraper, limit=50):
     """Scrape recent IT jobs from Green."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://www.green-japan.com"
     jobs_url = f"{base_url}/search_key"
     
@@ -343,9 +358,9 @@ def scrape_green(limit=50):
     return scraped_jobs
 
 
-def scrape_daijob(limit=50):
+@_with_session
+def scrape_daijob(scraper, limit=50):
     """Scrape recent jobs from Daijob."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://www.daijob.com"
     # Added kw=engineer to filter strictly for tech/engineering roles
     jobs_url = f"{base_url}/en/jobs/search_result?target=category&num_pages=1&kw=engineer"
@@ -409,9 +424,9 @@ def scrape_daijob(limit=50):
     return scraped_jobs
 
 
-def scrape_wantedly(limit=50):
+@_with_session
+def scrape_wantedly(scraper, limit=50):
     """Scrape recent projects/jobs from Wantedly."""
-    scraper = cloudscraper.create_scraper()
     base_url = "https://www.wantedly.com"
     # occupations[]=1 specifically filters for IT/Web Engineering
     jobs_url = f"{base_url}/projects?type=mixed&page=1&occupations%5B%5D=1"

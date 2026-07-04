@@ -12,6 +12,7 @@ when no fallback is configured or the fallback also fails.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 
 from openai import OpenAI
 
@@ -22,6 +23,13 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=32)
+def _get_client(api_key, base_url):
+    # One client (and one connection pool) per key/base_url. A fresh OpenAI()
+    # per call leaks its pooled sockets and exhausts the worker's fd limit.
+    return OpenAI(api_key=api_key, base_url=base_url)
 
 
 def _call(client, model, messages, temperature, timeout, response_format):
@@ -47,7 +55,7 @@ def chat_completion(messages, temperature=0.2, timeout=120, response_format=None
     last_exc = None
     for attempt in range(3):
         api_key = random.choice(api_keys)
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        client = _get_client(api_key, base_url)
         try:
             if attempt > 0:
                 logger.info("llm_trying_again", extra={"attempt": attempt + 1})

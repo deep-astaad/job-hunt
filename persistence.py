@@ -2,8 +2,7 @@ import json
 import re
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 import requests
-from openai import OpenAI
-from config import get_openai_api_keys, get_openai_base_url, get_openai_model, DJANGO_API_URL
+from config import DJANGO_API_URL
 
 
 
@@ -131,12 +130,6 @@ class JobFormatter:
         prompt_path = os.path.join(base_dir, "prompts/formatter.txt")
         with open(prompt_path, "r", encoding="utf-8") as f:
             self.SYSTEM_PROMPT = f.read()
-
-    @property
-    def client(self):
-        import random
-        keys = get_openai_api_keys()
-        return OpenAI(api_key=random.choice(keys) if keys else None, base_url=get_openai_base_url())
 
     def format_job(self, raw_job):
         """Send one raw job to the LLM and return the formatted Job model object."""
