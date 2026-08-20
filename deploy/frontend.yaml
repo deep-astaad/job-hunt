@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/deep-astaad/job-hunt-frontend:sha-594b93c
+          image: ghcr.io/deep-astaad/job-hunt-frontend:sha-PLACEHOLDER
           ports:
             - containerPort: 3000
           env:
