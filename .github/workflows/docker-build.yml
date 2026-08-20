@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -49,3 +49,24 @@ jobs:
         push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Update deploy manifests with image SHA
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        SHORT_SHA="${GITHUB_SHA::7}"
+        IMAGE_TAG="ghcr.io/${{ github.repository }}:sha-${SHORT_SHA}"
+        echo "Pinning deploy image to: ${IMAGE_TAG}"
+        sed -i "s|ghcr.io/${{ github.repository }}:sha-PLACEHOLDER|${IMAGE_TAG}|g" deploy/*.yaml
+
+    - name: Commit and push updated manifests
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add deploy/
+        if git diff --cached --quiet; then
+          echo "No manifest changes to commit"
+        else
+          git commit -m "deploy: update image tag to sha-${GITHUB_SHA::7} [skip ci]"
+          git push
+        fi
