@@ -9,5 +9,5 @@ spec:
     - match: Host(`job-hunt.neovara.uk`)
       kind: Rule
       services:
-        - name: django
+        - name: frontend
           port: 80
