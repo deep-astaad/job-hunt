@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: celery-beat
-          image: ghcr.io/deep-astaad/job-hunt:sha-PLACEHOLDER
+          image: ghcr.io/deep-astaad/job-hunt:sha-2f3750a
           args: ["celery", "-A", "celery_app", "beat", "--loglevel=info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
           env:
             - name: APP_MODE
