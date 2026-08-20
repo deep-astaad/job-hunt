@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-flower
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-flower
+  template:
+    metadata:
+      labels:
+        app: celery-flower
+    spec:
+      containers:
+        - name: celery-flower
+          image: ghcr.io/deep-astaad/job-hunt:sha-PLACEHOLDER
+          args: ["celery", "-A", "celery_app", "flower", "--port=5555"]
+          ports:
+            - containerPort: 5555
+          env:
+            - name: APP_MODE
+              value: celery-flower
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/1
+            - name: DJANGO_API_URL
+              value: http://django:80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: celery-flower
+spec:
+  selector:
+    app: celery-flower
+  ports:
+    - port: 5555
+      targetPort: 5555
