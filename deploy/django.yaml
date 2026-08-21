@@ -75,6 +75,9 @@ spec:
             httpGet:
               path: /api/jobs/stats/
               port: 8000
+              httpHeaders:
+                - name: Host
+                  value: job-hunt.neovara.uk
             initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 5
@@ -82,6 +85,9 @@ spec:
             httpGet:
               path: /api/jobs/stats/
               port: 8000
+              httpHeaders:
+                - name: Host
+                  value: job-hunt.neovara.uk
             initialDelaySeconds: 45
             periodSeconds: 20
             timeoutSeconds: 5
