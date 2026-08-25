@@ -5,9 +5,15 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  # Longhorn, not the local-path default: local-path lands on the node's ~38GB
+  # OS disk with no snapshots and no expansion. Longhorn uses the dedicated
+  # /var/lib/longhorn data disk and supports both.
+  storageClassName: longhorn
   resources:
     requests:
-      storage: 5Gi
+      # 8Gi holds the ~1.2GB restored dataset with room to grow, and stays
+      # inside the job-hunt namespace ResourceQuota (requests.storage: 10Gi).
+      storage: 8Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
