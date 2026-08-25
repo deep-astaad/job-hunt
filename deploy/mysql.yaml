@@ -57,10 +57,15 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 128Mi
-            limits:
-              cpu: 300m
+              # 512Mi requested (not 128Mi): with a 128Mi request this pod was
+              # Burstable and first in line for eviction under node pressure.
               memory: 512Mi
+            limits:
+              # 1 CPU / 1.5Gi: a 655MB import OOMKilled repeatedly at 512Mi, and
+              # 300m CPU made it crawl. Both sit under the LimitRange per-container
+              # max (cpu 1, memory 2Gi) and inside the namespace ResourceQuota.
+              cpu: "1"
+              memory: 1536Mi
           readinessProbe:
             exec:
               command:
