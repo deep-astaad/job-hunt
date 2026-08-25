@@ -30,7 +30,14 @@ spec:
                   name: job-hunt-secrets
                   key: DJANGO_SECRET_KEY
             - name: DJANGO_ALLOWED_HOSTS
-              value: "job-hunt.neovara.uk,localhost,127.0.0.1"
+              # `django` and `frontend` are required, not optional: the Next.js BFF
+              # proxies server-side to BACKEND_INTERNAL_URL (http://django:80), so
+              # those requests arrive with Host: django. Without it Django rejects
+              # every proxied call as DisallowedHost -> HTTP 400 before it ever
+              # checks credentials, which breaks /api/auth/login/ and /api/auth/me/
+              # while /admin (Host: job-hunt.neovara.uk) keeps working. The old
+              # compose config had these; the k8s port dropped them.
+              value: "job-hunt.neovara.uk,django,frontend,localhost,127.0.0.1"
             - name: DJANGO_CSRF_TRUSTED_ORIGINS
               value: "https://job-hunt.neovara.uk"
             - name: MYSQL_HOST
