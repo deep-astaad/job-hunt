@@ -6,8 +6,20 @@ spec:
   entryPoints:
     - web
   routes:
+    # Django admin + its static assets (STATIC_URL "static/", served by
+    # `manage.py runserver` itself) must go straight to django, not through
+    # the frontend, which only proxies /bff/* to the backend. Explicit
+    # priority guarantees these win over the frontend catch-all below
+    # regardless of Traefik's default rule-length-based ordering.
+    - match: Host(`job-hunt.neovara.uk`) && (PathPrefix(`/admin`) || PathPrefix(`/static`))
+      kind: Rule
+      priority: 10
+      services:
+        - name: django
+          port: 80
     - match: Host(`job-hunt.neovara.uk`)
       kind: Rule
+      priority: 1
       services:
         - name: frontend
           port: 80
