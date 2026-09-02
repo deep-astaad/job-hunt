@@ -54,7 +54,9 @@ jobs:
         SHORT_SHA="${GITHUB_SHA::7}"
         IMAGE_TAG="ghcr.io/${{ github.repository }}-frontend:sha-${SHORT_SHA}"
         echo "Pinning deploy image to: ${IMAGE_TAG}"
-        sed -i "s|ghcr.io/${{ github.repository }}-frontend:sha-PLACEHOLDER|${IMAGE_TAG}|g" deploy/frontend.yaml
+        # Match any existing sha-<hex> tag - see docker-build.yml for why
+        # a literal PLACEHOLDER match only ever fires once.
+        sed -i -E "s|ghcr.io/${{ github.repository }}-frontend:sha-[0-9a-f]+|${IMAGE_TAG}|g" deploy/frontend.yaml
 
     - name: Commit and push updated manifest
       if: github.ref == 'refs/heads/main'

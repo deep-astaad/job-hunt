@@ -55,7 +55,11 @@ jobs:
         SHORT_SHA="${GITHUB_SHA::7}"
         IMAGE_TAG="ghcr.io/${{ github.repository }}:sha-${SHORT_SHA}"
         echo "Pinning deploy image to: ${IMAGE_TAG}"
-        sed -i "s|ghcr.io/${{ github.repository }}:sha-PLACEHOLDER|${IMAGE_TAG}|g" deploy/*.yaml
+        # Match any existing sha-<hex> tag, not a literal PLACEHOLDER -
+        # that string only ever existed in the manifests' first commit, so
+        # this step silently no-op'd on every push since (deploy manifests
+        # stayed pinned to the very first built image).
+        sed -i -E "s|ghcr.io/${{ github.repository }}:sha-[0-9a-f]+|${IMAGE_TAG}|g" deploy/*.yaml
 
     - name: Commit and push updated manifests
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
