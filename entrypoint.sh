@@ -8,7 +8,11 @@ case "$APP_MODE" in
     echo "Starting Django backend..."
     cd /app/backend
     python manage.py migrate --noinput
-    exec python manage.py runserver 0.0.0.0:8000
+    # --insecure: DEBUG is False here, and runserver otherwise refuses to
+    # serve /static/* (admin's own CSS/JS), leaving the admin UI unstyled.
+    # Django's docs call this flag safe specifically for that case since it
+    # only affects the staticfiles app, not application routes.
+    exec python manage.py runserver 0.0.0.0:8000 --insecure
     ;;
   job-finder)
     echo "Running job finder pipeline..."
