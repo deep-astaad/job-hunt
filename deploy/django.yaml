@@ -65,6 +65,24 @@ spec:
                   name: job-hunt-secrets
                   key: APIFY_API_TOKEN
                   optional: true
+            # The rotation pool config.get_openai_api_keys() picks from. The
+            # single OPENAI_API_KEY above stays as the legacy fallback.
+            - name: OPENAI_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: job-hunt-secrets
+                  key: OPENAI_API_KEYS
+                  optional: true
+            # Not secrets, so they live here rather than in the Secret - and they
+            # MUST be set. These settings previously existed only in Redis, so
+            # when Redis was OOMKilled on 2026-09-02 and came back empty, both
+            # silently fell back to config.py's defaults (api.openai.com /
+            # gpt-4o-mini) and every format/rank task failed 401 sending an
+            # OpenRouter key to OpenAI.
+            - name: OPENAI_BASE_URL
+              value: "https://openrouter.ai/api/v1"
+            - name: OPENAI_MODEL
+              value: "nvidia/nemotron-3-ultra-550b-a55b:free"
             - name: DISCORD_WEBHOOK_URL_DEFAULT
               valueFrom:
                 secretKeyRef:

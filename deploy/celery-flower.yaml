@@ -27,6 +27,29 @@ spec:
               value: redis://redis:6379/1
             - name: DJANGO_API_URL
               value: http://django:80
+            # config.py runs its "missing critical environment variables" check
+            # for every APP_MODE except celery-worker, so flower needs these to
+            # import celery_app at all. It had none of them and was surviving
+            # purely on the values in Redis; when Redis was OOMKilled on
+            # 2026-09-02 and came back empty, flower went into an unrecoverable
+            # CrashLoopBackOff (186 restarts) while the other three carried on
+            # from their env fallbacks.
+            - name: OPENAI_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: job-hunt-secrets
+                  key: OPENAI_API_KEYS
+                  optional: true
+            - name: APIFY_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: job-hunt-secrets
+                  key: APIFY_API_TOKEN
+                  optional: true
+            - name: OPENAI_BASE_URL
+              value: "https://openrouter.ai/api/v1"
+            - name: OPENAI_MODEL
+              value: "nvidia/nemotron-3-ultra-550b-a55b:free"
           resources:
             requests:
               cpu: 50m
