@@ -1,3 +1,5 @@
+import json
+
 import requests
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
@@ -476,18 +478,172 @@ class RankingsFromLlmTests(TestCase):
         self.assertEqual(r["match_score"], TIER_SCORE["S"])
         self.assertEqual(r["rank"], 100 - TIER_SCORE["S"])
 
-    def test_missing_or_unrecognized_llm_tier_falls_back_to_c(self):
-        from tasks.ranking import _rankings_from_llm, TIER_SCORE
+    def test_missing_llm_ranking_for_profile_raises(self):
+        # Issue #125 F-6: this used to assert the fabrication bug itself --
+        # a profile the LLM never returned a row for silently became "C".
+        # That's exactly the silent-fabrication behaviour issue #125 exists
+        # to eliminate; it must now raise instead of persisting a tier the
+        # LLM never gave.
+        from llm import LLMResponseError
+        from tasks.ranking import _rankings_from_llm
 
-        # Profile the LLM never returned a row for, plus a garbled tier value.
-        out = _rankings_from_llm(
-            [{"profile_id": "p2", "match_tier": "not-a-tier"}],
-            [{"id": "p1"}, {"id": "p2"}],
-        )
-        by_pid = {r["profile_id"]: r for r in out}
-        self.assertEqual(by_pid["p1"]["match_tier"], "C")
-        self.assertEqual(by_pid["p2"]["match_tier"], "C")
-        self.assertEqual(by_pid["p1"]["match_score"], TIER_SCORE["C"])
+        with self.assertRaises(LLMResponseError):
+            _rankings_from_llm(
+                [{"profile_id": "p2", "match_tier": "B", "jd_summary": "x", "match_score_raw": 50}],
+                [{"id": "p1"}, {"id": "p2"}],
+            )
+
+    def test_garbled_match_tier_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _rankings_from_llm
+
+        with self.assertRaises(LLMResponseError):
+            _rankings_from_llm(
+                [{"profile_id": "p1", "match_tier": "not-a-tier", "jd_summary": "x", "match_score_raw": None}],
+                [{"id": "p1"}],
+            )
+
+    def test_blank_match_tier_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _rankings_from_llm
+
+        with self.assertRaises(LLMResponseError):
+            _rankings_from_llm(
+                [{"profile_id": "p1", "match_tier": "", "jd_summary": "x", "match_score_raw": None}],
+                [{"id": "p1"}],
+            )
+
+    def test_absent_match_tier_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _rankings_from_llm
+
+        with self.assertRaises(LLMResponseError):
+            _rankings_from_llm(
+                [{"profile_id": "p1", "jd_summary": "x", "match_score_raw": None}],
+                [{"id": "p1"}],
+            )
+
+    def test_duplicate_profile_id_rows_last_row_wins(self):
+        # Documents current behaviour rather than asserting it's ideal:
+        # _rankings_from_llm keys rows by profile_id into a dict, so a
+        # duplicate silently overwrites the earlier row for that profile
+        # instead of raising or merging. Exactly one ranking is still
+        # produced per requested profile either way -- no profile is ever
+        # left without a tier or given two.
+        from tasks.ranking import _rankings_from_llm
+
+        llm_rankings = [
+            {"profile_id": "p1", "match_tier": "F", "jd_summary": "first", "match_score_raw": 5},
+            {"profile_id": "p1", "match_tier": "S", "jd_summary": "second", "match_score_raw": 90},
+        ]
+        out = _rankings_from_llm(llm_rankings, [{"id": "p1"}])
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["match_tier"], "S")
+        self.assertEqual(out[0]["jd_summary"], "second")
+
+
+class ParseRankingsJsonTests(TestCase):
+    """Issue #125 F-6: the acceptance test only ever exercised well-formed LLM
+    responses. These malformed-response shapes were never tested even though
+    _parse_rankings_json is the first line of defence against re-introducing
+    the silent-fabrication bug -- every one of them must raise
+    LLMResponseError, never return an empty/partial ranking list."""
+
+    PROFILES = [{"id": "p1"}, {"id": "p2"}]
+
+    def test_unparseable_text_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _parse_rankings_json
+
+        with self.assertRaises(LLMResponseError):
+            _parse_rankings_json("not json at all {{{", self.PROFILES)
+
+    def test_truncated_fenced_json_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _parse_rankings_json
+
+        truncated = '```json\n{"rankings": [{"profile_id": "p1", "match_tier": "A"'
+        with self.assertRaises(LLMResponseError):
+            _parse_rankings_json(truncated, self.PROFILES)
+
+    def test_empty_rankings_array_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _parse_rankings_json
+
+        with self.assertRaises(LLMResponseError):
+            _parse_rankings_json(json.dumps({"rankings": []}), self.PROFILES)
+
+    def test_rankings_as_object_instead_of_array_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _parse_rankings_json
+
+        with self.assertRaises(LLMResponseError):
+            _parse_rankings_json(json.dumps({"rankings": {}}), self.PROFILES)
+
+    def test_prose_prefixed_json_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _parse_rankings_json
+
+        body = json.dumps({"rankings": [{"profile_id": "p1", "match_tier": "A"}]})
+        with self.assertRaises(LLMResponseError):
+            _parse_rankings_json("Here is the ranking you asked for:\n" + body, self.PROFILES)
+
+    def test_none_raises(self):
+        from llm import LLMResponseError
+        from tasks.ranking import _parse_rankings_json
+
+        with self.assertRaises(LLMResponseError):
+            _parse_rankings_json(None, self.PROFILES)
+
+
+class ResolveMatchScoreTests(TestCase):
+    """Issue #125 F-6 / F-2: _resolve_match_score is the enforcement point for
+    tier/score consistency -- covers validation (valid/out-of-range/
+    non-numeric/missing) and the F-2 band-clamping behaviour."""
+
+    def test_valid_score_within_its_tier_band_is_returned_as_is(self):
+        from tasks.ranking import _resolve_match_score
+
+        self.assertEqual(_resolve_match_score(45, "B"), 45)
+
+    def test_out_of_0_100_range_falls_back_to_tier_score(self):
+        from tasks.ranking import TIER_SCORE, _resolve_match_score
+
+        self.assertEqual(_resolve_match_score(150, "B"), TIER_SCORE["B"])
+        self.assertEqual(_resolve_match_score(-5, "B"), TIER_SCORE["B"])
+
+    def test_non_numeric_falls_back_to_tier_score(self):
+        from tasks.ranking import TIER_SCORE, _resolve_match_score
+
+        self.assertEqual(_resolve_match_score("not-a-number", "C"), TIER_SCORE["C"])
+        self.assertEqual(_resolve_match_score([1, 2], "C"), TIER_SCORE["C"])
+
+    def test_missing_falls_back_to_tier_score(self):
+        from tasks.ranking import TIER_SCORE, _resolve_match_score
+
+        self.assertEqual(_resolve_match_score(None, "F"), TIER_SCORE["F"])
+
+    def test_bool_falls_back_to_tier_score(self):
+        # bool is an int subclass in Python -- a literal True/False must not
+        # be accepted as a real score.
+        from tasks.ranking import TIER_SCORE, _resolve_match_score
+
+        self.assertEqual(_resolve_match_score(True, "S"), TIER_SCORE["S"])
+
+    def test_valid_score_outside_its_own_tier_band_is_clamped_into_band(self):
+        # Issue #125 F-2: match_tier="F" with match_score=95 used to persist
+        # verbatim, sorting that F job ahead of a real S job -- the tier is
+        # authoritative, so an inconsistent-but-numeric score gets pulled
+        # back into its own tier's documented band rather than trusted or
+        # discarded.
+        from tasks.ranking import TIER_SCORE_RANGE, _resolve_match_score
+
+        f_lo, f_hi = TIER_SCORE_RANGE["F"]
+        self.assertEqual(_resolve_match_score(95, "F"), f_hi)
+
+        s_lo, s_hi = TIER_SCORE_RANGE["S"]
+        self.assertEqual(_resolve_match_score(2, "S"), s_lo)
 
 
 class PipelineBatchPersistenceTests(TestCase):
