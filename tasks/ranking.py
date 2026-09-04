@@ -325,9 +325,15 @@ def _retry_or_release(self, exc, pipeline_run_id, job_id, base_delay=30):
     # task's docstring-adjacent comment for why `rate_limit` is per Consumer
     # (i.e. per celery-worker deployment replica; there's exactly 1) and not
     # divided/multiplied by --concurrency=4. 10/m here + 10/m on formatting
-    # sums to the ~20 tasks/min-total that was observed to produce almost no
-    # 429s against the live ~22-23 key OpenRouter pool, vs. the pre-fix
-    # measured baseline of 550x429/61x200 in ~4 minutes.
+    # sums to 20 task releases/min-total, which was observed to produce
+    # almost no 429s against the live ~22-23 key OpenRouter pool, vs. the
+    # pre-fix measured baseline of 550x429/61x200 in ~4 minutes. That figure
+    # is task releases, NOT upstream request volume: llm.py's
+    # chat_completion does `random.sample(available_keys, k=min(3,
+    # len(available_keys)))`, so one task can make up to 3 HTTP requests
+    # against the key pool. Healthy path is ~20 req/min (matches the
+    # observed evidence above); a degraded path where most calls need key
+    # rotation can reach up to ~60 upstream requests/min.
     rate_limit='10/m',
 )
 def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=None, job_id=None):

@@ -1,4 +1,5 @@
 import json
+import os
 
 import requests
 from django.test import TestCase, Client
@@ -423,6 +424,181 @@ class FormattingTaskPersistenceTests(TestCase):
         self.assertEqual(persisted["company"], "Original Company")
         self.assertEqual(persisted["url"], "https://example.com/job")
         self.assertEqual(persisted["source"], "green")
+
+    # --- Issue #125d fix 1: LLM-error branch releases the lock on exhaustion ---
+
+    def test_retry_or_release_releases_lock_and_reraises_original_exception_on_exhaustion(self):
+        """Unit-level proof for _retry_or_release itself: once retries are
+        exhausted, it must release the processing lock and re-raise the
+        ORIGINAL exception (not a Celery Retry-wrapped one) - never call
+        self.retry() in that case."""
+        import openai
+
+        from tasks.formatting import _retry_or_release
+
+        fake_self = MagicMock()
+        fake_self.request.retries = 5
+        fake_self.max_retries = 5
+        exc = openai.RateLimitError("rate limited", response=MagicMock(), body=None)
+
+        with patch("tasks.formatting._release_processing_state") as mock_release:
+            with self.assertRaises(openai.RateLimitError):
+                _retry_or_release(fake_self, exc, job_id=456, pipeline_run_id=None)
+
+        mock_release.assert_called_once_with(456, None)
+        fake_self.retry.assert_not_called()
+
+    def test_retry_or_release_keeps_backoff_and_does_not_release_when_not_exhausted(self):
+        """Non-exhausted case must still call self.retry with the same
+        backoff formula (30 * 2**retries) the old direct `self.retry(...)`
+        call used, and must NOT release the lock (that would let a second
+        dispatch race the still-pending retry)."""
+        from tasks.formatting import _retry_or_release
+
+        fake_self = MagicMock()
+        fake_self.request.retries = 2
+        fake_self.max_retries = 5
+        fake_self.retry.side_effect = Exception("celery would raise Retry here")
+        exc = ValueError("transient")
+
+        with patch("tasks.formatting._release_processing_state") as mock_release:
+            with self.assertRaises(Exception):
+                _retry_or_release(fake_self, exc, job_id=789, pipeline_run_id=None)
+
+        fake_self.retry.assert_called_once_with(exc=exc, countdown=30 * (2 ** 2))
+        mock_release.assert_not_called()
+
+    @patch("tasks.formatting._retry_or_release")
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_llm_rate_limit_routes_through_retry_or_release_not_raw_retry(
+        self, mock_format_job, mock_persistence_cls, mock_retry_or_release
+    ):
+        """format_and_persist_job's LLM-error branch must call
+        _retry_or_release (which releases the lock on exhaustion) instead of
+        `raise self.retry(...)` directly (which - per Celery's
+        Task.retry - re-raises the original exception via
+        raise_with_context, skipping _release_processing_state entirely and
+        leaking job_processing_lock:<job_id> forever once the pipeline
+        heartbeat (4029b56) starts refreshing it on every beat run)."""
+        import openai
+
+        exc = openai.RateLimitError("rate limited", response=MagicMock(), body=None)
+        mock_format_job.side_effect = exc
+        # Mimic _retry_or_release's real contract: it always raises.
+        mock_retry_or_release.side_effect = exc
+
+        from tasks.formatting import format_and_persist_job
+
+        with patch.dict(os.environ, {"MOCK_LLM": "0"}):
+            with self.assertRaises(openai.RateLimitError):
+                format_and_persist_job.run({
+                    "id": 789,
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "url": "https://example.com/job",
+                    "source": "green",
+                    "raw_data": {"description": "raw"},
+                })
+
+        mock_retry_or_release.assert_called_once()
+        args = mock_retry_or_release.call_args.args
+        self.assertIs(args[1], exc)
+        self.assertEqual(args[2], 789)
+        self.assertIsNone(args[3])
+
+    # --- Issue #125d fix 2: LLMResponseError retries instead of fabricating,
+    # and a content-free fallback is never marked is_formatted=True ---
+
+    @patch("tasks.formatting._fallback_from_raw")
+    @patch("tasks.formatting._retry_or_release")
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_llm_response_error_retries_instead_of_fabricating_fallback(
+        self, mock_format_job, mock_persistence_cls, mock_retry_or_release, mock_fallback
+    ):
+        """LLMResponseError (OpenRouter's error-shaped HTTP 200 for rate
+        limiting / free-tier throttling) must land in the retryable tuple,
+        not the bare `except Exception` fallback path - otherwise it
+        produces a content-free job the ranker can only honestly score F."""
+        from llm import LLMResponseError
+
+        exc = LLMResponseError("provider returned no choices")
+        mock_format_job.side_effect = exc
+        mock_retry_or_release.side_effect = exc
+
+        from tasks.formatting import format_and_persist_job
+
+        with patch.dict(os.environ, {"MOCK_LLM": "0"}):
+            with self.assertRaises(LLMResponseError):
+                format_and_persist_job.run({
+                    "id": 790,
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "url": "https://example.com/job",
+                    "source": "green",
+                    "raw_data": {"description": "raw"},
+                })
+
+        mock_retry_or_release.assert_called_once()
+        mock_fallback.assert_not_called()
+
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_content_free_fallback_is_not_marked_formatted(
+        self, mock_format_job, mock_persistence_cls
+    ):
+        """A fallback that produces no usable description/full_description
+        (the normal case for a pipeline scraper stub, whose description and
+        full_description are always "" - the real text lives only in
+        raw_data) must NOT be marked is_formatted=True. Freezing that row as
+        "done" is exactly the bug: the ranker then honestly scores an empty
+        JD as F and the job is never reformatted or reranked again."""
+        mock_format_job.side_effect = Exception("unexpected formatter failure")
+        mock_persistence_cls.return_value.update_job.return_value = {"id": 321}
+
+        from tasks.formatting import format_and_persist_job
+
+        format_and_persist_job.run({
+            "id": 321,
+            "title": "Engineer",
+            "company": "Acme",
+            "url": "https://example.com/job",
+            "source": "green",
+            "description": "",
+            "full_description": "",
+            "raw_data": {"foo": "bar"},
+        })
+
+        persisted = mock_persistence_cls.return_value.update_job.call_args.args[1]
+        self.assertFalse(persisted["is_formatted"])
+
+    @patch("tasks.formatting.DjangoPersistence")
+    @patch("tasks.formatting._formatter.format_job")
+    def test_fallback_with_real_content_is_still_marked_formatted(
+        self, mock_format_job, mock_persistence_cls
+    ):
+        """Honesty cuts both ways: if the fallback actually has real content
+        to fall back on, it should still be marked formatted rather than
+        needlessly stuck in the unformatted backlog forever."""
+        mock_format_job.side_effect = Exception("unexpected formatter failure")
+        mock_persistence_cls.return_value.update_job.return_value = {"id": 322}
+
+        from tasks.formatting import format_and_persist_job
+
+        format_and_persist_job.run({
+            "id": 322,
+            "title": "Engineer",
+            "company": "Acme",
+            "url": "https://example.com/job",
+            "source": "green",
+            "description": "Some real description text",
+            "full_description": "",
+            "raw_data": {},
+        })
+
+        persisted = mock_persistence_cls.return_value.update_job.call_args.args[1]
+        self.assertTrue(persisted["is_formatted"])
 
 
 class RankingTaskPersistenceTests(TestCase):

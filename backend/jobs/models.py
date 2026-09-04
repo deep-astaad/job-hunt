@@ -170,8 +170,11 @@ class JobRanking(models.Model):
     # Column kept so historical rows retain their pre-#125 values.
     deterministic_tier = models.CharField(max_length=2, choices=TIER_CHOICES, null=True, blank=True)
     # Numeric match score 0..100 (higher = better) for intra-tier sorting. Was the
-    # deterministic/LLM blend before issue #125; now derived from the LLM tier alone
-    # (TIER_SCORE in tasks/ranking.py) until a follow-up wires an LLM-provided score.
+    # deterministic/LLM blend before issue #125; the LLM now provides the score
+    # directly (f2cdec7). tasks/ranking.py's _resolve_match_score validates it
+    # against the tier's documented band (TIER_SCORE_RANGE) - clamping it into
+    # range on a mismatch - and only falls back to the tier's representative
+    # TIER_SCORE when the LLM's score is missing or unusable.
     match_score = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)
     # Per-dimension diagnostics from the deleted deterministic matching engine.
     # Issue #125: always NULL for new rankings now. Column kept for historical rows.

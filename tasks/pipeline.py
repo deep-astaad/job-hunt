@@ -673,11 +673,22 @@ def process_unprocessed_jobs_task(profile_ids=None):
         return {"status": "error", "message": "No profiles found"}
 
     # 2. Get all unformatted jobs
-    unformatted_jobs = Job.objects.filter(is_formatted=False)
+    # Issue #125d fix 4: .only("id") keeps the queryset iteration below from
+    # loading every backlogged job's full row - including raw_data (JSON)
+    # and full_description - into the 512Mi worker pod on every 10-minute
+    # beat tick. The heartbeat/skip branches in the dispatch loop below only
+    # ever touch job.id; only the (rarer) actual-dispatch branch needs the
+    # other fields, and Django transparently fetches those per-instance on
+    # first access (a small extra query per dispatched job, not a bigger
+    # in-memory row for every backlogged job). This pod has already been
+    # OOMKilled once at this limit, and the new rate limits keep the
+    # dispatch gate closed roughly 2x longer, so this now runs over a much
+    # deeper backlog for much longer.
+    unformatted_jobs = Job.objects.filter(is_formatted=False).only("id")
     unformatted_count = unformatted_jobs.count()
 
-    # 3. Get all unranked jobs (formatted, but not ranked)
-    unranked_jobs = Job.objects.filter(is_formatted=True, is_ranked=False)
+    # 3. Get all unranked jobs (formatted, but not ranked) - same reasoning as above.
+    unranked_jobs = Job.objects.filter(is_formatted=True, is_ranked=False).only("id")
     unranked_count = unranked_jobs.count()
 
     logger.info(f"Starting process_unprocessed_jobs_task: {unformatted_count} unformatted, {unranked_count} unranked jobs.")
