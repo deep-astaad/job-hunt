@@ -764,61 +764,111 @@ def process_unprocessed_jobs_task(profile_ids=None):
     from config import CELERY_BROKER_URL
     r = redis.Redis.from_url(CELERY_BROKER_URL)
 
+    # --- Self-limiting re-dispatch guard (issue #124) -----------------------------
+    # This task runs on a 10-minute beat and used to rely solely on the per-job
+    # job_processing_lock (1h TTL) to avoid re-queueing work already in flight.
+    # That's fine when the queue drains faster than the lock expires, but once the
+    # "formatting"/"ranking" queues get deep enough that a message's wait time in
+    # the queue exceeds 1h, the lock expires *before* a worker ever pops the
+    # message — so the next beat tick sees the job still unformatted/unranked,
+    # re-acquires the (now-expired) lock, and enqueues a second message for the
+    # same job. Each subsequent tick compounds this: the queue grows by a full
+    # backlog's worth of duplicates every 10 minutes, which is exactly what was
+    # observed (3,497 queued formatting tasks for 1,581 jobs that actually needed
+    # it). Raising the lock TTL only buys time proportional to a *guessed* drain
+    # rate and silently breaks again if the backlog grows past that guess.
+    #
+    # Instead, gate on the queue itself: if the "formatting" (or "ranking") queue
+    # already holds at least as many messages as there are jobs needing that work,
+    # then — regardless of how slow the drain is — every one of those jobs almost
+    # certainly already has a message in flight for it, and this run has nothing
+    # useful to add. Skip the whole batch rather than let a slow drain plus a fixed
+    # TTL amplify the backlog. This is self-limiting at any drain rate: the guard
+    # only opens back up once the queue has actually drained below the number of
+    # jobs left needing work, which can only happen as real progress is made.
+    #
+    # Note: unformatted_count/unranked_count are the raw DB counts, not "how many
+    # this run would actually enqueue after the per-job lock check" (that number
+    # isn't known until the loop runs) — that's intentional: it mirrors the
+    # coarser number this task already logs, and is the more conservative (larger)
+    # bound to compare the queue depth against.
+    formatting_depth = int(r.llen("formatting") or 0)
+    ranking_depth = int(r.llen("ranking") or 0)
+
+    skip_unformatted = bool(unformatted_count) and formatting_depth >= unformatted_count
+    skip_unranked = bool(unranked_count) and ranking_depth >= unranked_count
+
     # 4. Dispatch format + rank chain for unformatted jobs
-    for job in unformatted_jobs:
-        # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
-        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
-            continue
-            
-        job_data = {
-            "id": job.id,
-            "title": job.title,
-            "company": job.company,
-            "url": job.url,
-            "source": job.source,
-            "raw_data": job.raw_data,
-            "pipeline_run_id": None,
-        }
-        chain(
-            format_and_persist_job.s(job_data),
-            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
-        ).apply_async()
+    if skip_unformatted:
+        logger.info(
+            "process_unprocessed_jobs_task: skipping unformatted dispatch — "
+            f"formatting queue depth ({formatting_depth}) >= unformatted jobs "
+            f"({unformatted_count}); backlog is already fully queued and draining."
+        )
+    else:
+        for job in unformatted_jobs:
+            # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
+            if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
+                continue
+
+            job_data = {
+                "id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "url": job.url,
+                "source": job.source,
+                "raw_data": job.raw_data,
+                "pipeline_run_id": None,
+            }
+            chain(
+                format_and_persist_job.s(job_data),
+                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
+            ).apply_async()
 
     # 5. Dispatch rank directly for unranked jobs
-    for job in unranked_jobs:
-        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
-            continue
-
-        job_data = {
-            "id": job.id,
-            "title": job.title,
-            "company": job.company,
-            "url": job.url,
-            "salary": job.salary,
-            "salary_yen": job.salary_yen,
-            "experience_required": job.experience_required,
-            "language": job.language,
-            "description": job.description,
-            "full_description": job.full_description,
-            "tech_stack": job.tech_stack,
-            "location": job.location,
-            "region": job.region,
-            "is_remote": job.is_remote,
-            "source": job.source,
-        }
-        rank_job_multi_profile.apply_async(
-            kwargs={
-                "formatted_job_data": job_data,
-                "profiles": ranker_profiles,
-                "pipeline_run_id": None,
-                "job_id": job.id
-            },
+    if skip_unranked:
+        logger.info(
+            "process_unprocessed_jobs_task: skipping unranked dispatch — "
+            f"ranking queue depth ({ranking_depth}) >= unranked jobs "
+            f"({unranked_count}); backlog is already fully queued and draining."
         )
+    else:
+        for job in unranked_jobs:
+            if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
+                continue
+
+            job_data = {
+                "id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "url": job.url,
+                "salary": job.salary,
+                "salary_yen": job.salary_yen,
+                "experience_required": job.experience_required,
+                "language": job.language,
+                "description": job.description,
+                "full_description": job.full_description,
+                "tech_stack": job.tech_stack,
+                "location": job.location,
+                "region": job.region,
+                "is_remote": job.is_remote,
+                "source": job.source,
+            }
+            rank_job_multi_profile.apply_async(
+                kwargs={
+                    "formatted_job_data": job_data,
+                    "profiles": ranker_profiles,
+                    "pipeline_run_id": None,
+                    "job_id": job.id
+                },
+            )
 
     return {
         "status": "success",
         "unformatted_processed": unformatted_count,
         "unranked_processed": unranked_count,
+        "unformatted_dispatch_skipped": skip_unformatted,
+        "unranked_dispatch_skipped": skip_unranked,
     }
 
 

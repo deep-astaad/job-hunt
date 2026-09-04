@@ -186,19 +186,50 @@ class CeleryTaskTests(TestCase):
         mock_load_profiles.return_value = [{"id": "profile_1"}]
         # Isolate from any real Redis: the per-job dedup lock always "acquires".
         mock_redis_from_url.return_value.set.return_value = True
+        # Queues are empty, so the issue #124 dispatch guard must not engage.
+        mock_redis_from_url.return_value.llen.return_value = 0
 
         from tasks.pipeline import process_unprocessed_jobs_task
-        
+
         result = process_unprocessed_jobs_task()
-        
+
         self.assertEqual(result.get("unformatted_processed"), 1)
         self.assertEqual(result.get("unranked_processed"), 1)
-        
+        self.assertFalse(result.get("unformatted_dispatch_skipped"))
+        self.assertFalse(result.get("unranked_dispatch_skipped"))
+
         # Verify formatting + ranking chain was triggered for unformatted job
         mock_chain.assert_called_once()
-        
+
         # Verify rank task was called directly for unranked job
         mock_rank_apply_async.assert_called_once()
+
+    @patch("redis.Redis.from_url")
+    @patch("tasks.pipeline._load_profiles_for_ranking")
+    @patch("celery.chain")
+    @patch("tasks.ranking.rank_job_multi_profile.apply_async")
+    def test_process_unprocessed_jobs_task_skips_when_queues_already_saturated(
+        self, mock_rank_apply_async, mock_chain, mock_load_profiles, mock_redis_from_url
+    ):
+        """Issue #124 regression: a deep queue must suppress re-dispatch instead of
+        piling more messages on top of a slow drain."""
+        mock_load_profiles.return_value = [{"id": "profile_1"}]
+        mock_redis_from_url.return_value.set.return_value = True
+        # Both queues already have at least as many messages as jobs needing work
+        # (1 unformatted, 1 unranked) -> the guard should skip both loops entirely.
+        mock_redis_from_url.return_value.llen.return_value = 5
+
+        from tasks.pipeline import process_unprocessed_jobs_task
+
+        result = process_unprocessed_jobs_task()
+
+        self.assertEqual(result.get("unformatted_processed"), 1)
+        self.assertEqual(result.get("unranked_processed"), 1)
+        self.assertTrue(result.get("unformatted_dispatch_skipped"))
+        self.assertTrue(result.get("unranked_dispatch_skipped"))
+
+        mock_chain.assert_not_called()
+        mock_rank_apply_async.assert_not_called()
 
 
 class SourceChoicesTests(TestCase):
