@@ -1,13 +1,15 @@
-"""Thin LLM call helper with an optional fallback provider.
+"""Thin LLM call helper.
 
-`chat_completion()` tries the primary OpenAI-compatible provider and, if it
-errors, transparently retries against a configured fallback (e.g. a local Ollama
-instance). The fallback is disabled by default (empty base_url) so existing
-deployments are unaffected until it's explicitly configured via the settings
-endpoint / env (OPENAI_FALLBACK_BASE_URL, OPENAI_FALLBACK_MODEL, ...).
+`chat_completion()` calls the single configured OpenAI-compatible provider
+(base_url from OPENAI_BASE_URL / the settings endpoint) and, if the call
+fails, retries up to 3 times against that SAME base_url with a different
+randomly-chosen API key from the configured pool (OPENAI_API_KEYS plus any
+OPENAI_FALLBACK_API_KEY(S) entries — those are just extra keys in the same
+pool, not a separate provider). There is no separate fallback provider /
+base_url; the "fallback" naming refers only to backup keys.
 
-Returns the assistant message content (str). Raises the primary exception only
-when no fallback is configured or the fallback also fails.
+Returns the assistant message content (str). Raises the last exception seen
+once all attempts are exhausted.
 """
 from __future__ import annotations
 
@@ -24,12 +26,35 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+class LLMResponseError(Exception):
+    """Raised when the provider returns a 200 with no usable choices.
+
+    OpenRouter (and other OpenAI-compatible providers) do this for rate
+    limiting, free-tier throttling, and upstream model errors: the HTTP call
+    succeeds but the body is error-shaped (`choices` missing/None/empty, an
+    `error` field instead). Indexing that response directly raises an opaque
+    `TypeError: 'NoneType' object is not subscriptable`, which is neither an
+    `openai.*` exception nor a `requests.RequestException` and therefore
+    escapes both retry ladders in tasks/ranking.py, permanently failing the
+    job. Raising this instead keeps the failure inside the `Exception` type
+    that chat_completion's own retry loop already catches, and carries the
+    provider's error payload so it's visible in logs.
+    """
+
+
 def _call(client, model, messages, temperature, timeout, response_format):
     kwargs = dict(model=model, messages=messages, temperature=temperature, timeout=timeout)
     if response_format is not None:
         kwargs["response_format"] = response_format
     resp = client.chat.completions.create(**kwargs)
-    return resp.choices[0].message.content
+    choices = getattr(resp, "choices", None)
+    if not choices:
+        error_payload = getattr(resp, "error", None)
+        raise LLMResponseError(
+            f"LLM provider returned no choices (error-shaped response): "
+            f"error={error_payload!r} response_id={getattr(resp, 'id', None)!r}"
+        )
+    return choices[0].message.content
 
 
 def chat_completion(messages, temperature=0.2, timeout=120, response_format=None):
