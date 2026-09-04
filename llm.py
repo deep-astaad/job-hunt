@@ -103,7 +103,26 @@ def _call(client, model, messages, temperature, timeout, response_format):
             f"LLM provider returned no choices (error-shaped response): "
             f"error={error_payload!r} response_id={getattr(resp, 'id', None)!r}"
         )
-    return choices[0].message.content
+    message = choices[0].message
+    content = message.content
+    if content is None:
+        # OpenRouter routinely returns choices[0].message.content == None for
+        # reasoning models that put their text in `message.reasoning`
+        # instead, for refusals, and for upstream providers that ignore
+        # response_format={"type": "json_object"}. Returning None here would
+        # let it flow into json.loads(None) downstream (ranking/persistence),
+        # which raises TypeError — not json.JSONDecodeError — and either
+        # escapes retry handling entirely or gets silently absorbed into a
+        # fallback path that marks the job formatted without ever having
+        # been formatted. Raise here instead so it stays inside the
+        # Exception type chat_completion's own retry loop already catches.
+        had_reasoning = getattr(message, "reasoning", None) is not None
+        raise LLMResponseError(
+            f"LLM provider returned a choice with no message content "
+            f"(content is None): response_id={getattr(resp, 'id', None)!r} "
+            f"had_reasoning={had_reasoning!r}"
+        )
+    return content
 
 
 def chat_completion(messages, temperature=0.2, timeout=120, response_format=None):
@@ -116,6 +135,15 @@ def chat_completion(messages, temperature=0.2, timeout=120, response_format=None
     api_keys = get_openai_api_keys()
     if not api_keys:
         raise ValueError("No OpenAI API keys configured.")
+    # config.get_openai_api_keys() only dedupes *across* its separate
+    # sources (OPENAI_API_KEYS vs OPENAI_API_KEY vs the fallback vars); it
+    # does not dedupe *within* a single comma-separated OPENAI_API_KEYS
+    # value. random.sample() below samples by position, so a key pasted
+    # twice in that list occupies two positions and can be sampled twice,
+    # reintroducing the "same key on both attempts" failure this rotation
+    # scheme exists to prevent. Dedupe here, preserving order, before any
+    # sampling or cooldown filtering happens.
+    api_keys = list(dict.fromkeys(api_keys))
 
     base_url = get_openai_base_url()
     model = get_openai_model()
@@ -151,7 +179,12 @@ def chat_completion(messages, temperature=0.2, timeout=120, response_format=None
         except Exception as exc:
             logger.warning(
                 "llm_call_failed",
-                extra={"error": str(exc), "attempt": attempt + 1, "key_index": attempt},
+                extra={
+                    "error": str(exc),
+                    "attempt": attempt + 1,
+                    "key_index": attempt,
+                    "key_digest": _key_digest(api_key),
+                },
             )
             last_exc = exc
             if attempt < len(attempt_keys) - 1:
