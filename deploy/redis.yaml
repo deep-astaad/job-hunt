@@ -1,9 +1,33 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # Longhorn, same as mysql-data: the node's local-path default lands on the
+  # ~38GB OS disk with no snapshots or expansion.
+  storageClassName: longhorn
+  resources:
+    requests:
+      # The live dataset is ~54MB (celery broker + results + app_settings), so
+      # 1Gi is ample for AOF + RDB with rewrite headroom. Deliberately not
+      # larger: mysql-data already holds 8Gi of the namespace ResourceQuota's
+      # 10Gi requests.storage, and this leaves 1Gi spare rather than consuming
+      # the lot.
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
 spec:
   replicas: 1
+  # Recreate, not the RollingUpdate default: the Longhorn volume is
+  # ReadWriteOnce, so a surge pod could never attach it while the old pod
+  # still holds it and the rollout would deadlock. Same reason as mysql.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: redis
@@ -15,15 +39,57 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          # Redis holds three different things here: the Celery broker queues,
+          # the Celery result backend, and the dynamic `app_settings` hash the
+          # Settings UI writes (Apify token, OpenAI/OpenRouter base URL, model
+          # and keys). Losing the last one silently reverts the app to the
+          # stale env-var defaults, so this must survive a restart.
+          args:
+            - redis-server
+            # AOF is the durability mechanism: appendfsync everysec bounds
+            # worst-case loss to ~1s, versus the RDB-only default which lost
+            # everything written since the last snapshot.
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            # One RDB checkpoint retained alongside the AOF as a compact
+            # secondary artifact; AOF is what is replayed on boot.
+            - --save
+            - "900 1"
+            # Bound the dataset *below* the container memory limit so Redis
+            # evicts under its own control instead of being OOMKilled by the
+            # kernel (exit 137), which is what wiped app_settings before. The
+            # 256Mi gap absorbs fragmentation and the fork COW during an AOF
+            # rewrite.
+            - --maxmemory
+            - 768mb
+            # volatile-lru, NOT allkeys-*: only keys carrying a TTL are
+            # evictable. Celery result entries and job_processing_lock:* have
+            # TTLs and are safely expendable; the broker queues, the
+            # pipeline:* counters and app_settings carry none, so they can
+            # never be evicted out from under the pipeline.
+            - --maxmemory-policy
+            - volatile-lru
           ports:
             - containerPort: 6379
+          volumeMounts:
+            # /data is the redis image's working directory, so the AOF and RDB
+            # files land on the volume without further configuration.
+            - name: data
+              mountPath: /data
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 150m
               memory: 256Mi
+            limits:
+              # Raised from 150m/256Mi. The old 256Mi ceiling was OOMKilled on
+              # 2026-09-02 under normal pipeline load; the extra CPU covers the
+              # background fork that AOF rewrites now introduce. Both sit under
+              # the LimitRange per-container max (cpu 1, memory 2Gi) and inside
+              # the namespace ResourceQuota.
+              cpu: 500m
+              memory: 1Gi
           readinessProbe:
             exec:
               command:
@@ -36,8 +102,14 @@ spec:
               command:
                 - redis-cli
                 - ping
-            initialDelaySeconds: 10
+            # 30s, not 10s: Redis replays the AOF before it answers PING, so a
+            # tight initial delay would kill it mid-load on a cold start.
+            initialDelaySeconds: 30
             periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redis-data
 ---
 apiVersion: v1
 kind: Service
