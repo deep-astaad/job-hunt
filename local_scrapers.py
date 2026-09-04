@@ -33,15 +33,31 @@ class ScrapeResult(list):
     This is a plain `list` subclass: `isinstance(result, list)` is True,
     iteration/len/`.extend()` all behave exactly like a normal list, so
     `tasks/pipeline.py::run_local_scrapers`'s `all_jobs.extend(scrape_x(...))`
-    keeps working unmodified. The `.blocked`/`.reason` attributes let a
-    caller that cares distinguish "the source blocked us" from "the source
-    genuinely has zero new jobs right now" without changing the return type.
+    keeps working unmodified regardless of which status a call ends with.
+
+    `status` is one of:
+      - "ok"      succeeded (possibly with zero jobs — a genuinely empty
+                  listing looks the same to the site and to us)
+      - "blocked" the listing 403'd and stayed 403'd after one retry
+      - "failed"  any other fetch/parse error (timeout, DNS, 5xx, ...)
+
+    A caller reading only the return value (not the logs) can tell all
+    three apart via `.status` (or the `.blocked`/`.failed` convenience
+    properties), without the return *type* ever changing.
     """
 
-    def __init__(self, jobs=None, blocked=False, reason=None):
+    def __init__(self, jobs=None, status="ok", reason=None):
         super().__init__(jobs or [])
-        self.blocked = blocked
+        self.status = status
         self.reason = reason
+
+    @property
+    def blocked(self):
+        return self.status == "blocked"
+
+    @property
+    def failed(self):
+        return self.status == "failed"
 
 
 def _new_scraper():
@@ -84,6 +100,27 @@ def _fetch_listing(scraper, url, source):
         return resp
 
 
+def _get_listing_or_report(scraper, url, source):
+    """Shared wrapper around `_fetch_listing` for all 7 scrapers.
+
+    Returns `(resp, None)` on success. On failure, returns `(None, result)`
+    where `result` is the ScrapeResult the calling scraper function should
+    return immediately — already logged at the right level:
+      - ScraperBlockedError -> logged CRITICAL, status="blocked"
+      - any other exception -> logged ERROR (same "Failed to fetch ... list"
+        text as before), status="failed"
+    """
+    try:
+        resp = _fetch_listing(scraper, url, source)
+        return resp, None
+    except ScraperBlockedError as e:
+        logger.critical(f"{source} SCRAPER BLOCKED: {e}")
+        return None, ScrapeResult(status="blocked", reason=str(e))
+    except Exception as e:
+        logger.error(f"Failed to fetch {source} list: {e}")
+        return None, ScrapeResult(status="failed", reason=str(e))
+
+
 def scrape_tokyo_dev(limit=50):
     """Scrape recent jobs from Tokyo-Dev."""
     scraper = _new_scraper()
@@ -91,14 +128,9 @@ def scrape_tokyo_dev(limit=50):
     jobs_url = f"{base_url}/jobs"
 
     logger.info(f"Fetching Tokyo-Dev job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "Tokyo-Dev")
-    except ScraperBlockedError as e:
-        logger.critical(f"Tokyo-Dev SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch Tokyo-Dev list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "Tokyo-Dev")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a[href*="/companies/"][href*="/jobs/"]')
@@ -161,14 +193,9 @@ def scrape_japan_dev(limit=50):
     jobs_url = f"{base_url}/jobs"
 
     logger.info(f"Fetching Japan-Dev job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "Japan-Dev")
-    except ScraperBlockedError as e:
-        logger.critical(f"Japan-Dev SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch Japan-Dev list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "Japan-Dev")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a[href^="/jobs/"]')
@@ -235,14 +262,9 @@ def scrape_gaijinpot(limit=50):
     jobs_url = f"{base_url}/job/index/category/17/lang/en"
 
     logger.info(f"Fetching GaijinPot job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "GaijinPot")
-    except ScraperBlockedError as e:
-        logger.critical(f"GaijinPot SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch GaijinPot list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "GaijinPot")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a[href^="/en/job/"]')
@@ -308,14 +330,9 @@ def scrape_careercross(limit=50):
     jobs_url = f"{base_url}/en/job-search/result?search%5Bjob_category_ids%5D%5B%5D=1"
 
     logger.info(f"Fetching CareerCross job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "CareerCross")
-    except ScraperBlockedError as e:
-        logger.critical(f"CareerCross SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch CareerCross list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "CareerCross")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a[href*="/en/job/"]')
@@ -379,14 +396,9 @@ def scrape_green(limit=50):
     jobs_url = f"{base_url}/search_key"
 
     logger.info(f"Fetching Green job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "Green")
-    except ScraperBlockedError as e:
-        logger.critical(f"Green SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch Green list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "Green")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a[href*="/job/"]')
@@ -449,14 +461,9 @@ def scrape_daijob(limit=50):
     jobs_url = f"{base_url}/en/jobs/search_result?target=category&num_pages=1&kw=engineer"
 
     logger.info(f"Fetching Daijob job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "Daijob")
-    except ScraperBlockedError as e:
-        logger.critical(f"Daijob SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch Daijob list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "Daijob")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a')
@@ -519,14 +526,9 @@ def scrape_wantedly(limit=50):
     jobs_url = f"{base_url}/projects?type=mixed&page=1&occupations%5B%5D=1"
 
     logger.info(f"Fetching Wantedly job list from {jobs_url}")
-    try:
-        resp = _fetch_listing(scraper, jobs_url, "Wantedly")
-    except ScraperBlockedError as e:
-        logger.critical(f"Wantedly SCRAPER BLOCKED: {e}")
-        return ScrapeResult(blocked=True, reason=str(e))
-    except Exception as e:
-        logger.error(f"Failed to fetch Wantedly list: {e}")
-        return ScrapeResult()
+    resp, failure = _get_listing_or_report(scraper, jobs_url, "Wantedly")
+    if failure is not None:
+        return failure
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     link_elements = soup.select('a')
