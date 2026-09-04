@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: celery-worker
-          image: ghcr.io/deep-astaad/job-hunt:sha-91b2db0
+          image: ghcr.io/deep-astaad/job-hunt:sha-59e7de0
           args: ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--pool=threads", "--concurrency=4"]
           env:
             - name: APP_MODE
