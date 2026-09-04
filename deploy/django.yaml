@@ -96,6 +96,30 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # Cold start is `manage.py migrate` + system checks + `runserver`
+          # binding :8000, measured at over 3 minutes under node CPU
+          # contention (verified with a probe-less debug pod on the same node
+          # and image). Without a startupProbe, liveness's own
+          # initialDelaySeconds+periodSeconds*failureThreshold budget
+          # (~105s) was too short: the probe failure signature is
+          # "connection refused" (nothing listening yet), not a timeout, so
+          # liveness was killing the container mid-migrate. The restart then
+          # repeated the migrate/checks work and added load, a
+          # self-reinforcing crash loop observed at 7 restarts. This
+          # startupProbe budget (periodSeconds * failureThreshold = 300s)
+          # suppresses liveness/readiness until the app is actually up;
+          # once startupProbe succeeds once, the tight liveness/readiness
+          # budgets below take over for steady-state detection.
+          startupProbe:
+            httpGet:
+              path: /api/jobs/stats/
+              port: 8000
+              httpHeaders:
+                - name: Host
+                  value: job-hunt.neovara.uk
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /api/jobs/stats/
