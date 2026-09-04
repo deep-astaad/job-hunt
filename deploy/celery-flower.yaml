@@ -4,6 +4,14 @@ metadata:
   name: celery-flower
 spec:
   replicas: 1
+  # Recreate, not the RollingUpdate default: the job-hunt-quota ResourceQuota
+  # has no headroom for a surge pod (limits.memory already sits at 4Gi of the
+  # 5Gi hard cap), so a rolling update's extra pod is rejected with "exceeded
+  # quota" and the rollout stalls until the old pod is scaled down anyway.
+  # flower is a monitoring UI, not a queue-critical path - a brief gap while
+  # the pod restarts is harmless here.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: celery-flower

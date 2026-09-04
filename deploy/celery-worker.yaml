@@ -4,6 +4,15 @@ metadata:
   name: celery-worker
 spec:
   replicas: 1
+  # Recreate, not the RollingUpdate default: the job-hunt-quota ResourceQuota
+  # has no headroom for a surge pod (limits.memory already sits at 4Gi of the
+  # 5Gi hard cap), so a rolling update's extra pod is rejected with "exceeded
+  # quota" and the rollout stalls until the old pod is scaled down anyway -
+  # and any in-flight task on that killed worker is lost. A queue consumer
+  # gains nothing from a surge pod; a brief gap while the pod restarts is
+  # harmless here.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: celery-worker
