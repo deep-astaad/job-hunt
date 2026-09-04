@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: celery-flower
-          image: ghcr.io/deep-astaad/job-hunt:sha-59e7de0
+          image: ghcr.io/deep-astaad/job-hunt:sha-9495351
           args: ["celery", "-A", "celery_app", "flower", "--port=5555"]
           ports:
             - containerPort: 5555
