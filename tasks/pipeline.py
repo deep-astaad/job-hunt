@@ -150,7 +150,7 @@ def _persist_prescreen_f(job_data, pre_results, persister):
     return True
 
 
-def _dispatch_or_prescreen(job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority):
+def _dispatch_or_prescreen(job_data, ranker_profiles, r, pipeline_run_id, persister):
     """Pre-screen a job and either persist F inline or dispatch the format+rank chain.
 
     The Redis lock for job_data['id'] must already be held by the caller.
@@ -187,12 +187,12 @@ def _dispatch_or_prescreen(job_data, ranker_profiles, r, pipeline_run_id, persis
     r.hset(f"pipeline:{pipeline_run_id}:dispatched_at", job_id, time.time())
     r.incr(f"pipeline:{pipeline_run_id}:total_jobs")
     chain(
-        format_and_persist_job.s(job_data).set(priority=job_priority),
+        format_and_persist_job.s(job_data),
         rank_job_multi_profile.s(
             profiles=ranker_profiles,
             pipeline_run_id=pipeline_run_id,
             job_id=job_id,
-        ).set(priority=job_priority),
+        ),
     ).apply_async()
     return True
 
@@ -279,8 +279,6 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
         from tasks.formatting import format_and_persist_job
         from tasks.ranking import rank_job_multi_profile
 
-        job_priority = 9 if location == "japan_tokyo" else 5
-
         # Build stubs for every item in the page (no HTTP calls yet).
         batch_jobs = []
         stub_by_url = {}  # normalized_url → raw job_dict (for dispatch below)
@@ -321,7 +319,7 @@ def poll_actor_dataset(self, run_id, dataset_id, actor_id, source, profile_ids, 
                 }
 
                 _dispatch_or_prescreen(
-                    job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority
+                    job_data, ranker_profiles, r, pipeline_run_id, persister
                 )
 
 
@@ -570,7 +568,7 @@ def run_local_scrapers(self, profile_ids, pipeline_run_id):
             }
 
             _dispatch_or_prescreen(
-                job_data, ranker_profiles, r, pipeline_run_id, persister, job_priority=9
+                job_data, ranker_profiles, r, pipeline_run_id, persister
             )
 
 
@@ -766,13 +764,6 @@ def process_unprocessed_jobs_task(profile_ids=None):
     from config import CELERY_BROKER_URL
     r = redis.Redis.from_url(CELERY_BROKER_URL)
 
-    def get_job_priority(job):
-        if job.source in ["japan_dev", "tokyo_dev", "gaijinpot", "careercross", "green", "daijob", "wantedly"]:
-            return 9
-        if job.location and ("japan" in job.location.lower() or "tokyo" in job.location.lower()):
-            return 9
-        return 5
-
     # 4. Dispatch format + rank chain for unformatted jobs
     for job in unformatted_jobs:
         # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
@@ -788,10 +779,9 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "raw_data": job.raw_data,
             "pipeline_run_id": None,
         }
-        job_priority = get_job_priority(job)
         chain(
-            format_and_persist_job.s(job_data).set(priority=job_priority),
-            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id).set(priority=job_priority),
+            format_and_persist_job.s(job_data),
+            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
         ).apply_async()
 
     # 5. Dispatch rank directly for unranked jobs
@@ -816,7 +806,6 @@ def process_unprocessed_jobs_task(profile_ids=None):
             "is_remote": job.is_remote,
             "source": job.source,
         }
-        job_priority = get_job_priority(job)
         rank_job_multi_profile.apply_async(
             kwargs={
                 "formatted_job_data": job_data,
@@ -824,7 +813,6 @@ def process_unprocessed_jobs_task(profile_ids=None):
                 "pipeline_run_id": None,
                 "job_id": job.id
             },
-            priority=job_priority
         )
 
     return {
