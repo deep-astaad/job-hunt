@@ -764,12 +764,112 @@ def process_unprocessed_jobs_task(profile_ids=None):
     from config import CELERY_BROKER_URL
     r = redis.Redis.from_url(CELERY_BROKER_URL)
 
+    # --- Self-limiting re-dispatch guard (issue #124) -----------------------------
+    # This task runs on a 10-minute beat and used to rely solely on the per-job
+    # job_processing_lock (1h TTL) to avoid re-queueing work already in flight.
+    # That's fine when the queue drains faster than the lock expires, but once the
+    # "formatting"/"ranking" queues get deep enough that a message's wait time in
+    # the queue exceeds 1h, the lock expires *before* a worker ever pops the
+    # message — so the next beat tick sees the job still unformatted/unranked,
+    # re-acquires the (now-expired) lock, and enqueues a second message for the
+    # same job. Each subsequent tick compounds this: the queue grows by a full
+    # backlog's worth of duplicates every 10 minutes, which is exactly what was
+    # observed (3,497 queued formatting tasks for 1,581 jobs that actually needed
+    # it).
+    #
+    # Gate on the queue itself: if the "formatting" (or "ranking") queue already
+    # holds at least as many messages as there are jobs needing that work, this
+    # run withholds *new* dispatch — there's nothing useful a fresh message would
+    # add while the queue is already saturated. This alone is self-limiting
+    # regardless of drain rate: the gate only reopens once the queue has actually
+    # drained below the number of jobs left needing work.
+    #
+    # That gate is not sufficient by itself, though (fix-round-1 finding): the
+    # per-job lock still has a fixed 1h TTL, and reopening can take far longer
+    # than that (e.g. formatting depth 4735 vs 831 jobs at ~20/min drain is
+    # 3+ hours). A lock set when a message was originally enqueued can lapse
+    # while that same message is still sitting, unpopped, deep in the queue. At
+    # the moment the gate reopens, the loop can no longer tell "already queued,
+    # lock merely expired" apart from "genuinely fresh" — so it would re-lock and
+    # re-dispatch a job whose original message hasn't even run yet. That's a
+    # smaller, less frequent recurrence of the exact amplification this guard
+    # exists to remove.
+    #
+    # Fix: combine the gate with a continuously-refreshed lock (options (a)+(b)).
+    # Every run, for every job still needing work, check whether its lock is
+    # *currently held* (`EXISTS`, not a new `SETNX`):
+    #   - held        -> a message is already in flight for this job somewhere.
+    #                    Refresh ("heartbeat") its TTL back to the full window and
+    #                    dispatch nothing. Because this task runs every ~10
+    #                    minutes — far inside the 1h TTL — a job's lock now never
+    #                    lapses while its message is still queued, no matter how
+    #                    many hours the gate stays closed. This replaces "raise
+    #                    the TTL to outlast a *guessed* worst-case drain time"
+    #                    (which just moves the same failure mode to a bigger
+    #                    number) with "the TTL only ever needs to outlast the gap
+    #                    between two beat ticks", which is a fixed, known
+    #                    quantity, not a guess about the outside world.
+    #   - not held    -> genuinely nothing in flight for this job. Dispatch it,
+    #                    but only if the coarse gate is open; if the gate is
+    #                    closed we deliberately take no action at all — we do NOT
+    #                    acquire a lock here, because a lock with no message
+    #                    behind it would silently stall the job until that
+    #                    phantom lock itself expired.
+    # The two together satisfy the required invariant: a job whose message is
+    # already sitting in a queue never gets a second message enqueued, regardless
+    # of how long the drain takes.
+    #
+    # Note: unformatted_count/unranked_count (used for the coarse gate) are the
+    # raw DB counts, not "how many this run would actually dispatch after the
+    # per-job lock check" (that number isn't known until the loop runs) — that's
+    # intentional: it mirrors the coarser number this task already logs, and is
+    # the more conservative (larger) bound to compare the queue depth against.
+    LOCK_TTL = 3600  # comfortably longer than the ~10-minute beat interval that refreshes it
+
+    formatting_depth = int(r.llen("formatting") or 0)
+    ranking_depth = int(r.llen("ranking") or 0)
+
+    skip_unformatted = bool(unformatted_count) and formatting_depth >= unformatted_count
+    skip_unranked = bool(unranked_count) and ranking_depth >= unranked_count
+
+    if skip_unformatted:
+        logger.info(
+            "process_unprocessed_jobs_task: withholding new unformatted dispatch — "
+            f"formatting queue depth ({formatting_depth}) >= unformatted jobs "
+            f"({unformatted_count}); backlog is already fully queued and draining. "
+            "Still heartbeating locks for jobs already in flight."
+        )
+    if skip_unranked:
+        logger.info(
+            "process_unprocessed_jobs_task: withholding new unranked dispatch — "
+            f"ranking queue depth ({ranking_depth}) >= unranked jobs "
+            f"({unranked_count}); backlog is already fully queued and draining. "
+            "Still heartbeating locks for jobs already in flight."
+        )
+
+    unformatted_dispatched = 0
+    unformatted_locks_refreshed = 0
+    unranked_dispatched = 0
+    unranked_locks_refreshed = 0
+
     # 4. Dispatch format + rank chain for unformatted jobs
     for job in unformatted_jobs:
-        # Prevent concurrent duplicate queueing (lock expires in 1 hour if it fails)
-        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
+        lock_key = f"job_processing_lock:{job.id}"
+        if r.exists(lock_key):
+            # Already has a message in flight -- heartbeat, never re-dispatch.
+            r.expire(lock_key, LOCK_TTL)
+            unformatted_locks_refreshed += 1
             continue
-            
+
+        if skip_unformatted:
+            # No lock, but the queue is already saturated overall -- withhold
+            # dispatch without creating a lock (see block comment above).
+            continue
+
+        if not r.set(lock_key, "1", nx=True, ex=LOCK_TTL):
+            # Lost a race against a concurrent dispatch of the same job.
+            continue
+
         job_data = {
             "id": job.id,
             "title": job.title,
@@ -783,10 +883,20 @@ def process_unprocessed_jobs_task(profile_ids=None):
             format_and_persist_job.s(job_data),
             rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
         ).apply_async()
+        unformatted_dispatched += 1
 
     # 5. Dispatch rank directly for unranked jobs
     for job in unranked_jobs:
-        if not r.set(f"job_processing_lock:{job.id}", "1", nx=True, ex=3600):
+        lock_key = f"job_processing_lock:{job.id}"
+        if r.exists(lock_key):
+            r.expire(lock_key, LOCK_TTL)
+            unranked_locks_refreshed += 1
+            continue
+
+        if skip_unranked:
+            continue
+
+        if not r.set(lock_key, "1", nx=True, ex=LOCK_TTL):
             continue
 
         job_data = {
@@ -814,11 +924,18 @@ def process_unprocessed_jobs_task(profile_ids=None):
                 "job_id": job.id
             },
         )
+        unranked_dispatched += 1
 
     return {
         "status": "success",
         "unformatted_processed": unformatted_count,
         "unranked_processed": unranked_count,
+        "unformatted_dispatch_skipped": skip_unformatted,
+        "unranked_dispatch_skipped": skip_unranked,
+        "unformatted_dispatched": unformatted_dispatched,
+        "unformatted_locks_refreshed": unformatted_locks_refreshed,
+        "unranked_dispatched": unranked_dispatched,
+        "unranked_locks_refreshed": unranked_locks_refreshed,
     }
 
 

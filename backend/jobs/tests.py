@@ -183,22 +183,121 @@ class CeleryTaskTests(TestCase):
     @patch("tasks.ranking.rank_job_multi_profile.apply_async")
     def test_process_unprocessed_jobs_task(self, mock_rank_apply_async, mock_chain,
                                            mock_load_profiles, mock_redis_from_url):
+        # A second unformatted job so unformatted_count (2) != unranked_count (1)
+        # -- deliberately asymmetric so a formatting_depth/ranking_depth swap bug
+        # would flip one queue's skip decision and fail this test (see the
+        # dedicated swap-check assertions below).
+        Job.objects.create(
+            title="Second Unformatted Engineer",
+            company="Company D",
+            url="https://comp-d.com/job",
+            url_hash="hash_d",
+            is_formatted=False,
+        )
+
         mock_load_profiles.return_value = [{"id": "profile_1"}]
-        # Isolate from any real Redis: the per-job dedup lock always "acquires".
-        mock_redis_from_url.return_value.set.return_value = True
+        fake_redis = mock_redis_from_url.return_value
+        # Isolate from any real Redis: the per-job dedup lock always "acquires",
+        # and no job currently holds a lock.
+        fake_redis.set.return_value = True
+        fake_redis.exists.return_value = False
+        # Distinct, sub-saturating depths per queue: formatting=1 < 2 unformatted,
+        # ranking=0 < 1 unranked -- both gates must stay open.
+        fake_redis.llen.side_effect = {"formatting": 1, "ranking": 0}.get
 
         from tasks.pipeline import process_unprocessed_jobs_task
-        
+
         result = process_unprocessed_jobs_task()
-        
-        self.assertEqual(result.get("unformatted_processed"), 1)
+
+        self.assertEqual(result.get("unformatted_processed"), 2)
         self.assertEqual(result.get("unranked_processed"), 1)
-        
-        # Verify formatting + ranking chain was triggered for unformatted job
-        mock_chain.assert_called_once()
-        
-        # Verify rank task was called directly for unranked job
+        self.assertFalse(result.get("unformatted_dispatch_skipped"))
+        self.assertFalse(result.get("unranked_dispatch_skipped"))
+        self.assertEqual(result.get("unformatted_dispatched"), 2)
+        self.assertEqual(result.get("unranked_dispatched"), 1)
+        self.assertEqual(result.get("unformatted_locks_refreshed"), 0)
+        self.assertEqual(result.get("unranked_locks_refreshed"), 0)
+
+        # Verify formatting + ranking chain was triggered for each unformatted job
+        self.assertEqual(mock_chain.call_count, 2)
+
+        # Verify rank task was called directly for the unranked job
         mock_rank_apply_async.assert_called_once()
+
+        # Each queue's own depth must actually have been consulted (this is what
+        # would catch a formatting_depth/ranking_depth swap: with these chosen
+        # values, swapping them would incorrectly close the unranked gate, since
+        # formatting's depth (1) >= unranked's count (1)).
+        fake_redis.llen.assert_any_call("formatting")
+        fake_redis.llen.assert_any_call("ranking")
+
+    @patch("redis.Redis.from_url")
+    @patch("tasks.pipeline._load_profiles_for_ranking")
+    @patch("celery.chain")
+    @patch("tasks.ranking.rank_job_multi_profile.apply_async")
+    def test_process_unprocessed_jobs_task_heartbeats_instead_of_redispatching(
+        self, mock_rank_apply_async, mock_chain, mock_load_profiles, mock_redis_from_url
+    ):
+        """Issue #124 fix-round-2 regression (reopen-boundary defect): a job that
+        already holds its processing lock must have that lock refreshed, never a
+        second message enqueued for it -- even while the coarse queue-depth gate
+        is closed. A job with no lock at all must also not be dispatched while
+        the gate is closed, and must NOT have a lock created for it either (that
+        would silently stall it until the phantom lock itself expired)."""
+        # A second, lockless unformatted job -- must stay untouched while the
+        # gate is closed (not dispatched, and no lock created for it either).
+        Job.objects.create(
+            title="Fresh Unformatted (no lock yet)",
+            company="Company D",
+            url="https://comp-d.com/job",
+            url_hash="hash_d",
+            is_formatted=False,
+        )
+
+        mock_load_profiles.return_value = [{"id": "profile_1"}]
+        fake_redis = mock_redis_from_url.return_value
+
+        locked_keys = {
+            f"job_processing_lock:{self.unformatted_job.id}",
+            f"job_processing_lock:{self.unranked_job.id}",
+        }
+        fake_redis.exists.side_effect = lambda key: key in locked_keys
+        # Distinct depths/counts per queue: formatting=10 >= 2 unformatted jobs,
+        # ranking=3 >= 1 unranked job -- both gates closed, but for different
+        # (asymmetric) reasons, so a depth/count swap would not coincidentally
+        # produce the same result.
+        fake_redis.llen.side_effect = {"formatting": 10, "ranking": 3}.get
+
+        from tasks.pipeline import process_unprocessed_jobs_task
+
+        result = process_unprocessed_jobs_task()
+
+        self.assertTrue(result.get("unformatted_dispatch_skipped"))
+        self.assertTrue(result.get("unranked_dispatch_skipped"))
+        self.assertEqual(result.get("unformatted_dispatched"), 0)
+        self.assertEqual(result.get("unranked_dispatched"), 0)
+        self.assertEqual(result.get("unformatted_locks_refreshed"), 1)
+        self.assertEqual(result.get("unranked_locks_refreshed"), 1)
+
+        # Nothing was (re-)dispatched for either the already-locked jobs or the
+        # lockless-but-gated fresh job.
+        mock_chain.assert_not_called()
+        mock_rank_apply_async.assert_not_called()
+
+        # The already-locked jobs' TTLs were heartbeated back to the full window...
+        fake_redis.expire.assert_any_call(
+            f"job_processing_lock:{self.unformatted_job.id}", 3600
+        )
+        fake_redis.expire.assert_any_call(
+            f"job_processing_lock:{self.unranked_job.id}", 3600
+        )
+
+        # ...and no lock was ever created for the lockless fresh job while the
+        # gate was closed (a stray lock there would stall it, not protect it).
+        fake_redis.set.assert_not_called()
+
+        fake_redis.llen.assert_any_call("formatting")
+        fake_redis.llen.assert_any_call("ranking")
 
 
 class SourceChoicesTests(TestCase):
