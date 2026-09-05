@@ -6,6 +6,7 @@ import openai
 import requests
 from celery_app import app
 from config import DJANGO_API_URL, get_openai_model
+from llm import LLMResponseError
 from ranker import JobRankerAI
 
 logger = logging.getLogger(__name__)
@@ -73,21 +74,61 @@ def _rank_single_job_multi_profile(ranker, job_data, profiles, system_prompt):
     )
 
 
+# Tolerates a model wrapping its JSON in a markdown code fence (```json ... ```).
+# Issue #125: a previous agent claimed this fencing was the cause of the mass
+# "C-tier, empty jd_summary" fabrication bug, but that theory is UNCONFIRMED —
+# a manual test of the same prompt style returned clean, unfenced JSON. This
+# strip is defence-in-depth only; the actual fix is that a parse failure below
+# now raises instead of silently fabricating a ranking.
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+
+
+def _strip_json_fences(text):
+    if not isinstance(text, str):
+        return text
+    return _JSON_FENCE_RE.sub("", text.strip()).strip()
+
+
 def _parse_rankings_json(json_text, profiles):
-    """Parse multi-profile ranking JSON. Returns list of ranking dicts."""
+    """Parse multi-profile ranking JSON. Returns list of ranking dicts.
+
+    Issue #125: this used to return [] on a parse failure, which made every
+    profile silently fall back to a fabricated "C" tier with an empty
+    jd_summary in _rankings_from_llm — the DB then recorded that the LLM
+    judged the job "C" when the LLM's response never actually parsed. A
+    completely unusable response is now a hard failure (LLMResponseError),
+    which tasks.ranking.rank_job_multi_profile treats as retryable, so the
+    existing Celery retry ladder gets another attempt instead of a fabricated
+    tier being persisted.
+    """
     try:
-        data = json.loads(json_text)
-        raw_rankings = data.get("rankings", [])
-    except json.JSONDecodeError:
-        return []
+        data = json.loads(_strip_json_fences(json_text))
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise LLMResponseError(
+            f"ranking response was not valid JSON: {exc!r} "
+            f"raw_prefix={str(json_text)[:200]!r}"
+        ) from exc
+
+    raw_rankings = data.get("rankings")
+    if not isinstance(raw_rankings, list) or not raw_rankings:
+        raise LLMResponseError(
+            f"ranking response had no usable 'rankings' array: "
+            f"raw_prefix={str(json_text)[:200]!r}"
+        )
 
     profile_ids = {p["id"] for p in profiles}
     rankings = []
 
     for r in raw_rankings:
+        if not isinstance(r, dict):
+            continue
         pid = str(r.get("profile_id", "")).strip()
-        tier = str(r.get("match_tier", "C")).strip().upper()
+        # No default here — an absent/blank match_tier must surface as an
+        # invalid tier downstream (_rankings_from_llm), not silently become
+        # "C". Same reasoning as the module docstring above.
+        tier = str(r.get("match_tier") or "").strip().upper()
         summary = str(r.get("jd_summary", "")).strip()
+        raw_score = r.get("match_score")
 
         # Match profile_id (normalize whitespace/case)
         pid_clean = pid.lower().replace(" ", "_")
@@ -100,25 +141,82 @@ def _parse_rankings_json(json_text, profiles):
             "profile_id": matched_pid,
             "match_tier": tier,
             "jd_summary": summary,
+            "match_score_raw": raw_score,
         })
 
-    # Fallback: if GPT garbled the Profile ID column but row count matches,
-    # assume rows are in the same order as the profiles list
-    if (
-        rankings
-        and len(rankings) == len(profiles)
-        and not any(r["profile_id"] in profile_ids for r in rankings)
-    ):
-        for i, r in enumerate(rankings):
-            r["profile_id"] = profiles[i]["id"]
-
+    # Issue #125 F-1: there used to be a positional fallback here — if every
+    # row's profile_id failed to match (e.g. the model emitted profile
+    # *titles* instead of ids), it assumed row order matched `profiles` order
+    # and rewrote profile_id by index. That is unsafe: a genuine LLM tier for
+    # "Backend Engineer" could get persisted against "Cloud Architect" purely
+    # because of array position, and the prompt itself tells the model row
+    # order does not matter — nothing stops the model from actually
+    # reordering. Deliberately not replaced with an instruction that "order
+    # matters" either, since that just trades one fragile positional coupling
+    # for another the model could still violate. Instead: leave any
+    # unmatched profile_id as the model returned it. Downstream,
+    # _rankings_from_llm looks rankings up by the real profile id and raises
+    # LLMResponseError for any profile with no matching row — which is
+    # exactly the outcome we want when the model's ids can't be trusted: a
+    # retry through the existing ladder, never a misattributed tier.
     return rankings
 
 
-# Representative numeric score for a tier — used only to derive match_score/rank
-# until Task 3 wires the LLM's own 0-100 match_score straight through. Mirrors
-# the mapping the old deterministic engine (matching.TIER_SCORE) used.
+# Representative numeric score for a tier — used only as a fallback when the
+# LLM's own match_score is missing or out of range (see _resolve_match_score).
+# Mirrors the mapping the old deterministic engine (matching.TIER_SCORE) used.
 TIER_SCORE = {"S": 92, "A": 74, "B": 56, "C": 38, "F": 8}
+
+# Issue #125 F-2: the documented tier->score bands from prompts/ranker.txt
+# (kept in sync with that file by hand; the prompt is out of scope for this
+# fix round). Bands are contiguous and non-overlapping in tier order, so
+# clamping any score into its own tier's band can never invert `rank`
+# ordering between two different tiers (e.g. an F can never out-rank an S)
+# — only the specific row's score changes, never which tier "wins".
+TIER_SCORE_RANGE = {
+    "S": (80, 100),
+    "A": (60, 79),
+    "B": (40, 59),
+    "C": (15, 39),
+    "F": (0, 14),
+}
+
+
+def _resolve_match_score(raw_score, tier):
+    """Validate the LLM's own match_score against its own tier; fall back to
+    the tier's representative score if it's missing/unusable, or clamp it
+    into the tier's documented band if it's a real number that just doesn't
+    agree with the tier.
+
+    Issue #125 scope item 3: a missing/invalid *score* is recoverable (the tier
+    still tells us roughly where the job lands), unlike a missing *tier* — so
+    this derives instead of raising.
+
+    Issue #125 F-2: the tier is authoritative. An LLM response can pass a
+    tier of "F" with a score of 95 — nothing upstream enforces the two agree
+    — and persisting that verbatim silently inverts `rank` (the F job would
+    sort ahead of a real S/A job). Rather than trusting an inconsistent
+    score, or discarding it outright, clamp it into the tier's own band and
+    log the mismatch so it's visible without failing the whole ranking.
+    """
+    if isinstance(raw_score, bool):
+        # bool is a subclass of int; a literal True/False was never a real score.
+        return TIER_SCORE[tier]
+    try:
+        score = int(raw_score)
+    except (TypeError, ValueError):
+        return TIER_SCORE[tier]
+    if not (0 <= score <= 100):
+        return TIER_SCORE[tier]
+
+    lo, hi = TIER_SCORE_RANGE[tier]
+    if not (lo <= score <= hi):
+        clamped = min(max(score, lo), hi)
+        logger.warning("ranking_score_tier_mismatch", extra={
+            "tier": tier, "raw_score": score, "clamped_score": clamped,
+        })
+        return clamped
+    return score
 
 
 def _rankings_from_llm(llm_rankings, profiles):
@@ -127,21 +225,36 @@ def _rankings_from_llm(llm_rankings, profiles):
     Issue #125: the deterministic matching engine (matching.py, compute_match,
     blend_with_llm) is deleted. The LLM's tier is now authoritative: match_tier
     and llm_tier are both the LLM's tier verbatim, deterministic_tier/signals are
-    NULL (the DB columns stay for historical rows), and match_score/rank are
-    derived from TIER_SCORE as a placeholder until Task 3 has the LLM return its
-    own 0-100 match_score. Returns one ranking dict per profile.
+    NULL (the DB columns stay for historical rows). match_score comes straight
+    from the LLM (via _resolve_match_score), falling back to TIER_SCORE only
+    when the LLM didn't give a usable score.
+
+    A profile with no matching LLM ranking row, or an unusable/missing
+    match_tier, raises LLMResponseError rather than fabricating a tier — see
+    the module-level note on _parse_rankings_json for why silently defaulting
+    to "C" was itself a bug (issue #125 scope item 2).
     """
     llm_by_pid = {r.get("profile_id"): r for r in llm_rankings}
 
     out = []
     for profile in profiles:
         pid = profile.get("id")
-        llm = llm_by_pid.get(pid, {})
-        tier = str(llm.get("match_tier") or "C").strip().upper()
+        llm = llm_by_pid.get(pid)
+        if not llm:
+            raise LLMResponseError(
+                f"no LLM ranking returned for profile {pid!r}; "
+                f"got profile_ids={list(llm_by_pid.keys())!r}"
+            )
+
+        tier = str(llm.get("match_tier") or "").strip().upper()
         if tier not in TIER_SCORE:
-            tier = "C"
+            raise LLMResponseError(
+                f"LLM returned an unusable match_tier {llm.get('match_tier')!r} "
+                f"for profile {pid!r}"
+            )
+
         summary = llm.get("jd_summary", "")
-        score = TIER_SCORE[tier]
+        score = _resolve_match_score(llm.get("match_score_raw"), tier)
 
         out.append({
             "profile_id": pid,
@@ -191,11 +304,11 @@ def _persist_rankings(job_id, rankings):
         raise
 
 
-def _retry_or_release(self, exc, pipeline_run_id, job_id):
+def _retry_or_release(self, exc, pipeline_run_id, job_id, base_delay=30):
     if self.request.retries >= self.max_retries:
         _check_and_trigger_discord(pipeline_run_id, job_id)
         raise exc
-    raise self.retry(exc=exc, countdown=30 * (2 ** self.request.retries))
+    raise self.retry(exc=exc, countdown=base_delay * (2 ** self.request.retries))
 
 
 
@@ -238,6 +351,7 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
                     {
                         "profile_id": p["id"],
                         "match_tier": "A",
+                        "match_score": 74,
                         "jd_summary": "Dummy summary for " + p["id"]
                     } for p in profiles
                 ]
@@ -261,14 +375,28 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
                 except Exception as e:
                     logger.error("failed_single_discord_post", extra={"job_id": effective_job_id, "error": str(e)})
             
-    except (openai.RateLimitError, openai.APIError, openai.APITimeoutError) as exc:
+    except (openai.RateLimitError, openai.APIError, openai.APITimeoutError, LLMResponseError) as exc:
+        # LLMResponseError (issue #125 scope item 2) covers: the provider
+        # returning an error-shaped 200, empty message content, unparsable
+        # JSON, a missing 'rankings' array, or a per-profile ranking with no
+        # usable match_tier. None of those are safe to paper over with a
+        # fabricated tier — retrying gets a fresh LLM attempt instead.
         if os.getenv("MOCK_LLM") == "1":
             rankings = []
         else:
             logger.warning("rank_gpt_retry", extra={
                 "job_id": effective_job_id, "attempt": self.request.retries, "error": str(exc),
             })
-            raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+            # Issue #125 minor fix: route through _retry_or_release (same as
+            # the requests.RequestException branch below) instead of calling
+            # self.retry directly. Calling self.retry directly here meant
+            # that once the retry ladder was exhausted, the raised exception
+            # skipped _check_and_trigger_discord entirely, leaving this job's
+            # `pipeline:*:in_flight` Redis member stale forever. base_delay=60
+            # preserves this branch's pre-existing (slower) backoff — LLM
+            # failures get more breathing room than a transient persist
+            # failure.
+            _retry_or_release(self, exc, pipeline_run_id, effective_job_id, base_delay=60)
     except requests.RequestException as exc:
         logger.warning("rank_persist_retry", extra={
             "job_id": effective_job_id,
