@@ -673,17 +673,23 @@ def process_unprocessed_jobs_task(profile_ids=None):
         return {"status": "error", "message": "No profiles found"}
 
     # 2. Get all unformatted jobs
-    # Issue #125d fix 4: .only("id") keeps the queryset iteration below from
-    # loading every backlogged job's full row - including raw_data (JSON)
-    # and full_description - into the 512Mi worker pod on every 10-minute
-    # beat tick. The heartbeat/skip branches in the dispatch loop below only
-    # ever touch job.id; only the (rarer) actual-dispatch branch needs the
-    # other fields, and Django transparently fetches those per-instance on
-    # first access (a small extra query per dispatched job, not a bigger
-    # in-memory row for every backlogged job). This pod has already been
-    # OOMKilled once at this limit, and the new rate limits keep the
-    # dispatch gate closed roughly 2x longer, so this now runs over a much
-    # deeper backlog for much longer.
+    # Issue #125d fix 4 (and fix-round-2 correction): .only("id") keeps the
+    # queryset iteration below from loading every backlogged job's full row -
+    # including raw_data (JSON) and full_description - into the 512Mi worker
+    # pod on every 10-minute beat tick. The heartbeat/skip branches in the
+    # dispatch loop below only ever touch job.id, so this id-only queryset is
+    # correct and cheap for those.
+    #
+    # Correction: the original fix's comment here claimed a deferred-field
+    # access on an .only("id") instance costs "a small extra query per
+    # dispatched job" - that's wrong. Django issues one query PER DEFERRED
+    # FIELD accessed, not one per instance, so building job_data from ~6-12
+    # deferred fields turned into a severe N+1 (measured: 5 jobs x 6 fields =
+    # 26 queries instead of 1). At real backlog size that's thousands of
+    # extra MySQL round trips per beat tick. Fix: this id-only queryset is
+    # used only for counting/heartbeating below; the actual dispatch loops
+    # further down re-fetch the (much smaller) subset of jobs that need
+    # dispatching in one full-row query each, via Job.objects.filter(id__in=...).
     unformatted_jobs = Job.objects.filter(is_formatted=False).only("id")
     unformatted_count = unformatted_jobs.count()
 
@@ -786,6 +792,14 @@ def process_unprocessed_jobs_task(profile_ids=None):
     unranked_locks_refreshed = 0
 
     # 4. Dispatch format + rank chain for unformatted jobs
+    #
+    # Pass 1 walks the id-only queryset (cheap for the whole backlog) purely
+    # for lock bookkeeping - heartbeat jobs already in flight, skip jobs
+    # withheld by the queue-depth gate, and claim the lock for jobs that are
+    # genuinely ready to dispatch. No dispatch-only field (title/company/url/
+    # source/raw_data) is touched here, so this stays a single id-only query
+    # no matter how deep the backlog is.
+    unformatted_ready_ids = []
     for job in unformatted_jobs:
         lock_key = f"job_processing_lock:{job.id}"
         if r.exists(lock_key):
@@ -803,22 +817,31 @@ def process_unprocessed_jobs_task(profile_ids=None):
             # Lost a race against a concurrent dispatch of the same job.
             continue
 
-        job_data = {
-            "id": job.id,
-            "title": job.title,
-            "company": job.company,
-            "url": job.url,
-            "source": job.source,
-            "raw_data": job.raw_data,
-            "pipeline_run_id": None,
-        }
-        chain(
-            format_and_persist_job.s(job_data),
-            rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
-        ).apply_async()
-        unformatted_dispatched += 1
+        unformatted_ready_ids.append(job.id)
 
-    # 5. Dispatch rank directly for unranked jobs
+    # Pass 2: fetch the full rows - in one query - for only the (typically
+    # much smaller) set of jobs that actually need dispatching, then build
+    # job_data from real field access instead of triggering a deferred-field
+    # query per field per job.
+    if unformatted_ready_ids:
+        for job in Job.objects.filter(id__in=unformatted_ready_ids):
+            job_data = {
+                "id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "url": job.url,
+                "source": job.source,
+                "raw_data": job.raw_data,
+                "pipeline_run_id": None,
+            }
+            chain(
+                format_and_persist_job.s(job_data),
+                rank_job_multi_profile.s(profiles=ranker_profiles, pipeline_run_id=None, job_id=job.id),
+            ).apply_async()
+            unformatted_dispatched += 1
+
+    # 5. Dispatch rank directly for unranked jobs - same two-pass shape as above.
+    unranked_ready_ids = []
     for job in unranked_jobs:
         lock_key = f"job_processing_lock:{job.id}"
         if r.exists(lock_key):
@@ -832,32 +855,36 @@ def process_unprocessed_jobs_task(profile_ids=None):
         if not r.set(lock_key, "1", nx=True, ex=LOCK_TTL):
             continue
 
-        job_data = {
-            "id": job.id,
-            "title": job.title,
-            "company": job.company,
-            "url": job.url,
-            "salary": job.salary,
-            "salary_yen": job.salary_yen,
-            "experience_required": job.experience_required,
-            "language": job.language,
-            "description": job.description,
-            "full_description": job.full_description,
-            "tech_stack": job.tech_stack,
-            "location": job.location,
-            "region": job.region,
-            "is_remote": job.is_remote,
-            "source": job.source,
-        }
-        rank_job_multi_profile.apply_async(
-            kwargs={
-                "formatted_job_data": job_data,
-                "profiles": ranker_profiles,
-                "pipeline_run_id": None,
-                "job_id": job.id
-            },
-        )
-        unranked_dispatched += 1
+        unranked_ready_ids.append(job.id)
+
+    if unranked_ready_ids:
+        for job in Job.objects.filter(id__in=unranked_ready_ids):
+            job_data = {
+                "id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "url": job.url,
+                "salary": job.salary,
+                "salary_yen": job.salary_yen,
+                "experience_required": job.experience_required,
+                "language": job.language,
+                "description": job.description,
+                "full_description": job.full_description,
+                "tech_stack": job.tech_stack,
+                "location": job.location,
+                "region": job.region,
+                "is_remote": job.is_remote,
+                "source": job.source,
+            }
+            rank_job_multi_profile.apply_async(
+                kwargs={
+                    "formatted_job_data": job_data,
+                    "profiles": ranker_profiles,
+                    "pipeline_run_id": None,
+                    "job_id": job.id
+                },
+            )
+            unranked_dispatched += 1
 
     return {
         "status": "success",
