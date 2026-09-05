@@ -97,24 +97,23 @@ def rank_jobs(jobs, profiles, system_prompt):
     ranked = 0
 
     # Reuse the live pipeline's ranking path so backfill stays consistent with it:
-    # full-context LLM call + deterministic matching engine + blended score.
+    # a full-context LLM call, ranked purely on the LLM's tier (issue #125 deleted
+    # the deterministic matching engine that used to blend in here).
     from tasks.ranking import (
         _rank_single_job_multi_profile,
         _parse_rankings_json,
-        _apply_matching_engine,
+        _rankings_from_llm,
         _persist_rankings,
     )
 
     ranker = JobRankerAI()
-    # experience_years is already set as a float in user-profiles.json;
-    # matching.parse_profile_years reads it directly. No mutation needed.
 
-    print(f"\nRanking {len(jobs)} jobs against {len(profiles)} profiles (full-context + engine)...")
+    print(f"\nRanking {len(jobs)} jobs against {len(profiles)} profiles (LLM-only)...")
     for i, job in enumerate(jobs):
         try:
             json_text = _rank_single_job_multi_profile(ranker, job, profiles, system_prompt)
             llm_rankings = _parse_rankings_json(json_text, profiles)
-            rankings = _apply_matching_engine(llm_rankings, job, profiles)
+            rankings = _rankings_from_llm(llm_rankings, profiles)
             if rankings:
                 _persist_rankings(job["id"], rankings)
                 ranked += len(rankings)

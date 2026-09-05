@@ -115,41 +115,44 @@ def _parse_rankings_json(json_text, profiles):
     return rankings
 
 
-def _apply_matching_engine(llm_rankings, job_data, profiles):
-    """Fuse the LLM tiers with the deterministic matching engine.
+# Representative numeric score for a tier — used only to derive match_score/rank
+# until Task 3 wires the LLM's own 0-100 match_score straight through. Mirrors
+# the mapping the old deterministic engine (matching.TIER_SCORE) used.
+TIER_SCORE = {"S": 92, "A": 74, "B": 56, "C": 38, "F": 8}
 
-    For every profile we compute a deterministic, location/skill/experience-aware
-    match (matching.compute_match) and blend it with whatever tier the LLM gave
-    that profile. The deterministic layer enforces the hard gates (language,
-    seniority, experience, out-of-target location) and yields a numeric
-    match_score for intra-tier ordering. Returns one ranking dict per profile.
+
+def _rankings_from_llm(llm_rankings, profiles):
+    """Map parsed LLM rankings straight to ranking dicts — no deterministic engine.
+
+    Issue #125: the deterministic matching engine (matching.py, compute_match,
+    blend_with_llm) is deleted. The LLM's tier is now authoritative: match_tier
+    and llm_tier are both the LLM's tier verbatim, deterministic_tier/signals are
+    NULL (the DB columns stay for historical rows), and match_score/rank are
+    derived from TIER_SCORE as a placeholder until Task 3 has the LLM return its
+    own 0-100 match_score. Returns one ranking dict per profile.
     """
-    import matching
-    from locations import location_cfgs_for_profile
-
     llm_by_pid = {r.get("profile_id"): r for r in llm_rankings}
 
     out = []
     for profile in profiles:
         pid = profile.get("id")
         llm = llm_by_pid.get(pid, {})
-        llm_tier = llm.get("match_tier")
+        tier = str(llm.get("match_tier") or "C").strip().upper()
+        if tier not in TIER_SCORE:
+            tier = "C"
         summary = llm.get("jd_summary", "")
-
-        loc_cfgs = location_cfgs_for_profile(profile)
-        det = matching.compute_match(profile, job_data, loc_cfgs)
-        blended = matching.blend_with_llm(det, llm_tier)
+        score = TIER_SCORE[tier]
 
         out.append({
             "profile_id": pid,
-            "match_tier": blended["final_tier"],
-            "llm_tier": blended["llm_tier"],
-            "deterministic_tier": det["tier"],
-            "match_score": int(round(blended["final_score"])),
-            "signals": det["signals"],
+            "match_tier": tier,
+            "llm_tier": tier,
+            "deterministic_tier": None,
+            "match_score": score,
+            "signals": None,
             "jd_summary": summary,
             # Lower rank sorts first; derive from score so best matches lead.
-            "rank": max(0, 100 - int(round(blended["final_score"]))),
+            "rank": max(0, 100 - score),
         })
     return out
 
@@ -221,10 +224,8 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
 
     ranker = JobRankerAI()
     system_prompt = ranker._read_file("prompts/ranker.txt")
-    # experience_years is already set as a float in user-profiles.json and read by
-    # matching.parse_profile_years. Never mutate the shared (cached) profile dicts
-    # here — the worker pool is --pool=threads and concurrent tasks share the same
-    # list, causing a data race.
+    # Never mutate the shared (cached) profile dicts here — the worker pool is
+    # --pool=threads and concurrent tasks share the same list, causing a data race.
     rankings = []  # initialize so the finally/return path always has it defined
 
     try:
@@ -246,7 +247,7 @@ def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=N
                 ranker, formatted_job_data, profiles, system_prompt
             )
         llm_rankings = _parse_rankings_json(json_text, profiles)
-        rankings = _apply_matching_engine(llm_rankings, formatted_job_data, profiles)
+        rankings = _rankings_from_llm(llm_rankings, profiles)
 
         if rankings:
             _persist_rankings(effective_job_id, rankings)

@@ -114,38 +114,34 @@ class DiscordAlertMarkingTests(TestCase):
         self.assertIn("mark_alerts_sent", mock_post.call_args_list[1].args[0])
 
 
-class PrescreenPersistTests(TestCase):
-    """_persist_prescreen_f must be atomic: rankings first, flags only after."""
+class DispatchJobTests(TestCase):
+    """Issue #125: the pre-screen path (LLM-free F tiers) is deleted outright.
 
-    def _results(self):
-        return [{"profile_id": "p1", "hard_fail_reason": "requires japanese", "signals": {}}]
+    _persist_prescreen_f and _dispatch_or_prescreen no longer exist, and the
+    replacement _dispatch_job unconditionally dispatches the format->rank chain
+    — there is no longer any code path that can assign a job a tier without an
+    LLM call.
+    """
 
-    @patch("tasks.pipeline.req.post")
-    def test_rankings_failure_returns_false_and_leaves_flags_untouched(self, mock_post):
-        # Discord/API ranking POST fails -> must NOT mark the job formatted.
-        mock_post.return_value.raise_for_status.side_effect = Exception("500")
-        from tasks.pipeline import _persist_prescreen_f
+    def test_prescreen_functions_are_gone(self):
+        import tasks.pipeline as pipeline_mod
 
-        persister = MagicMock()
-        job = {"id": 123}
-        ok = _persist_prescreen_f(job, self._results(), persister)
+        self.assertFalse(hasattr(pipeline_mod, "_persist_prescreen_f"))
+        self.assertFalse(hasattr(pipeline_mod, "_dispatch_or_prescreen"))
 
-        self.assertFalse(ok)
-        persister.update_job.assert_not_called()  # no formatted-but-unranked orphan
+    @patch("tasks.pipeline.chain")
+    def test_dispatch_job_always_dispatches_the_format_rank_chain(self, mock_chain):
+        from tasks.pipeline import _dispatch_job
 
-    @patch("tasks.pipeline.req.post")
-    def test_success_marks_formatted_and_ranked_atomically(self, mock_post):
-        mock_post.return_value.raise_for_status.return_value = None
-        from tasks.pipeline import _persist_prescreen_f
+        r = MagicMock()
+        job_data = {"id": 999, "title": "Backend Engineer", "raw_data": {}}
 
-        persister = MagicMock()
-        job = {"id": 123}
-        ok = _persist_prescreen_f(job, self._results(), persister)
+        _dispatch_job(job_data, [{"id": "p1"}], r, "run-1")
 
-        self.assertTrue(ok)
-        persister.update_job.assert_called_once_with(
-            123, {"is_formatted": True, "is_ranked": True}
-        )
+        # No matter what the job looks like, the only outcome is: dispatched.
+        mock_chain.assert_called_once()
+        mock_chain.return_value.apply_async.assert_called_once()
+        r.sadd.assert_called_once_with("pipeline:run-1:in_flight", 999)
 
 
 class CeleryTaskTests(TestCase):
@@ -457,6 +453,41 @@ class RankingTaskPersistenceTests(TestCase):
                 "rank": 10,
                 "jd_summary": "summary",
             }])
+
+
+class RankingsFromLlmTests(TestCase):
+    """Issue #125: _rankings_from_llm (formerly _apply_matching_engine) is a thin
+    mapper now — no deterministic engine, LLM tier is authoritative."""
+
+    def test_llm_tier_is_authoritative_and_deterministic_fields_are_null(self):
+        from tasks.ranking import _rankings_from_llm, TIER_SCORE
+
+        llm_rankings = [
+            {"profile_id": "p1", "match_tier": "S", "jd_summary": "great fit"},
+        ]
+        out = _rankings_from_llm(llm_rankings, [{"id": "p1"}])
+
+        self.assertEqual(len(out), 1)
+        r = out[0]
+        self.assertEqual(r["match_tier"], "S")
+        self.assertEqual(r["llm_tier"], "S")
+        self.assertIsNone(r["deterministic_tier"])
+        self.assertIsNone(r["signals"])
+        self.assertEqual(r["match_score"], TIER_SCORE["S"])
+        self.assertEqual(r["rank"], 100 - TIER_SCORE["S"])
+
+    def test_missing_or_unrecognized_llm_tier_falls_back_to_c(self):
+        from tasks.ranking import _rankings_from_llm, TIER_SCORE
+
+        # Profile the LLM never returned a row for, plus a garbled tier value.
+        out = _rankings_from_llm(
+            [{"profile_id": "p2", "match_tier": "not-a-tier"}],
+            [{"id": "p1"}, {"id": "p2"}],
+        )
+        by_pid = {r["profile_id"]: r for r in out}
+        self.assertEqual(by_pid["p1"]["match_tier"], "C")
+        self.assertEqual(by_pid["p2"]["match_tier"], "C")
+        self.assertEqual(by_pid["p1"]["match_score"], TIER_SCORE["C"])
 
 
 class PipelineBatchPersistenceTests(TestCase):

@@ -161,13 +161,20 @@ class JobRanking(models.Model):
     profile_id = models.CharField(max_length=100)
     profile_title = models.CharField(max_length=200, blank=True, default="")
     match_tier = models.CharField(max_length=2, choices=TIER_CHOICES)
-    # Raw tier the LLM assigned, before hard-rule downgrades (e.g. Japanese / over-experience).
+    # Raw tier the LLM assigned. Was "before hard-rule downgrades" back when a
+    # deterministic engine could still override it; since issue #125 deleted that
+    # engine, this is always equal to match_tier for rankings created going forward.
     llm_tier = models.CharField(max_length=2, choices=TIER_CHOICES, null=True, blank=True)
-    # Tier from the deterministic matching engine (matching.compute_match), pre-blend.
+    # Tier from the deleted deterministic matching engine (formerly matching.compute_match).
+    # Issue #125: always NULL for new rankings now — the LLM is the sole ranker.
+    # Column kept so historical rows retain their pre-#125 values.
     deterministic_tier = models.CharField(max_length=2, choices=TIER_CHOICES, null=True, blank=True)
-    # Final blended numeric match score 0..100 (higher = better) for intra-tier sorting.
+    # Numeric match score 0..100 (higher = better) for intra-tier sorting. Was the
+    # deterministic/LLM blend before issue #125; now derived from the LLM tier alone
+    # (TIER_SCORE in tasks/ranking.py) until a follow-up wires an LLM-provided score.
     match_score = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)
-    # Per-dimension diagnostics from the matching engine (skill/title/experience/...).
+    # Per-dimension diagnostics from the deleted deterministic matching engine.
+    # Issue #125: always NULL for new rankings now. Column kept for historical rows.
     signals = models.JSONField(null=True, blank=True)
     rank = models.PositiveIntegerField()
     jd_summary = models.TextField(blank=True, default="")

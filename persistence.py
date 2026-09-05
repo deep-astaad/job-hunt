@@ -58,16 +58,171 @@ def normalize_url(url):
     new_query = urlencode(keep_params) if keep_params else ""
     return urlunparse((parsed.scheme, netloc, path, "", new_query, ""))
 
-def detect_job_language(job_dict):
-    """Detect required working language using the calibrated matching engine.
+# ---------------------------------------------------------------------------
+# Required-language detection (formerly matching.py)
+# ---------------------------------------------------------------------------
+# Issue #125 deleted the deterministic matching/ranking engine (matching.py) \u2014
+# the LLM ranks every job now, with no deterministic tier assignment or hard
+# gates. This text-driven language detector is the one piece of that module
+# that survives: it is pure data extraction (never assigns a tier) and
+# `detect_job_language` below uses it during *formatting* to populate
+# `job.language`. Kept here, inline, since this was the only remaining caller
+# and the surviving surface is small enough not to warrant its own module.
 
-    Delegates to matching.detect_required_language so the stored label matches
-    exactly what the ranker uses for its language gate \u2014 no more over-tagging
-    EN-OK roles as JP just because an address contains a single kanji character.
+# Languages a job might require, with the keywords that signal a *hard* requirement.
+_NON_ENGLISH_LANG_KEYWORDS = {
+    "japanese": ["japanese", "\u65e5\u672c\u8a9e", "jlpt", "nihongo"],
+    "german": ["german", "deutsch"],
+    "french": ["french", "fran\u00e7ais", "francais"],
+    "mandarin": ["mandarin", "chinese", "\u4e2d\u6587", "\u666e\u901a\u8bdd"],
+    "korean": ["korean", "\ud55c\uad6d\uc5b4"],
+    "spanish": ["spanish", "espa\u00f1ol", "espanol"],
+    "dutch": ["dutch", "nederlands"],
+}
+# Phrases that turn a "mention" into a hard requirement.
+_REQUIRED_PHRASES = [
+    "required", "mandatory", "must", "necessary", "fluent", "native",
+    "business level", "business-level", "proficiency", "proficient",
+    "n1", "n2", "n3", "jlpt",
+]
+# Phrases that explicitly soften it (a plus, not a gate).
+_OPTIONAL_PHRASES = [
+    "is a plus", "a plus", "preferred", "nice to have", "advantage",
+    "helpful", "not required", "no japanese", "english ok", "english only",
+    "welcome", "beneficial", "bonus",
+]
+
+# --- Japanese requirement detection (text-driven) --------------------------
+# The stored `language` label tags *any* job with CJK characters as "JP" (company
+# boilerplate, benefits, \u00a5 salary), which over-gated ~86% of the corpus as
+# "requires Japanese" \u2014 burying English-OK Tokyo roles. We instead infer the
+# Japanese demand from the text itself, precision-tuned against the live DB.
+_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+def cjk_density(text):
+    """Fraction of characters that are Japanese kana / CJK ideographs (0..1).
+
+    A description written largely in Japanese implies the working language is
+    Japanese even when it states no explicit requirement.
+    """
+    if not text:
+        return 0.0
+    return len(_CJK_RE.findall(text)) / len(text)
+
+
+# Explicit hard Japanese requirement: \u65e5\u672c\u8a9e\u5fc5\u9808 / JLPT N1-N2 / "business-level
+# (fluent/native/...) Japanese" / "Japanese ... required/mandatory".
+_JP_HARD_RE = re.compile(
+    r"\u65e5\u672c\u8a9e(?:\u80fd\u529b)?(?:\u304c|\u306f|\u3092|\u30fb|\s|\uff1a|:)*(?:\u5fc5\u9808|\u5fc5\u8981|\u30d3\u30b8\u30cd\u30b9|\u30cd\u30a4\u30c6\u30a3\u30d6|\u582a\u80fd|\u6d41\u66a2)"
+    r"|\u65e5\u672c\u8a9e\u5fc5\u9808|\u30cd\u30a4\u30c6\u30a3\u30d6\u30ec\u30d9\u30eb|\u6bcd\u8a9e\u30ec\u30d9\u30eb"
+    r"|jlpt\s*[-\u2013 ]?\s*n?\s*[12]\b"
+    r"|\bn\s*[12]\b\s*(?:\u4ee5\u4e0a|\u30ec\u30d9\u30eb|level|\u76f8\u5f53|required)"
+    r"|(?:business[- ]?level|fluent|native|conversational|proficien\w+)\s+japanese"
+    r"|japanese[^.\n\u3002!?]{0,30}(?:required|mandatory|fluent|native|business[- ]?level|proficien|\u5fc5\u9808)",
+    re.I,
+)
+# Soft signal: Japanese is "a plus / preferred / welcome", or a low JLPT level.
+_JP_SOFT_RE = re.compile(
+    r"japanese[^.\n\u3002!?]{0,25}(?:plus|preferred|nice to have|welcome|advantage|beneficial|bonus|good to have|is an asset)"
+    r"|\u65e5\u672c\u8a9e[^\u3002\n]{0,8}(?:\u5c1a\u53ef|\u6b53\u8fce|\u3042\u308c\u3070|\u3067\u304d\u308c\u3070)"
+    r"|jlpt\s*[-\u2013 ]?\s*n?\s*[345]\b|\bn\s*[345]\b\s*(?:\u4ee5\u4e0a|\u30ec\u30d9\u30eb|level)",
+    re.I,
+)
+# Explicit English-OK escape hatch (wins over the hard pattern above).
+_JP_ENGLISH_OK_RE = re.compile(
+    r"no japanese(?:\s+language)?(?:\s+skills?)?(?:\s+(?:is|are))?\s+(?:required|necessary|needed)"
+    r"|japanese[^.\n\u3002!?]{0,30}(?:not required|not necessary|not needed|not mandatory|: ?not|\uff1a?\u306a\u3057|n/a|optional)"
+    r"|japanese level\s*[:\uff1a]?\s*(?:not required|n/a|none|optional|free|\u306a\u3057)"
+    r"|japanese\s+or\s+english|english\s+or\s+japanese"
+    r"|english[- ]?only|english\s+ok|no japanese ability|without japanese|no japanese required",
+    re.I,
+)
+# Bare JLPT shorthand "N1"/"N2" (counts only with Japanese/bilingual context).
+_JP_BARE_LEVEL_RE = re.compile(r"(?<![a-z0-9])n\s*[12](?![0-9])", re.I)
+
+_JP_DENSITY_HARD = 0.55  # JD overwhelmingly in Japanese -> working language is JP
+_JP_DENSITY_SOFT = 0.20
+
+
+def japanese_requirement(text, lang_field=""):
+    """Classify a job's Japanese-language demand as 'hard' | 'soft' | 'none'."""
+    low = text.lower()
+    lang_field = (lang_field or "").strip().upper()
+    if _JP_ENGLISH_OK_RE.search(low):
+        return "none"
+    if _JP_HARD_RE.search(text):
+        return "hard"
+    has_ctx = (
+        bool(_CJK_RE.search(text))
+        or "japanese" in low or "nihongo" in low or "jlpt" in low or "bilingual" in low
+    )
+    if _JP_BARE_LEVEL_RE.search(text) and (has_ctx or lang_field == "JP"):
+        return "hard"
+    d = cjk_density(text)
+    if d >= _JP_DENSITY_HARD:
+        return "hard"
+    if _JP_SOFT_RE.search(text):
+        return "soft"
+    if d >= _JP_DENSITY_SOFT and has_ctx:
+        return "soft"
+    # Labelled JP with some context but no explicit requirement -> soft, not hard.
+    if lang_field == "JP" and has_ctx:
+        return "soft"
+    return "none"
+
+
+def detect_required_language(job):
+    """Return (language, is_hard_requirement) for the strongest non-English
+    language a job appears to *require*. (None, False) if none / English only."""
+    lang_field = str(job.get("language") or "").strip().lower()
+    text = " ".join([
+        str(job.get("title") or ""),
+        str(job.get("description") or ""),
+        str(job.get("full_description") or ""),
+    ])
+    low = text.lower()
+
+    # Japanese: robust, text-driven (the JP label alone is not a requirement).
+    jp = japanese_requirement(text, lang_field)
+    if jp == "hard":
+        return "japanese", True
+    if jp == "soft":
+        return "japanese", False
+
+    if lang_field in ("non-english", "non_english"):
+        # Unknown which language, treat as a hard non-English gate.
+        return "non-english", True
+
+    # Other non-English languages: explicit-phrase driven only.
+    for canon, keywords in _NON_ENGLISH_LANG_KEYWORDS.items():
+        if canon == "japanese":
+            continue
+        if any(kw in low for kw in keywords):
+            return canon, _looks_required(canon, low)
+    return None, False
+
+
+def _looks_required(canon, text, default_required=False):
+    # Find the sentence/window around the language keyword and weigh phrases.
+    keywords = _NON_ENGLISH_LANG_KEYWORDS.get(canon, [canon])
+    for kw in keywords:
+        idx = text.find(kw)
+        if idx == -1:
+            continue
+        window = text[max(0, idx - 80): idx + 80]
+        if any(p in window for p in _OPTIONAL_PHRASES):
+            return False
+        if any(p in window for p in _REQUIRED_PHRASES):
+            return True
+    return default_required
+
+
+def detect_job_language(job_dict):
+    """Detect required working language using the text-driven detector above.
 
     Returns "JP", "EN", or "non-english".
     """
-    from matching import detect_required_language
     req_lang, is_hard = detect_required_language(job_dict)
     # Only label JP when Japanese is actually *required* — optional/nice-to-have
     # mentions stay EN so the stored label and dashboard filter mean "needs JP".
