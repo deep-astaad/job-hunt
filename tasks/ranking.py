@@ -320,6 +320,15 @@ def _retry_or_release(self, exc, pipeline_run_id, job_id, base_delay=30):
     max_retries=5,
     default_retry_delay=30,
     soft_time_limit=300,
+    # Issue #125 part 3: one LLM call per job (all 3 profiles in a single
+    # request). Paired with format_and_persist_job's rate_limit - see that
+    # task's docstring-adjacent comment for why `rate_limit` is per Consumer
+    # (i.e. per celery-worker deployment replica; there's exactly 1) and not
+    # divided/multiplied by --concurrency=4. 10/m here + 10/m on formatting
+    # sums to the ~20 tasks/min-total that was observed to produce almost no
+    # 429s against the live ~22-23 key OpenRouter pool, vs. the pre-fix
+    # measured baseline of 550x429/61x200 in ~4 minutes.
+    rate_limit='10/m',
 )
 def rank_job_multi_profile(self, formatted_job_data, profiles, pipeline_run_id=None, job_id=None):
     """Rank a single formatted job against ALL profiles in one GPT call."""

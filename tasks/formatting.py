@@ -84,6 +84,22 @@ def _fill_required_text(result, key, fallback, default="Unknown"):
     max_retries=5,
     default_retry_delay=30,
     soft_time_limit=300,
+    # Issue #125 part 3: one LLM call per job. Celery's rate_limit is enforced
+    # once per Consumer (the single `celery worker` process/replica that reads
+    # off the broker), NOT per pool execution slot - confirmed by reading the
+    # installed celery==5.4 source (celery/worker/strategy.py's
+    # `bucket = get_bucket(task.name)` and consumer.py's `bucket_for_task`/
+    # `_limit_task`, which build one TokenBucket per task name off
+    # `type.rate_limit` and gate hand-off into the pool via the Consumer's own
+    # timer). So --concurrency=4 (deploy/celery-worker.yaml, --pool=threads)
+    # does NOT multiply this: it only bounds how many already-released tasks
+    # may run in parallel, not how fast new ones are released. What DOES
+    # multiply it is deploy replica count (each replica runs its own
+    # Consumer/bucket, uncoordinated) - celery-worker is `replicas: 1`, so
+    # this cap is the real aggregate cap today. See rank_job_multi_profile's
+    # rate_limit for the sibling half of the budget - the two sum, since
+    # each job costs one format call + one ranking call.
+    rate_limit='10/m',
 )
 def format_and_persist_job(self, job_data):
     """Format a DB job via GPT and update the record.
