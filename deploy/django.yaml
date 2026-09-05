@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: django
-          image: ghcr.io/deep-astaad/job-hunt:sha-9495351
+          image: ghcr.io/deep-astaad/job-hunt:sha-217f702
           ports:
             - containerPort: 8000
           env:
