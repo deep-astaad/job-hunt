@@ -11,9 +11,13 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      # 8Gi holds the ~1.2GB restored dataset with room to grow, and stays
-      # inside the job-hunt namespace ResourceQuota (requests.storage: 10Gi).
-      storage: 8Gi
+      # Raised 8Gi -> 58Gi on 2026-09-08 after this volume filled to 100% and
+      # took the whole app down (INC-2026-009). The database itself is only
+      # ~1.4GB; what filled the disk was 30 days of binary logs at ~1GB/day.
+      # The binlog retention below is the actual fix — this is headroom so a
+      # full volume can never again hang every InnoDB commit. Requires the
+      # namespace ResourceQuota at requests.storage: 64Gi (homelab-k8s #90).
+      storage: 58Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,6 +38,18 @@ spec:
       containers:
         - name: mysql
           image: mysql:8.0
+          # Keep only 3 days of binary logs instead of MySQL's 30-day default.
+          # At ~1GB/day of Celery write traffic the default retention implies a
+          # ~30GB binlog footprint, which is what filled the 8Gi volume and
+          # caused INC-2026-009: with zero bytes free, an InnoDB commit does not
+          # fail, it hangs forever holding its connection — 151 of those
+          # exhausted max_connections and crash-looped Django on error 1040.
+          # 3 days is retention we can actually afford; nothing consumes these
+          # logs today (single instance, no replica, no PITR procedure), so this
+          # discards nothing in use. Passed as args so the image entrypoint still
+          # runs its normal initialisation.
+          args:
+            - --binlog-expire-logs-seconds=259200
           ports:
             - containerPort: 3306
           env:
