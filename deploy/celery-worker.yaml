@@ -89,4 +89,21 @@ spec:
               memory: 256Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              # Raised 512Mi -> 1Gi on 2026-09-12. The worker was being
+              # OOMKilled (exit 137) repeatedly — 11 restarts, the last after
+              # ~7.7h of uptime — which kills in-flight formatting mid-flight
+              # and loses the LLM work already spent on those jobs.
+              #
+              # This container does more than its old 512Mi assumed: it runs the
+              # local scrapers (7 job boards, holding parsed listings in memory)
+              # in the same process as the LLM formatting and multi-profile
+              # ranking tasks. A 2,188-job backlog makes those overlap.
+              #
+              # Fits the namespace budget without touching it: limits.memory
+              # across all 7 deployments was exactly 4Gi of the 5Gi quota, so
+              # this lands at 4.5Gi with 512Mi spare. Safe on a Recreate
+              # strategy — the old pod is gone before the new one is admitted,
+              # so there is no rollout overlap to deadlock the quota (the
+              # failure mode called out in homelab-k8s resourcequota.yaml).
+              # Per-container LimitRange max is 2Gi, so 1Gi is admissible.
+              memory: 1Gi
